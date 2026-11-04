@@ -3,6 +3,8 @@
 //! Provides 4-deck orchestration, master crossfader curves,
 //! transition planner, and track library indexing with DatabaseCraft.
 
+pub mod i18n;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use djcraft_audio::{AudioEngine, DeckId, DeckState, TrackMeta};

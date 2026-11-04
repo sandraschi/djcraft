@@ -12,6 +12,7 @@ struct Args {
 
 pub struct DjCraftApp {
     orch: DjOrchestrator,
+    locale: djcraft_core::i18n::AppLocale,
     status_msg: String,
     platter_angle_a: f32,
     platter_angle_b: f32,
@@ -29,6 +30,7 @@ impl DjCraftApp {
     pub fn new() -> Self {
         Self {
             orch: DjOrchestrator::new(),
+            locale: djcraft_core::i18n::AppLocale::default(),
             status_msg: "4-Deck DJ Studio Ready (Port 14118)".to_string(),
             platter_angle_a: 0.0,
             platter_angle_b: 0.0,
@@ -132,6 +134,17 @@ impl eframe::App for DjCraftApp {
 
                 // Right quick controls
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let cur_loc = self.locale;
+                    let label = format!("{} {}", cur_loc.flag(), cur_loc.code().to_uppercase());
+                    egui::ComboBox::from_id_salt("topbar_locale_selector")
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            for loc_item in djcraft_core::i18n::AppLocale::all() {
+                                let text = format!("{} {}", loc_item.flag(), loc_item.display_name());
+                                let _ = ui.selectable_value(&mut self.locale, *loc_item, text);
+                            }
+                        });
+
                     let theme_icon = if self.is_dark_theme { "🌙 Dark" } else { "☀ Light" };
                     if ui.button(theme_icon).clicked() {
                         self.is_dark_theme = !self.is_dark_theme;
