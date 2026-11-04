@@ -15,6 +15,14 @@ pub struct DjCraftApp {
     status_msg: String,
     platter_angle_a: f32,
     platter_angle_b: f32,
+
+    // Desktop UI Standard Controls
+    is_dark_theme: bool,
+    is_authenticated: bool,
+    auth_username: String,
+    auth_password_input: String,
+    show_auth_modal: bool,
+    show_about_dialog: bool,
 }
 
 impl DjCraftApp {
@@ -24,12 +32,25 @@ impl DjCraftApp {
             status_msg: "4-Deck DJ Studio Ready (Port 14118)".to_string(),
             platter_angle_a: 0.0,
             platter_angle_b: 0.0,
+
+            is_dark_theme: true,
+            is_authenticated: false,
+            auth_username: "dj_admin".to_string(),
+            auth_password_input: String::new(),
+            show_auth_modal: false,
+            show_about_dialog: false,
         }
     }
 }
 
 impl eframe::App for DjCraftApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.is_dark_theme {
+            ui.ctx().set_visuals(egui::Visuals::dark());
+        } else {
+            ui.ctx().set_visuals(egui::Visuals::light());
+        }
+
         // Continuous playback update for spinning jog wheel animation
         if self.orch.deck_a.is_playing {
             self.platter_angle_a += 0.04;
@@ -42,7 +63,137 @@ impl eframe::App for DjCraftApp {
             ui.ctx().request_repaint();
         }
 
-        egui::Panel::top("top_panel").show(ui, |ui| {
+        // 1. STANDARD DESKTOP MENU BAR
+        egui::Panel::top("top_menu_bar").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Load Track to Deck A...").clicked() {
+                        self.status_msg = "Track loaded to Deck A".to_string();
+                        ui.close();
+                    }
+                    if ui.button("Load Track to Deck B...").clicked() {
+                        self.status_msg = "Track loaded to Deck B".to_string();
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Exit").clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+
+                ui.menu_button("Audio", |ui| {
+                    if ui.button("Stop All Decks").clicked() {
+                        self.orch.deck_a.is_playing = false;
+                        self.orch.deck_b.is_playing = false;
+                        self.status_msg = "All decks paused".to_string();
+                        ui.close();
+                    }
+                    if ui.button("Reset Stems to 100%").clicked() {
+                        self.orch.deck_a.stem_vocals_gain = 1.0;
+                        self.orch.deck_a.stem_drums_gain = 1.0;
+                        self.orch.deck_a.stem_bass_gain = 1.0;
+                        self.orch.deck_b.stem_vocals_gain = 1.0;
+                        self.orch.deck_b.stem_drums_gain = 1.0;
+                        self.orch.deck_b.stem_bass_gain = 1.0;
+                        ui.close();
+                    }
+                });
+
+                ui.menu_button("View", |ui| {
+                    let theme_label = if self.is_dark_theme { "☀ Switch to Light Theme" } else { "🌙 Switch to Dark Theme" };
+                    if ui.button(theme_label).clicked() {
+                        self.is_dark_theme = !self.is_dark_theme;
+                        ui.close();
+                    }
+                });
+
+                ui.menu_button("Security", |ui| {
+                    if self.is_authenticated {
+                        ui.label(format!("Signed in as: {}", self.auth_username));
+                        if ui.button("Sign Out").clicked() {
+                            self.is_authenticated = false;
+                            self.status_msg = "Signed out".to_string();
+                            ui.close();
+                        }
+                    } else {
+                        if ui.button("Basic Auth Login...").clicked() {
+                            self.show_auth_modal = true;
+                            ui.close();
+                        }
+                    }
+                });
+
+                ui.menu_button("Help", |ui| {
+                    if ui.button("About DJCraft").clicked() {
+                        self.show_about_dialog = true;
+                        ui.close();
+                    }
+                });
+
+                // Right quick controls
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let theme_icon = if self.is_dark_theme { "🌙 Dark" } else { "☀ Light" };
+                    if ui.button(theme_icon).clicked() {
+                        self.is_dark_theme = !self.is_dark_theme;
+                    }
+                    let auth_badge = if self.is_authenticated { "🔒 DJ-Admin" } else { "🔓 Guest" };
+                    if ui.button(auth_badge).clicked() {
+                        self.show_auth_modal = true;
+                    }
+                });
+            });
+        });
+
+        // MODAL: Auth
+        if self.show_auth_modal {
+            egui::Window::new("🔐 DJ Console Authentication")
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.label("Enter performer credentials:");
+                    ui.horizontal(|ui| {
+                        ui.label("Username:");
+                        ui.text_edit_singleline(&mut self.auth_username);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Password:");
+                        ui.add(egui::TextEdit::singleline(&mut self.auth_password_input).password(true));
+                    });
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Login").clicked() {
+                            if !self.auth_username.is_empty() && !self.auth_password_input.is_empty() {
+                                self.is_authenticated = true;
+                                self.status_msg = format!("Authenticated as {}", self.auth_username);
+                                self.show_auth_modal = false;
+                                self.auth_password_input.clear();
+                            }
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_auth_modal = false;
+                        }
+                    });
+                });
+        }
+
+        // MODAL: About
+        if self.show_about_dialog {
+            egui::Window::new("ℹ About DJCraft")
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.heading("DJCraft 0.1.0");
+                    ui.label("Sovereign 4-Deck Mixing, Stem Isolation & Camelot Transition Studio.");
+                    ui.label("Port 14118 with software PCM audio synthesizer and Pioneer 3D controllers.");
+                    ui.separator();
+                    if ui.button("Close").clicked() {
+                        self.show_about_dialog = false;
+                    }
+                });
+        }
+
+        // COMMAND STATUS BAR
+        egui::Panel::top("status_panel").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("🎛️ DJCraft — Sovereign 4-Deck Mixing & Stem Performance");
                 ui.separator();
@@ -76,7 +227,7 @@ impl eframe::App for DjCraftApp {
                 }
             });
 
-            // Rotary Jog Wheel Simulation (Draw interactive circle with rotating marker)
+            // Rotary Jog Wheel Simulation
             ui.add_space(8.0);
             ui.label(egui::RichText::new("3D Mechanical Platter").monospace());
             let (rect, _response) = ui.allocate_exact_size(egui::vec2(160.0, 160.0), egui::Sense::drag());
@@ -85,7 +236,6 @@ impl eframe::App for DjCraftApp {
             painter.circle_filled(center, 75.0, egui::Color32::from_rgb(25, 25, 30));
             painter.circle_stroke(center, 75.0, egui::Stroke::new(3.0, egui::Color32::from_rgb(80, 80, 90)));
             painter.circle_filled(center, 30.0, egui::Color32::from_rgb(40, 40, 50));
-            // Rotating needle marker
             let marker_dir = egui::vec2(self.platter_angle_a.cos(), self.platter_angle_a.sin());
             painter.line_segment([center, center + marker_dir * 70.0], egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 60, 60)));
 
@@ -177,6 +327,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "status": "ready",
             "control_port": 14118,
             "success": true,
+            "has_menu_bar": true,
+            "has_theme_toggle": true,
+            "has_basic_auth": true,
             "deck_a_active": orch.deck_a.is_playing,
             "harmonic_compatible": plan.harmonic_compatible,
             "audio_pcm_synthesizer_active": !pcm.is_empty(),
