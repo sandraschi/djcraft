@@ -1,0 +1,15 @@
+[package]
+name = "djcraft-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+djcraft-core = { path = "../djcraft-core" }
+djcraft-audio = { path = "../djcraft-audio" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
