@@ -19,3 +19,12 @@ fn test_djcraft_transition_planner() {
     assert_eq!(plan.bpm_delta, 2.0);
     assert_eq!(plan.recommended_transition_bars, 32);
 }
+
+#[test]
+fn test_djcraft_audio_pcm_synthesizer() {
+    let orch = DjOrchestrator::new();
+    let pcm = AudioEngine::synthesize_deck_audio(&orch.deck_a, 0.5, 44100);
+    assert_eq!(pcm.len(), 44100); // 0.5 sec * 44100 samples * 2 channels
+    let has_signal = pcm.iter().any(|&sample| sample != 0);
+    assert!(has_signal, "Synthesizer must produce audible audio samples");
+}
