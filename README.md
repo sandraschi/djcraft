@@ -34,6 +34,18 @@ cargo test
 ./target/debug/djcraft-cli.exe camelot 8A 9A
 ```
 
+## Status — does today / next week / non-goals
+
+**Does today:** 4-crate Rust workspace (audio/core split), live-performance
+verbs declared, fleet i18n, 3 test fns.
+
+**Next week:** PRD scope cut (live decks first, DAW/compose later) plus
+Effect/SoundCraft boundary; headless DSP fixture tests (mix → artifact +
+ms); transition-sim recipe.
+
+**Non-goals:** not a DAW/arranger (studio side belongs to musiccraft); no
+cloud rendering.
+
 ## Lineage — the Storytold craft-app pattern
 
 Storytold ArtCraft ([storytold/artcraft](https://github.com/storytold/artcraft) — "the IDE for artists") was the starting point. The 16 craft apps in the Storytold stable each ship one binary that is both the human CLI and the agent MCP server (stdio), headless-first, with `run.json` + report artifacts. That modus operandi and harness is what this repo implements; the code here is independent, the pattern is shared.
