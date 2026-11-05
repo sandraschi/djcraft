@@ -1,6 +1,6 @@
 # DJCraft
 
-**DJCraft** is an ArtCraft-tier sovereign 4-deck digital mixing, real-time stem extraction, and harmonic transition studio designed to run locally on Goliath without cloud latency or subscription paywalls.
+**DJCraft** is an ArtCraft-tier local-first 4-deck digital mixing, real-time stem extraction, and harmonic transition studio designed to run locally on Goliath without cloud latency or subscription paywalls.
 
 Features:
 - **4-Deck Virtual Engine**: Direct fader control, pitch bends, transient-based BPM tracking, and master crossfader curves.

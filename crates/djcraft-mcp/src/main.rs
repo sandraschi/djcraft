@@ -9,7 +9,7 @@ use djcraft_core::DjOrchestrator;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port: u16 = 14118;
-    println!("[djcraft-mcp] Initializing Sovereign DJ Studio FastMCP engine on port {}...", port);
+    println!("[djcraft-mcp] Initializing Local DJ Studio FastMCP engine on port {}...", port);
 
     let orch = DjOrchestrator::new();
     let plan = orch.plan_transition()?;

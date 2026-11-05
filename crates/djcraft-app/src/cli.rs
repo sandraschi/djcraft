@@ -3,7 +3,7 @@ use djcraft_core::DjOrchestrator;
 use djcraft_audio::AudioEngine;
 
 #[derive(Parser)]
-#[command(name = "djcraft-cli", about = "DJCraft Sovereign Performance Mixer CLI")]
+#[command(name = "djcraft-cli", about = "DJCraft Local Performance Mixer CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

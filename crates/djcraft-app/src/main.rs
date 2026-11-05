@@ -4,7 +4,7 @@ use djcraft_core::DjOrchestrator;
 use djcraft_audio::AudioEngine;
 
 #[derive(Parser, Debug)]
-#[command(name = "djcraft", about = "DJCraft Sovereign Performance Studio")]
+#[command(name = "djcraft", about = "DJCraft Local Performance Studio")]
 struct Args {
     #[arg(long)]
     smoke: bool,
