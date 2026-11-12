@@ -11,8 +11,10 @@
     CliPackage  = 'djcraft-app'
     CliBin      = 'djcraft-cli'
     CliSmoke    = @('status')
+    McpPackage  = 'djcraft-mcp'
+    McpBin      = 'djcraft-mcp'
     McpArgs     = @()
     McpSmoke    = @()
     Installer   = $true
-    Mcpb        = $false
+    Mcpb        = $true
 }

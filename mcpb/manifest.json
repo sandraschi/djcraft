@@ -1,0 +1,43 @@
+{
+  "manifest_version": "0.2",
+  "name": "djcraft",
+  "display_name": "DjCraft",
+  "version": "__VERSION__",
+  "description": "DjCraft MCP server (3 tools).",
+  "author": {
+    "name": "Sandra Schipal",
+    "url": "https://github.com/sandraschi"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sandraschi/djcraft"
+  },
+  "license": "MIT OR Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "djcraft-mcp.exe",
+    "mcp_config": {
+      "command": "${__dirname}/djcraft-mcp.exe",
+      "args": []
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "win32"
+    ]
+  },
+  "tools": [
+    {
+      "name": "djcraft_status",
+      "description": "Inspect deck states, loaded tracks, and crossfader position."
+    },
+    {
+      "name": "djcraft_plan_transition",
+      "description": "Plan harmonic transition between Deck A and Deck B (BPM delta, Camelot compatibility, bars, EQ strategy)."
+    },
+    {
+      "name": "djcraft_camelot_check",
+      "description": "Query Camelot wheel harmonic compatibility between two musical keys (e.g. 8A, 9A)."
+    }
+  ]
+}
