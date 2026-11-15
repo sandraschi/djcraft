@@ -5,6 +5,16 @@
 ![MCP stdio](https://img.shields.io/badge/MCP-stdio-purple)
 ![ArtCraft harness](https://img.shields.io/badge/ArtCraft-harness-green)
 
+## Install
+
+Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
+```
+
+Installs the Windows app, the CLI, and the MCP bundle.
+
 **DJCraft** is an ArtCraft-tier local-first 4-deck digital mixing, real-time stem extraction, and harmonic transition studio designed to run locally on Goliath without cloud latency or subscription paywalls.
 
 Features:
