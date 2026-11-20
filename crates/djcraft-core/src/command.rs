@@ -74,6 +74,14 @@ pub enum Command {
         volume: f64,
     },
     ToggleMasterMute,
+    TogglePflCue {
+        deck: DeckId,
+    },
+    SetHeadphoneMix {
+        cue_volume: f64,
+        cue_mix: f64,
+        split_cue: bool,
+    },
     SetDeckVolume {
         deck: DeckId,
         volume: f64,
@@ -241,6 +249,18 @@ impl Command {
                 label: "Toggle Master Audio Mute",
                 category: "Modify",
                 hotkey: "M",
+            },
+            CommandSpec {
+                id: "modify.pfl_cue_a",
+                label: "Toggle Headphone PFL Pre-Cue on Deck A",
+                category: "Modify",
+                hotkey: "",
+            },
+            CommandSpec {
+                id: "modify.pfl_cue_b",
+                label: "Toggle Headphone PFL Pre-Cue on Deck B",
+                category: "Modify",
+                hotkey: "",
             },
             CommandSpec {
                 id: "commands.auto_sync",
@@ -606,6 +626,47 @@ impl DjOrchestrator {
                         "Master Audio UNMUTED".to_string()
                     },
                     data: json!({ "master_muted": self.master_muted }),
+                })
+            }
+            Command::TogglePflCue { deck } => {
+                self.push_undo();
+                let st = self.deck_mut(deck);
+                st.pfl_cue = !st.pfl_cue;
+                let active = st.pfl_cue;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "toggle_pfl_cue".to_string(),
+                    message: format!(
+                        "{}: Headphone PFL Cue {}",
+                        deck.label(),
+                        if active { "ON" } else { "OFF" }
+                    ),
+                    data: json!({ "deck": deck, "pfl_cue": active }),
+                })
+            }
+            Command::SetHeadphoneMix {
+                cue_volume,
+                cue_mix,
+                split_cue,
+            } => {
+                self.push_undo();
+                self.headphone_volume = cue_volume.clamp(0.0, 1.0);
+                self.headphone_cue_mix = cue_mix.clamp(0.0, 1.0);
+                self.headphone_split_cue = split_cue;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "set_headphone_mix".to_string(),
+                    message: format!(
+                        "Headphone Cue Vol {:.0}% | Cue/PGM {:.0}% | Split {}",
+                        self.headphone_volume * 100.0,
+                        self.headphone_cue_mix * 100.0,
+                        if self.headphone_split_cue { "ON" } else { "OFF" }
+                    ),
+                    data: json!({
+                        "headphone_volume": self.headphone_volume,
+                        "headphone_cue_mix": self.headphone_cue_mix,
+                        "headphone_split_cue": self.headphone_split_cue
+                    }),
                 })
             }
             Command::SetDeckVolume { deck, volume } => {

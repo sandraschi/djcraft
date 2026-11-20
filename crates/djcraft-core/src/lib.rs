@@ -70,6 +70,9 @@ struct MixerSnapshot {
     crossfader: f64,
     master_volume: f64,
     master_muted: bool,
+    headphone_volume: f64,
+    headphone_cue_mix: f64,
+    headphone_split_cue: bool,
 }
 
 pub struct DjOrchestrator {
@@ -77,9 +80,12 @@ pub struct DjOrchestrator {
     pub deck_b: DeckState,
     pub deck_c: DeckState,
     pub deck_d: DeckState,
-    pub crossfader: f64,    // -1.0 (full Deck A) to +1.0 (full Deck B)
-    pub master_volume: f64, // 0.0 to 1.0
+    pub crossfader: f64,          // -1.0 (full Deck A) to +1.0 (full Deck B)
+    pub master_volume: f64,       // 0.0 to 1.0
     pub master_muted: bool,
+    pub headphone_volume: f64,    // 0.0 to 1.0 (Cue bus level)
+    pub headphone_cue_mix: f64,   // 0.0 (100% PFL) to 1.0 (100% Master PGM)
+    pub headphone_split_cue: bool, // Single-device Split Mono Cue (L=Cue, R=Master)
     pub crate_tracks: Vec<TrackMeta>,
     undo_stack: Vec<MixerSnapshot>,
     redo_stack: Vec<MixerSnapshot>,
@@ -132,6 +138,9 @@ impl DjOrchestrator {
             crossfader: 0.0,
             master_volume: 0.75,
             master_muted: false,
+            headphone_volume: 0.85,
+            headphone_cue_mix: 0.35,
+            headphone_split_cue: false,
             crate_tracks,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -172,6 +181,9 @@ impl DjOrchestrator {
             crossfader: self.crossfader,
             master_volume: self.master_volume,
             master_muted: self.master_muted,
+            headphone_volume: self.headphone_volume,
+            headphone_cue_mix: self.headphone_cue_mix,
+            headphone_split_cue: self.headphone_split_cue,
         }
     }
 
@@ -183,6 +195,9 @@ impl DjOrchestrator {
         self.crossfader = snap.crossfader;
         self.master_volume = snap.master_volume;
         self.master_muted = snap.master_muted;
+        self.headphone_volume = snap.headphone_volume;
+        self.headphone_cue_mix = snap.headphone_cue_mix;
+        self.headphone_split_cue = snap.headphone_split_cue;
     }
 
     pub(crate) fn push_undo(&mut self) {

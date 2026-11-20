@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 
 pub mod dsp;
 pub mod output;
+pub mod recorder;
+
+pub use recorder::{RecordingFormat, RecordingStopReport};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum DeckId {
@@ -43,6 +46,8 @@ pub struct DeckState {
     pub deck_id: DeckId,
     pub is_playing: bool,
     pub is_cue_active: bool,
+    #[serde(default)]
+    pub pfl_cue: bool,
     pub loaded_track: Option<TrackMeta>,
     pub position_seconds: f64,
     pub pitch_bend_pct: f64,
@@ -69,6 +74,7 @@ impl AudioEngine {
             deck_id: id,
             is_playing: false,
             is_cue_active: false,
+            pfl_cue: false,
             loaded_track: None,
             position_seconds: 0.0,
             pitch_bend_pct: 0.0,
@@ -174,6 +180,56 @@ impl AudioEngine {
         let summed = (a + c) * gain_left + (b + d) * gain_right;
         let limited = summed.tanh() * master_volume.clamp(0.0, 1.0) as f32;
         (limited, limited)
+    }
+
+    /// Mix all 4 decks into independent Master `(L, R)` and Headphone PFL Cue `(L, R)` buses.
+    ///
+    /// PFL (Pre-Fader Listen) taps each cued deck BEFORE channel volume fader & crossfader,
+    /// then blends PFL with Master according to `cue_mix` (0.0 = 100% PFL, 1.0 = 100% Master).
+    /// When `split_cue` is true, returns `(cue_mono, master_mono)` on the master bus for
+    /// single-output split-ear monitoring.
+    #[allow(clippy::too_many_arguments)]
+    pub fn mix_dual_bus_frame(
+        decks: &[DeckState; 4],
+        crossfader: f64,
+        master_volume: f64,
+        muted: bool,
+        cue_volume: f64,
+        cue_mix: f64,
+        split_cue: bool,
+        play_times: &[f64; 4],
+        sample_idx: u64,
+    ) -> ((f32, f32), (f32, f32)) {
+        let master = Self::mix_4deck_frame(
+            decks,
+            crossfader,
+            master_volume,
+            muted,
+            play_times,
+            sample_idx,
+        );
+
+        let mut pfl_sum = 0.0_f32;
+        for (i, deck) in decks.iter().enumerate() {
+            if deck.pfl_cue {
+                let mut pre = deck.clone();
+                pre.volume_fader = 1.0;
+                pfl_sum += Self::sample_deck_frame(&pre, play_times[i], sample_idx);
+            }
+        }
+        let pfl_lim = pfl_sum.tanh();
+        let mix_t = cue_mix.clamp(0.0, 1.0) as f32;
+        let cv = cue_volume.clamp(0.0, 1.0) as f32;
+        let cue_l = (pfl_lim * (1.0 - mix_t) + master.0 * mix_t).tanh() * cv;
+        let cue_r = (pfl_lim * (1.0 - mix_t) + master.1 * mix_t).tanh() * cv;
+
+        if split_cue {
+            let cue_mono = (cue_l + cue_r) * 0.5;
+            let master_mono = (master.0 + master.1) * 0.5;
+            ((cue_mono, master_mono), (cue_l, cue_r))
+        } else {
+            (master, (cue_l, cue_r))
+        }
     }
 
     /// Generates 16-bit PCM stereo audio buffer synthesized for a given time window (seconds).

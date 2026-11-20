@@ -908,3 +908,108 @@ fn test_crate_full_crud_and_manual_gig_reordering() {
     let after = store.list_crates().expect("list after");
     assert!(!after.iter().any(|n| n.id == dup_id));
 }
+
+#[test]
+fn test_dual_bus_pfl_pre_cue_and_split_mono_routing() {
+    let mut orch = DjOrchestrator::new();
+    // Mute Deck A channel fader so Master is silent, then enable PFL pre-cue on Deck A
+    orch.dispatch(Command::SetDeckVolume {
+        deck: DeckId::DeckA,
+        volume: 0.0,
+    })
+    .expect("vol 0");
+    let pfl_res = orch
+        .dispatch(Command::TogglePflCue { deck: DeckId::DeckA })
+        .expect("toggle pfl");
+    assert!(pfl_res.ok);
+    assert!(orch.deck_a.pfl_cue);
+
+    orch.dispatch(Command::SetHeadphoneMix {
+        cue_volume: 1.0,
+        cue_mix: 0.0, // 100% PFL
+        split_cue: false,
+    })
+    .expect("set hp mix");
+
+    let decks = [
+        orch.deck_a.clone(),
+        orch.deck_b.clone(),
+        orch.deck_c.clone(),
+        orch.deck_d.clone(),
+    ];
+    let mut master_energy = 0.0_f32;
+    let mut cue_energy = 0.0_f32;
+    for i in 0..400_u64 {
+        let t = i as f64 / 44100.0;
+        let ((ml, mr), (cl, cr)) = AudioEngine::mix_dual_bus_frame(
+            &decks,
+            orch.crossfader,
+            orch.master_volume,
+            orch.master_muted,
+            orch.headphone_volume,
+            orch.headphone_cue_mix,
+            false,
+            &[t, 0.0, 0.0, 0.0],
+            i,
+        );
+        master_energy += ml.abs() + mr.abs();
+        cue_energy += cl.abs() + cr.abs();
+    }
+    assert!(master_energy < 1e-6, "Master must be silent when fader=0");
+    assert!(cue_energy > 1.0, "PFL Cue bus must hear Deck A pre-fader");
+
+    // Split Mono Cue: Left ear = Cue Mono (non-zero), Right ear = Master Mono (silent)
+    let mut split_l = 0.0_f32;
+    let mut split_r = 0.0_f32;
+    for i in 0..400_u64 {
+        let t = i as f64 / 44100.0;
+        let ((sl, sr), _) = AudioEngine::mix_dual_bus_frame(
+            &decks,
+            orch.crossfader,
+            orch.master_volume,
+            orch.master_muted,
+            1.0,
+            0.0,
+            true,
+            &[t, 0.0, 0.0, 0.0],
+            i,
+        );
+        split_l += sl.abs();
+        split_r += sr.abs();
+    }
+    assert!(split_l > 1.0, "Split Cue Left must carry PFL Cue");
+    assert!(split_r < 1e-6, "Split Cue Right must carry silent Master");
+}
+
+#[test]
+fn test_lossless_wav_mix_recorder_streaming_and_header_integrity() {
+    use djcraft_audio::recorder::{ActiveRecording, RecordingFormat};
+
+    let tmp_dir = std::env::temp_dir().join("djcraft_rec_test");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    let wav_path = tmp_dir.join("live_mix_test.wav");
+
+    let (rec, mut tap) =
+        ActiveRecording::start(wav_path.clone(), 44100, RecordingFormat::Wav).expect("start rec");
+    for i in 0..2048_usize {
+        let s = ((i as f32 * 0.05).sin()) * 0.4;
+        tap.push_frame(s, -s);
+    }
+    tap.flush();
+    drop(tap);
+
+    let report = rec.finish().expect("finish rec");
+    assert_eq!(report.frames_written, 2048);
+    assert_eq!(report.format, RecordingFormat::Wav);
+    assert!(wav_path.is_file());
+
+    let bytes = std::fs::read(&wav_path).expect("read wav");
+    assert_eq!(bytes.len(), 44 + 2048 * 4);
+    assert_eq!(&bytes[0..4], b"RIFF");
+    assert_eq!(&bytes[8..12], b"WAVE");
+    assert_eq!(&bytes[36..40], b"data");
+    let data_len = u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]);
+    assert_eq!(data_len, 2048 * 4);
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}

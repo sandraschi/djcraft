@@ -15,7 +15,7 @@ use djcraft_audio::dsp::{
     decode_audio_file, detect_beatgrid, load_sidecar_stems, WaveformSummary,
 };
 use djcraft_audio::output::AudioOutput;
-use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
+use djcraft_audio::{AudioEngine, DeckId, RecordingFormat, TrackMeta};
 use djcraft_core::{
     action_to_command, batch_stem_folder, butterchurn_sync_bpm, chat_with_booth_ai,
     generate_speech_drop, parse_natural_language_command, plan_harmonic_setlist,
@@ -171,6 +171,9 @@ pub struct DjCraftApp {
 
     // Live WASAPI / cpal audio output & decoded real-audio waveform summaries
     audio_out: AudioOutput,
+    audio_output_devices: Vec<String>,
+    selected_headphone_device: Option<String>,
+    recording_format: RecordingFormat,
     deck_waveforms: [Option<WaveformSummary>; 4],
 
     // Hardware MIDI Controller Engine (Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer, Hercules)
@@ -241,6 +244,7 @@ impl DjCraftApp {
     pub fn new() -> Self {
         let orch = DjOrchestrator::new();
         let audio_out = AudioOutput::start_default();
+        let audio_output_devices = AudioOutput::list_output_devices();
         let crate_store = CrateStore::open_default().ok();
         if let Some(ref store) = crate_store {
             let _ = store.seed_demo_if_empty();
@@ -275,6 +279,9 @@ impl DjCraftApp {
             crate_ui: CrateUiState::default(),
 
             audio_out,
+            audio_output_devices,
+            selected_headphone_device: None,
+            recording_format: RecordingFormat::Wav,
             deck_waveforms: [None, None, None, None],
 
             midi: MidiControllerManager::new(),
@@ -961,6 +968,12 @@ impl DjCraftApp {
                 self.dispatch_and_report(Command::SetCrossfader { value: 0.0 })
             }
             "modify.toggle_mute" => self.dispatch_and_report(Command::ToggleMasterMute),
+            "modify.pfl_cue_a" => {
+                self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckA })
+            }
+            "modify.pfl_cue_b" => {
+                self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckB })
+            }
             "modify.keylock_a" => {
                 self.dispatch_and_report(Command::ToggleKeylock { deck: DeckId::DeckA })
             }
@@ -1297,11 +1310,11 @@ impl eframe::App for DjCraftApp {
             self.orch.deck_d.position_seconds += 0.016;
             any_playing = true;
         }
-        if any_playing || self.midi.connected_port.is_some() {
+        if any_playing || self.midi.connected_port.is_some() || self.audio_out.is_recording() {
             ctx.request_repaint();
         }
 
-        // Sync live audio mixer into WASAPI
+        // Sync live audio mixer into WASAPI (Master + Headphone PFL Bus)
         self.audio_out.sync_state(
             [
                 self.orch.deck_a.clone(),
@@ -1312,6 +1325,11 @@ impl eframe::App for DjCraftApp {
             self.orch.crossfader,
             self.orch.master_volume,
             self.orch.master_muted,
+        );
+        self.audio_out.set_headphone_mix(
+            self.orch.headphone_volume,
+            self.orch.headphone_cue_mix,
+            self.orch.headphone_split_cue,
         );
 
         // Update native video mixer texture
@@ -1715,6 +1733,18 @@ impl eframe::App for DjCraftApp {
                                                     deck: deck_id,
                                                 });
                                             }
+                                            let pfl_btn = egui::Button::new("PFL")
+                                                .small()
+                                                .fill(if d.pfl_cue {
+                                                    egui::Color32::from_rgb(245, 158, 11)
+                                                } else {
+                                                    palette.card_fill
+                                                });
+                                            if ui.add(pfl_btn).clicked() {
+                                                self.dispatch_and_report(Command::TogglePflCue {
+                                                    deck: deck_id,
+                                                });
+                                            }
                                         },
                                     );
                                 });
@@ -1931,6 +1961,190 @@ impl DjCraftApp {
             if rxf.committed {
                 self.dispatch_and_report(Command::SetCrossfader { value: xf });
             }
+
+            ui.add_space(6.0);
+            ui.separator();
+            // Dual-Bus Headphone PFL Pre-Cue Strip
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Headphone PFL:");
+                let pfl_a = egui::Button::new("PFL A").small().fill(if da.pfl_cue {
+                    palette.deck_a
+                } else {
+                    palette.card_fill
+                });
+                if ui.add(pfl_a).on_hover_text("Pre-Fader Listen Deck A").clicked() {
+                    self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckA });
+                }
+                let pfl_b = egui::Button::new("PFL B").small().fill(if db.pfl_cue {
+                    palette.deck_b
+                } else {
+                    palette.card_fill
+                });
+                if ui.add(pfl_b).on_hover_text("Pre-Fader Listen Deck B").clicked() {
+                    self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckB });
+                }
+                let split_btn = egui::Button::new(if self.orch.headphone_split_cue {
+                    "SPLIT: ON"
+                } else {
+                    "SPLIT: OFF"
+                })
+                .small()
+                .fill(if self.orch.headphone_split_cue {
+                    egui::Color32::from_rgb(245, 158, 11)
+                } else {
+                    palette.card_fill
+                });
+                if ui
+                    .add(split_btn)
+                    .on_hover_text("Single-device Split Mono Cue (Left=Cue, Right=Master)")
+                    .clicked()
+                {
+                    let next_split = !self.orch.headphone_split_cue;
+                    self.dispatch_and_report(Command::SetHeadphoneMix {
+                        cue_volume: self.orch.headphone_volume,
+                        cue_mix: self.orch.headphone_cue_mix,
+                        split_cue: next_split,
+                    });
+                }
+
+                let mut hp_vol = self.orch.headphone_volume;
+                let mut hp_mix = self.orch.headphone_cue_mix;
+                ui.label("Vol");
+                let r_vol = ui.add(
+                    egui::Slider::new(&mut hp_vol, 0.0..=1.0)
+                        .show_value(false)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                );
+                ui.label("Cue/PGM");
+                let r_mix = ui.add(
+                    egui::Slider::new(&mut hp_mix, 0.0..=1.0)
+                        .show_value(false)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                );
+                if r_vol.changed() || r_mix.changed() {
+                    self.orch.headphone_volume = hp_vol;
+                    self.orch.headphone_cue_mix = hp_mix;
+                }
+                if r_vol.drag_stopped() || r_mix.drag_stopped() {
+                    self.dispatch_and_report(Command::SetHeadphoneMix {
+                        cue_volume: hp_vol,
+                        cue_mix: hp_mix,
+                        split_cue: self.orch.headphone_split_cue,
+                    });
+                }
+
+                let selected_label = self
+                    .selected_headphone_device
+                    .as_deref()
+                    .unwrap_or("Off / Split Cue");
+                let mut next_dev: Option<Option<String>> = None;
+                egui::ComboBox::from_id_salt("hp_device_combo")
+                    .selected_text(selected_label)
+                    .width(150.0)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(self.selected_headphone_device.is_none(), "Off / Split Cue")
+                            .clicked()
+                        {
+                            next_dev = Some(None);
+                        }
+                        for dev in &self.audio_output_devices {
+                            let is_sel = self.selected_headphone_device.as_deref() == Some(dev.as_str());
+                            if ui.selectable_label(is_sel, dev).clicked() {
+                                next_dev = Some(Some(dev.clone()));
+                            }
+                        }
+                    });
+                if let Some(choice) = next_dev {
+                    match self.audio_out.set_headphone_device(choice.as_deref()) {
+                        Ok(msg) => {
+                            self.selected_headphone_device = choice;
+                            self.status_msg = msg;
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Headphone bus error: {e}");
+                        }
+                    }
+                }
+                if ui.small_button("Scan").on_hover_text("Refresh WASAPI devices").clicked() {
+                    self.audio_output_devices = AudioOutput::list_output_devices();
+                    self.status_msg = format!(
+                        "Found {} WASAPI output device(s)",
+                        self.audio_output_devices.len()
+                    );
+                }
+            });
+
+            // Live Lossless WAV / FLAC Mix Recorder Strip
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Mix Recorder:");
+                let is_rec = self.audio_out.is_recording();
+                ui.add_enabled_ui(!is_rec, |ui| {
+                    ui.selectable_value(&mut self.recording_format, RecordingFormat::Wav, "WAV");
+                    ui.selectable_value(&mut self.recording_format, RecordingFormat::Flac, "FLAC");
+                });
+                if is_rec {
+                    let secs = self.audio_out.recording_seconds();
+                    let mins = (secs / 60.0) as u64;
+                    let rem = (secs % 60.0) as u64;
+                    let stop_btn = egui::Button::new(format!("STOP REC ({mins:02}:{rem:02})"))
+                        .small()
+                        .fill(egui::Color32::from_rgb(220, 38, 38));
+                    if ui.add(stop_btn).clicked() {
+                        match self.audio_out.stop_recording() {
+                            Ok(report) => {
+                                self.status_msg = format!(
+                                    "Saved {:.1}s {} -> {} ({})",
+                                    report.duration_seconds,
+                                    report.format.extension().to_uppercase(),
+                                    report.output_path.display(),
+                                    report.note
+                                );
+                            }
+                            Err(e) => self.status_msg = format!("Recording stop error: {e}"),
+                        }
+                    }
+                    if let Some(p) = self.audio_out.recording_path() {
+                        let name = p
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("recording");
+                        ui.monospace(name);
+                    }
+                } else {
+                    let rec_btn = egui::Button::new("REC MIX")
+                        .small()
+                        .fill(egui::Color32::from_rgb(153, 27, 27));
+                    if ui.add(rec_btn).clicked() {
+                        let out_path = default_recording_path(self.recording_format);
+                        match self.audio_out.start_recording(out_path.clone(), self.recording_format) {
+                            Ok(p) => {
+                                self.status_msg = format!(
+                                    "Recording {} -> {}",
+                                    self.recording_format.label(),
+                                    p.display()
+                                );
+                            }
+                            Err(e) => self.status_msg = format!("Recording start error: {e}"),
+                        }
+                    }
+                    if ui.small_button("Rec As...").clicked() {
+                        let ext = self.recording_format.extension();
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Audio Mix", &[ext])
+                            .set_file_name(format!("djcraft_mix.{ext}"))
+                            .save_file()
+                        {
+                            match self.audio_out.start_recording(path, self.recording_format) {
+                                Ok(p) => {
+                                    self.status_msg = format!("Recording -> {}", p.display());
+                                }
+                                Err(e) => self.status_msg = format!("Recording start error: {e}"),
+                            }
+                        }
+                    }
+                }
+            });
         });
     }
 
@@ -2694,8 +2908,8 @@ impl DjCraftApp {
                             ui.label("4. Connect Rane Twelve MKII / Seventy-Two MKII in the MIDI Controllers tab.");
                         }
                         HelpTab::Functions => {
-                            ui.label("- 4-Deck WASAPI Audio, Symphonia Decode, Varispeed + WSOLA Keylock, 3-Band Kill EQ.");
-                            ui.label("- Persistent SQLite Crates/Subcrates with Serato .crate and VirtualDJ .vdjfolder/.m3u8.");
+                            ui.label("- 4-Deck WASAPI Audio, Dual-Bus Headphone PFL Pre-Cue (2nd WASAPI + Split Mono), Lossless WAV/FLAC Mix Recorder.");
+                            ui.label("- Dedicated 2-Pane Crates & Gig Prep Workspace with full CRUD, drag-drop gig ordering, OS Explorer drop, Serato & VirtualDJ interop.");
                             ui.label("- Native FFmpeg Video Mixer + Detachable Projector + Mixxxxx OSC 1.0.");
                             ui.label("- Hardware MIDI Engine (midir) + MIDI Learn + Rane 12/72, Pioneer, Hercules profiles.");
                         }
@@ -2705,15 +2919,17 @@ impl DjCraftApp {
                             ui.monospace("djcraft-cli mixxxxx-ping | analyze-dettato <file>");
                         }
                         HelpTab::TipsAndTricks => {
+                            ui.label("- Switch to CRATES & GIG PREP in the top bar for drag-drop gig ordering and Windows Explorer file drop.");
+                            ui.label("- Use PFL A/B/C/D + Headphone WASAPI bus (or SPLIT mode on a single DAC) to pre-cue tracks pre-fader.");
                             ui.label("- Double-click any rotary knob or vertical fader to snap to its neutral detent.");
-                            ui.label("- Use the stacked Parallel Waveforms banner to visually lock beatgrid bars.");
                         }
                         HelpTab::PitfallsAndSafety => {
                             ui.label("- Run dettato offline during crate prep; keep live audio on WASAPI.");
                             ui.label("- All workspace crates enforce #![forbid(unsafe_code)].");
                         }
                         HelpTab::PlannedExtensions => {
-                            ui.label("- Dual-bus Master + Headphone PFL cue routing & WAV/FLAC mix recording.");
+                            ui.label("- All v0.1.0 core workstation capabilities are implemented (including Dual-Bus PFL & WAV/FLAC Mix Recording).");
+                            ui.label("- Future ideas: DVS timecode vinyl input, Ableton Link sync, VST3 FX rack.");
                         }
                         HelpTab::OtherCrafts => {
                             ui.label("- mixxxxx (OSC video), reaper-mcp (shared dettato), soundcraft, speechcraft.");
@@ -2751,6 +2967,19 @@ impl DjCraftApp {
             self.show_about_dialog = open;
         }
     }
+}
+
+fn default_recording_path(format: RecordingFormat) -> PathBuf {
+    let base = std::env::var("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("Music")
+        .join("DJCraft_Recordings");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    base.join(format!("djcraft_mix_{ts}.{}", format.extension()))
 }
 
 fn run_headless_smoke() -> Result<(), Box<dyn std::error::Error>> {
