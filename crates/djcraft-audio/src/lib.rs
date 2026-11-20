@@ -54,6 +54,9 @@ pub struct DeckState {
     pub stem_drums_gain: f64,  // 0.0 to 1.0
     pub stem_bass_gain: f64,   // 0.0 to 1.0
     pub stem_other_gain: f64,  // 0.0 to 1.0
+    pub eq_low: f64,           // 0.0 (kill) to 2.0 (boost), 1.0 = flat
+    pub eq_mid: f64,           // 0.0 (kill) to 2.0 (boost), 1.0 = flat
+    pub eq_high: f64,          // 0.0 (kill) to 2.0 (boost), 1.0 = flat
     pub hot_cue_seconds: [Option<f64>; 4],
     pub loop_bars: Option<u32>,
 }
@@ -77,6 +80,9 @@ impl AudioEngine {
             stem_drums_gain: 1.0,
             stem_bass_gain: 1.0,
             stem_other_gain: 1.0,
+            eq_low: 1.0,
+            eq_mid: 1.0,
+            eq_high: 1.0,
             hot_cue_seconds: [None; 4],
             loop_bars: None,
         }

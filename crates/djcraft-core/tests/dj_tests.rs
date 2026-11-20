@@ -3,7 +3,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
-use djcraft_audio::dsp::{detect_beatgrid, sample_varispeed, DecodedAudio, WsolaDeckState};
+use djcraft_audio::dsp::{
+    detect_beatgrid, sample_varispeed, DecodedAudio, ThreeBandEq, WaveformSummary, WsolaDeckState,
+};
 use djcraft_core::{
     encode_osc_message, parse_dettato_json, send_deck_video_controls, Command, DjOrchestrator,
     MixxxxxConfig, MixxxxxVideoControls, OscArg,
@@ -542,4 +544,67 @@ fn test_dispatch_keylock_nudge_scale_and_phase_sync() {
     assert!(synced.ok);
     let plan = orch.plan_transition().expect("plan");
     assert!(plan.bpm_delta.abs() < 0.01);
+}
+
+#[test]
+fn test_three_band_kill_eq_attenuates_bass_and_full_kill() {
+    let sr = 44100u32;
+    let mut eq_flat = ThreeBandEq::new(sr);
+    let mut eq_kill_low = ThreeBandEq::new(sr);
+    let mut eq_kill_all = ThreeBandEq::new(sr);
+
+    let mut energy_flat = 0.0_f32;
+    let mut energy_kill_low = 0.0_f32;
+    let mut energy_kill_all = 0.0_f32;
+    for i in 0..2000 {
+        let s = (2.0 * std::f32::consts::PI * 60.0 * i as f32 / sr as f32).sin();
+        let (fl, _) = eq_flat.process_stereo(s, s, 1.0, 1.0, 1.0);
+        let (kl, _) = eq_kill_low.process_stereo(s, s, 0.0, 1.0, 1.0);
+        let (ka, _) = eq_kill_all.process_stereo(s, s, 0.0, 0.0, 0.0);
+        if i > 500 {
+            energy_flat += fl * fl;
+            energy_kill_low += kl * kl;
+            energy_kill_all += ka * ka;
+        }
+    }
+    assert!(energy_flat > 100.0);
+    assert!(
+        energy_kill_low < energy_flat * 0.25,
+        "Killing Low band must strongly attenuate 60 Hz"
+    );
+    assert!(energy_kill_all < 1e-6, "Killing all 3 bands must be silent");
+}
+
+#[test]
+fn test_waveform_summary_from_decoded_and_eq_dispatch() {
+    let sr = 44100u32;
+    let sine: Vec<f32> = (0..sr as usize)
+        .map(|i| (2.0 * std::f32::consts::PI * 100.0 * i as f32 / sr as f32).sin() * 0.8)
+        .collect();
+    let audio = DecodedAudio {
+        sample_rate: sr,
+        right: sine.clone(),
+        left: sine,
+        duration_seconds: 1.0,
+    };
+    let summary = WaveformSummary::from_decoded(&audio);
+    assert!(!summary.low_peaks.is_empty());
+    let (lo, _hi) = summary.sample_at(0.5);
+    assert!(lo > 0.3);
+
+    let mut orch = DjOrchestrator::new();
+    orch.dispatch(Command::SetDeckEq {
+        deck: DeckId::DeckA,
+        low: 0.0,
+        mid: 1.2,
+        high: 3.0,
+    })
+    .expect("set eq");
+    assert_eq!(orch.deck_a.eq_low, 0.0);
+    assert_eq!(orch.deck_a.eq_high, 2.0);
+    orch.dispatch(Command::ResetDeckEq {
+        deck: DeckId::DeckA,
+    })
+    .expect("reset eq");
+    assert_eq!(orch.deck_a.eq_low, 1.0);
 }

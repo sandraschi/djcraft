@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 //! GPU-painted DJ workstation widgets (platters, scrolling waveforms, VU meters, Camelot wheel).
 
+use djcraft_audio::dsp::WaveformSummary;
 use djcraft_audio::{AudioEngine, DeckState};
 use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
@@ -61,7 +62,13 @@ pub fn paint_platter(
 }
 
 /// Paint a scrolling dual-frequency waveform with beatgrid ticks, loop band, and hot-cue pins.
-pub fn paint_scrolling_waveform(ui: &mut egui::Ui, deck: &DeckState, accent: Color32) {
+/// Renders real decoded audio peaks when `waveform` is provided, falling back to synth envelope.
+pub fn paint_scrolling_waveform(
+    ui: &mut egui::Ui,
+    deck: &DeckState,
+    waveform: Option<&WaveformSummary>,
+    accent: Color32,
+) {
     let desired = Vec2::new(ui.available_width().max(180.0), 64.0);
     let (rect, _resp) = ui.allocate_exact_size(desired, egui::Sense::hover());
     let painter = ui.painter_at(rect);
@@ -117,15 +124,26 @@ pub fn paint_scrolling_waveform(ui: &mut egui::Ui, deck: &DeckState, accent: Col
         if t < 0.0 || t > track.duration_seconds {
             continue;
         }
-        let beat_phase = (t % beat_sec) / beat_sec;
-        let kick_env = if beat_phase < 0.22 {
-            1.0 - beat_phase / 0.22
+        let (bass_amp, high_amp) = if let Some(wf) = waveform {
+            let (lo, hi) = wf.sample_at(t);
+            (
+                (lo as f64 * deck.eq_low).clamp(0.0, 1.0),
+                (hi as f64 * deck.eq_high.max(deck.eq_mid)).clamp(0.0, 1.0),
+            )
         } else {
-            0.18
+            let beat_phase = ((t - deck.beatgrid_offset_sec).rem_euclid(beat_sec)) / beat_sec;
+            let kick_env = if beat_phase < 0.22 {
+                1.0 - beat_phase / 0.22
+            } else {
+                0.18
+            };
+            let melodic =
+                ((t * 3.7).sin().abs() * 0.5 + (t * 7.3).cos().abs() * 0.5) * deck.stem_vocals_gain;
+            (
+                (kick_env * deck.stem_drums_gain * 0.7 + 0.3 * deck.stem_bass_gain).clamp(0.0, 1.0),
+                (melodic * 0.8 + 0.2 * deck.stem_other_gain).clamp(0.0, 1.0),
+            )
         };
-        let melodic = ((t * 3.7).sin().abs() * 0.5 + (t * 7.3).cos().abs() * 0.5) * deck.stem_vocals_gain;
-        let bass_amp = (kick_env * deck.stem_drums_gain * 0.7 + 0.3 * deck.stem_bass_gain).clamp(0.0, 1.0);
-        let high_amp = (melodic * 0.8 + 0.2 * deck.stem_other_gain).clamp(0.0, 1.0);
 
         let x = rect.left() + col as f32 * col_w + col_w * 0.5;
         let h_bass = (bass_amp as f32) * max_half_h * deck.volume_fader as f32;

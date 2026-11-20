@@ -391,3 +391,130 @@ pub fn detect_beatgrid(audio: &DecodedAudio) -> BeatgridInfo {
         confidence,
     }
 }
+
+/// Precomputed 10 ms peak overview of a decoded audio track for 120 FPS waveform rendering.
+#[derive(Debug, Clone)]
+pub struct WaveformSummary {
+    pub sample_rate: u32,
+    pub hop_seconds: f64,
+    pub low_peaks: Vec<f32>,
+    pub high_peaks: Vec<f32>,
+}
+
+impl WaveformSummary {
+    pub fn from_decoded(audio: &DecodedAudio) -> Self {
+        let sr = audio.sample_rate.max(1) as usize;
+        let hop = (sr / 100).max(1); // 10 ms bins
+        let n = audio.len_frames();
+        let bins = n.div_ceil(hop);
+        let mut low_peaks = Vec::with_capacity(bins);
+        let mut high_peaks = Vec::with_capacity(bins);
+
+        // Simple 1-pole lowpass (~250 Hz) split to color bass vs highs accurately
+        let alpha = (2.0 * std::f32::consts::PI * 250.0 / sr as f32).clamp(0.001, 0.99);
+        let mut lp = 0.0_f32;
+
+        for bin in 0..bins {
+            let start = bin * hop;
+            let end = (start + hop).min(n);
+            let mut max_low = 0.0_f32;
+            let mut max_high = 0.0_f32;
+            for i in start..end {
+                let m = 0.5 * (audio.left[i] + audio.right[i]);
+                lp += alpha * (m - lp);
+                let hi = m - lp;
+                max_low = max_low.max(lp.abs());
+                max_high = max_high.max(hi.abs());
+            }
+            low_peaks.push(max_low.clamp(0.0, 1.0));
+            high_peaks.push(max_high.clamp(0.0, 1.0));
+        }
+
+        Self {
+            sample_rate: audio.sample_rate,
+            hop_seconds: hop as f64 / sr as f64,
+            low_peaks,
+            high_peaks,
+        }
+    }
+
+    pub fn sample_at(&self, time_sec: f64) -> (f32, f32) {
+        if time_sec < 0.0 || self.low_peaks.is_empty() || self.hop_seconds <= 0.0 {
+            return (0.0, 0.0);
+        }
+        let idx = (time_sec / self.hop_seconds) as usize;
+        if idx >= self.low_peaks.len() {
+            return (0.0, 0.0);
+        }
+        (self.low_peaks[idx], self.high_peaks[idx])
+    }
+}
+
+/// Real-time stereo 3-band DJ kill EQ (Low < 250 Hz, Mid 250-2500 Hz, High > 2500 Hz).
+/// Cascaded 2-stage one-pole crossover gives smooth DJ musical roll-off and full 0.0 kill.
+#[derive(Debug, Clone)]
+pub struct ThreeBandEq {
+    a_low: f32,
+    a_high: f32,
+    lp_l1: f32,
+    lp_l2: f32,
+    hp_l1: f32,
+    hp_l2: f32,
+    lp_r1: f32,
+    lp_r2: f32,
+    hp_r1: f32,
+    hp_r2: f32,
+}
+
+impl ThreeBandEq {
+    pub fn new(sample_rate: u32) -> Self {
+        let sr = sample_rate.max(8000) as f32;
+        let a_low = 1.0 - (-2.0 * std::f32::consts::PI * 250.0 / sr).exp();
+        let a_high = 1.0 - (-2.0 * std::f32::consts::PI * 2500.0 / sr).exp();
+        Self {
+            a_low: a_low.clamp(0.0005, 0.99),
+            a_high: a_high.clamp(0.0005, 0.99),
+            lp_l1: 0.0,
+            lp_l2: 0.0,
+            hp_l1: 0.0,
+            hp_l2: 0.0,
+            lp_r1: 0.0,
+            lp_r2: 0.0,
+            hp_r1: 0.0,
+            hp_r2: 0.0,
+        }
+    }
+
+    pub fn process_stereo(
+        &mut self,
+        l: f32,
+        r: f32,
+        gain_low: f32,
+        gain_mid: f32,
+        gain_high: f32,
+    ) -> (f32, f32) {
+        // Left channel
+        self.lp_l1 += self.a_low * (l - self.lp_l1);
+        self.lp_l2 += self.a_low * (self.lp_l1 - self.lp_l2);
+        let low_l = self.lp_l2;
+
+        self.hp_l1 += self.a_high * (l - self.hp_l1);
+        self.hp_l2 += self.a_high * (self.hp_l1 - self.hp_l2);
+        let high_l = l - self.hp_l2;
+        let mid_l = l - low_l - high_l;
+
+        // Right channel
+        self.lp_r1 += self.a_low * (r - self.lp_r1);
+        self.lp_r2 += self.a_low * (self.lp_r1 - self.lp_r2);
+        let low_r = self.lp_r2;
+
+        self.hp_r1 += self.a_high * (r - self.hp_r1);
+        self.hp_r2 += self.a_high * (self.hp_r1 - self.hp_r2);
+        let high_r = r - self.hp_r2;
+        let mid_r = r - low_r - high_r;
+
+        let out_l = (low_l * gain_low + mid_l * gain_mid + high_l * gain_high).clamp(-2.0, 2.0);
+        let out_r = (low_r * gain_low + mid_r * gain_mid + high_r * gain_high).clamp(-2.0, 2.0);
+        (out_l, out_r)
+    }
+}

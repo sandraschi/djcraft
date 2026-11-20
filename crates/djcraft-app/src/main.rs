@@ -1,13 +1,14 @@
 #![forbid(unsafe_code)]
 
 mod theme;
+mod video;
 mod widgets;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid};
+use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid, WaveformSummary};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
 use djcraft_core::{
@@ -15,6 +16,7 @@ use djcraft_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use video::{composite_video_frame, find_companion_video, VideoDeckPlayer, VIDEO_H, VIDEO_W};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -73,6 +75,7 @@ struct UiPrefs {
     show_crate_browser: bool,
     show_camelot_hud: bool,
     show_mixxxxx_dock: bool,
+    show_video_mixer: bool,
 }
 
 impl Default for UiPrefs {
@@ -86,6 +89,7 @@ impl Default for UiPrefs {
             show_crate_browser: true,
             show_camelot_hud: true,
             show_mixxxxx_dock: true,
+            show_video_mixer: true,
         }
     }
 }
@@ -143,8 +147,19 @@ pub struct DjCraftApp {
     mixxxxx_saturation: f32,
     mixxxxx_last_pong: bool,
 
-    // Live WASAPI / cpal audio output stream
+    // Live WASAPI / cpal audio output stream & decoded real-audio waveform summaries
     audio_out: AudioOutput,
+    deck_waveforms: [Option<WaveformSummary>; 4],
+
+    // Native Video Mixer (FFmpeg frame-pipe + procedural reactive fallback + detachable projector)
+    video_deck_a: VideoDeckPlayer,
+    video_deck_b: VideoDeckPlayer,
+    video_texture: Option<egui::TextureHandle>,
+    video_projector_open: bool,
+    video_brightness: f32,
+    video_contrast: f32,
+    video_saturation: f32,
+    video_phase: f32,
 
     // Slider draft values (committed via Command::dispatch on drag_stopped for Undo/Redo)
     crossfader_draft: f64,
@@ -204,6 +219,16 @@ impl DjCraftApp {
             mixxxxx_last_pong: false,
 
             audio_out,
+            deck_waveforms: [None, None, None, None],
+
+            video_deck_a: VideoDeckPlayer::new(),
+            video_deck_b: VideoDeckPlayer::new(),
+            video_texture: None,
+            video_projector_open: false,
+            video_brightness: 0.5,
+            video_contrast: 0.5,
+            video_saturation: 0.5,
+            video_phase: 0.0,
 
             crossfader_draft,
             master_volume_draft,
@@ -278,23 +303,68 @@ impl DjCraftApp {
                     DeckId::DeckC => 2,
                     DeckId::DeckD => 3,
                 };
+                self.deck_waveforms[deck_idx] = Some(WaveformSummary::from_decoded(&decoded));
                 self.audio_out.set_deck_audio(deck_idx, Some(Arc::new(decoded)));
                 self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
                 let state = self.orch.deck_mut(deck);
                 state.beatgrid_offset_sec = grid.first_beat_sec;
                 state.audio_path = Some(path.to_string_lossy().to_string());
+
+                // Auto-load companion video (.mp4/.mkv/.mov/.webm) with same basename if present
+                let mut companion_note = String::new();
+                if let Some(vid_path) = find_companion_video(&path) {
+                    let vres = match deck {
+                        DeckId::DeckA => self.video_deck_a.load_file(&vid_path),
+                        DeckId::DeckB => self.video_deck_b.load_file(&vid_path),
+                        _ => Ok(()),
+                    };
+                    if vres.is_ok() {
+                        companion_note = format!(
+                            " + video {}",
+                            vid_path
+                                .file_name()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("companion")
+                        );
+                    }
+                }
                 self.status_msg = format!(
-                    "Loaded '{}' to {} ({:.1} BPM, beat 1 at {:.2}s, conf {:.0}%)",
+                    "Loaded '{}' to {} ({:.1} BPM, beat 1 at {:.2}s, conf {:.0}%){}",
                     title,
                     deck.label(),
                     grid.bpm,
                     grid.first_beat_sec,
-                    grid.confidence * 100.0
+                    grid.confidence * 100.0,
+                    companion_note
                 );
             }
             Err(err) => {
                 self.status_msg = format!("Audio decode failed: {err}");
             }
+        }
+    }
+
+    fn load_video_file_dialog(&mut self, deck: DeckId) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Video Files", &["mp4", "mkv", "mov", "webm"])
+            .pick_file()
+        else {
+            return;
+        };
+        let res = match deck {
+            DeckId::DeckA => self.video_deck_a.load_file(&path),
+            DeckId::DeckB => self.video_deck_b.load_file(&path),
+            _ => Err("Native video decks currently support Deck A and Deck B".to_string()),
+        };
+        match res {
+            Ok(()) => {
+                self.status_msg = format!(
+                    "Loaded video '{}' to {}",
+                    path.file_name().and_then(|s| s.to_str()).unwrap_or("video"),
+                    deck.label()
+                );
+            }
+            Err(err) => self.status_msg = format!("Video load error: {err}"),
         }
     }
 
@@ -427,7 +497,18 @@ impl DjCraftApp {
         });
 
         ui.add_space(6.0);
-        widgets::paint_scrolling_waveform(ui, &deck_snapshot, accent);
+        let deck_idx = match deck_id {
+            DeckId::DeckA => 0,
+            DeckId::DeckB => 1,
+            DeckId::DeckC => 2,
+            DeckId::DeckD => 3,
+        };
+        widgets::paint_scrolling_waveform(
+            ui,
+            &deck_snapshot,
+            self.deck_waveforms[deck_idx].as_ref(),
+            accent,
+        );
 
         ui.add_space(6.0);
         ui.horizontal(|ui| {
@@ -461,6 +542,56 @@ impl DjCraftApp {
             }
             if ui.button("LOAD FILE").clicked() {
                 self.load_audio_file_dialog(deck_id);
+            }
+            if ui.button("LOAD VID").clicked() {
+                self.load_video_file_dialog(deck_id);
+            }
+        });
+
+        ui.add_space(6.0);
+        theme::card_frame(ui, dark, |ui| {
+            ui.horizontal(|ui| {
+                ui.strong("3-Band Kill EQ");
+                if ui.small_button("FLAT").clicked() {
+                    self.dispatch_and_report(Command::ResetDeckEq { deck: deck_id });
+                }
+            });
+            let mut low = deck_snapshot.eq_low;
+            let mut mid = deck_snapshot.eq_mid;
+            let mut high = deck_snapshot.eq_high;
+            let mut eq_changed = false;
+            let mut eq_stopped = false;
+
+            for (label, val) in [("Low ", &mut low), ("Mid ", &mut mid), ("High", &mut high)] {
+                ui.horizontal(|ui| {
+                    let kill_lbl = if *val <= 0.001 { "ON" } else { "KILL" };
+                    if ui.small_button(kill_lbl).clicked() {
+                        *val = if *val <= 0.001 { 1.0 } else { 0.0 };
+                        eq_changed = true;
+                        eq_stopped = true;
+                    }
+                    let resp = ui.add(
+                        egui::Slider::new(val, 0.0..=2.0)
+                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                            .text(label),
+                    );
+                    eq_changed |= resp.changed();
+                    eq_stopped |= resp.drag_stopped();
+                });
+            }
+            if eq_changed {
+                let st = self.orch.deck_mut(deck_id);
+                st.eq_low = low;
+                st.eq_mid = mid;
+                st.eq_high = high;
+            }
+            if eq_stopped {
+                self.dispatch_and_report(Command::SetDeckEq {
+                    deck: deck_id,
+                    low,
+                    mid,
+                    high,
+                });
             }
         });
 
@@ -692,6 +823,66 @@ impl eframe::App for DjCraftApp {
             self.orch.master_muted,
         );
 
+        // Update native video mixer texture (FFmpeg frame pipe + procedural reactive fallback)
+        self.video_deck_a.set_playing(self.orch.deck_a.is_playing);
+        self.video_deck_b.set_playing(self.orch.deck_b.is_playing);
+        if self.prefs.show_video_mixer || self.video_projector_open {
+            if any_playing {
+                self.video_phase += 0.03;
+            }
+            let rgb_a = self
+                .video_deck_a
+                .snapshot_rgb(self.video_phase, [0.22, 0.74, 0.97]);
+            let rgb_b = self
+                .video_deck_b
+                .snapshot_rgb(self.video_phase * 1.15 + 1.5, [0.96, 0.62, 0.04]);
+            let image = composite_video_frame(
+                &rgb_a,
+                &rgb_b,
+                self.orch.crossfader,
+                self.video_brightness,
+                self.video_contrast,
+                self.video_saturation,
+            );
+            if let Some(tex) = self.video_texture.as_mut() {
+                tex.set(image, egui::TextureOptions::LINEAR);
+            } else {
+                self.video_texture = Some(ctx.load_texture(
+                    "djcraft_video_mix",
+                    image,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+        }
+
+        // Detachable Projector / Secondary Monitor Viewport
+        if self.video_projector_open {
+            let tex_id = self.video_texture.as_ref().map(|t| t.id());
+            let mut keep_open = true;
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("djcraft_video_projector"),
+                egui::ViewportBuilder::default()
+                    .with_title("DJCraft Video Projector Output")
+                    .with_inner_size([960.0, 540.0]),
+                |vctx, _class| {
+                    if vctx.input(|i| i.viewport().close_requested()) {
+                        keep_open = false;
+                    }
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::new().fill(egui::Color32::BLACK))
+                        .show(vctx, |ui| {
+                            if let Some(id) = tex_id {
+                                let avail = ui.available_size();
+                                ui.image(egui::load::SizedTexture::new(id, avail));
+                            }
+                        });
+                },
+            );
+            if !keep_open {
+                self.video_projector_open = false;
+            }
+        }
+
         // 1. UNIVERSAL 8-MENU BOOKEND BAR
         egui::Panel::top("top_menu_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -772,6 +963,7 @@ impl eframe::App for DjCraftApp {
                     dirty |= ui.checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Strip").changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_crate_browser, "Crate Track Browser").changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_camelot_hud, "Camelot Harmonic HUD").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_video_mixer, "Native Video Mixer").changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_mixxxxx_dock, "Mixxxxx Video Dock").changed();
                     if dirty {
                         self.prefs.save();
@@ -881,6 +1073,7 @@ impl eframe::App for DjCraftApp {
                     dirty |= ui.checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Strip").changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_crate_browser, "Crate Browser").changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_camelot_hud, "Camelot Wheel HUD").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_video_mixer, "Native Video Mixer").changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_mixxxxx_dock, "Mixxxxx Video Dock").changed();
                     if dirty {
                         self.prefs.save();
@@ -1363,6 +1556,69 @@ impl eframe::App for DjCraftApp {
                     });
                 }
 
+                if self.prefs.show_video_mixer {
+                    ui.add_space(8.0);
+                    theme::card_frame(ui, dark, |ui| {
+                        ui.horizontal(|ui| {
+                            theme::status_dot(
+                                ui,
+                                self.video_deck_a.has_file || self.video_deck_b.has_file,
+                            );
+                            ui.strong("Native Video Mixer (Crossfader Blend)");
+                            let proj_lbl = if self.video_projector_open {
+                                "Close Projector"
+                            } else {
+                                "Detach Projector"
+                            };
+                            if ui.button(proj_lbl).clicked() {
+                                self.video_projector_open = !self.video_projector_open;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.monospace(format!("A: {}", self.video_deck_a.source_label));
+                            ui.separator();
+                            ui.monospace(format!("B: {}", self.video_deck_b.source_label));
+                        });
+                        if let Some(tex) = &self.video_texture {
+                            let preview_w = ui.available_width().clamp(240.0, 480.0);
+                            let preview_h = preview_w * (VIDEO_H as f32 / VIDEO_W as f32);
+                            ui.image(egui::load::SizedTexture::new(
+                                tex.id(),
+                                egui::vec2(preview_w, preview_h),
+                            ));
+                        }
+                        ui.horizontal(|ui| {
+                            if ui.small_button("Load Video A...").clicked() {
+                                self.load_video_file_dialog(DeckId::DeckA);
+                            }
+                            if ui.small_button("Load Video B...").clicked() {
+                                self.load_video_file_dialog(DeckId::DeckB);
+                            }
+                            if ui.small_button("Reset VFX").clicked() {
+                                self.video_brightness = 0.5;
+                                self.video_contrast = 0.5;
+                                self.video_saturation = 0.5;
+                            }
+                            if ui.small_button("Clear Videos").clicked() {
+                                self.video_deck_a.stop();
+                                self.video_deck_b.stop();
+                            }
+                        });
+                        ui.add(
+                            egui::Slider::new(&mut self.video_brightness, 0.0..=1.0)
+                                .text("Brightness"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut self.video_contrast, 0.0..=1.0)
+                                .text("Contrast"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut self.video_saturation, 0.0..=1.0)
+                                .text("Saturation"),
+                        );
+                    });
+                }
+
                 if self.prefs.show_mixxxxx_dock {
                     ui.add_space(8.0);
                     theme::card_frame(ui, dark, |ui| {
@@ -1498,6 +1754,7 @@ mod tests {
         let sources = [
             ("main.rs", include_str!("main.rs")),
             ("theme.rs", include_str!("theme.rs")),
+            ("video.rs", include_str!("video.rs")),
             ("widgets.rs", include_str!("widgets.rs")),
         ];
         for (file, src) in sources {

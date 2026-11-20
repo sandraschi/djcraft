@@ -10,13 +10,14 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream};
 
-use crate::dsp::{sample_varispeed, DecodedAudio, WsolaDeckState};
+use crate::dsp::{sample_varispeed, DecodedAudio, ThreeBandEq, WsolaDeckState};
 use crate::{AudioEngine, DeckId, DeckState};
 
 struct LiveMixState {
     decks: [DeckState; 4],
     decoded: [Option<Arc<DecodedAudio>>; 4],
     wsola: [WsolaDeckState; 4],
+    eqs: [ThreeBandEq; 4],
     crossfader: f64,
     master_volume: f64,
     muted: bool,
@@ -39,6 +40,12 @@ impl LiveMixState {
                 WsolaDeckState::new(sample_rate),
                 WsolaDeckState::new(sample_rate),
                 WsolaDeckState::new(sample_rate),
+            ],
+            eqs: [
+                ThreeBandEq::new(sample_rate),
+                ThreeBandEq::new(sample_rate),
+                ThreeBandEq::new(sample_rate),
+                ThreeBandEq::new(sample_rate),
             ],
             crossfader: 0.0,
             master_volume: 0.75,
@@ -274,11 +281,25 @@ fn next_stereo_frame(guard: &mut LiveMixState, dt: f64) -> (f32, f32) {
                 lr
             };
             let vol = deck.volume_fader as f32;
-            *slot = (l * vol, r * vol);
+            let (el, er) = guard.eqs[i].process_stereo(
+                l * vol,
+                r * vol,
+                deck.eq_low as f32,
+                deck.eq_mid as f32,
+                deck.eq_high as f32,
+            );
+            *slot = (el, er);
         } else {
             let s = AudioEngine::sample_deck_frame(deck, guard.play_times[i], idx);
             guard.play_times[i] += dt;
-            *slot = (s, s);
+            let (el, er) = guard.eqs[i].process_stereo(
+                s,
+                s,
+                deck.eq_low as f32,
+                deck.eq_mid as f32,
+                deck.eq_high as f32,
+            );
+            *slot = (el, er);
         }
     }
 

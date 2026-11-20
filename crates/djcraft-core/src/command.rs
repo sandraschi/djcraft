@@ -101,6 +101,15 @@ pub enum Command {
         bass: f64,
         other: f64,
     },
+    SetDeckEq {
+        deck: DeckId,
+        low: f64,
+        mid: f64,
+        high: f64,
+    },
+    ResetDeckEq {
+        deck: DeckId,
+    },
     ResetAllStems,
     SetHotCue {
         deck: DeckId,
@@ -755,6 +764,48 @@ impl DjOrchestrator {
                     command: "reset_all_stems".to_string(),
                     message: "Reset all stem gains to 100% across 4 decks".to_string(),
                     data: json!({ "stem_gain": 1.0 }),
+                })
+            }
+            Command::SetDeckEq {
+                deck,
+                low,
+                mid,
+                high,
+            } => {
+                self.push_undo();
+                let state = self.deck_mut(deck);
+                state.eq_low = low.clamp(0.0, 2.0);
+                state.eq_mid = mid.clamp(0.0, 2.0);
+                state.eq_high = high.clamp(0.0, 2.0);
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "set_deck_eq".to_string(),
+                    message: format!(
+                        "{} EQ: L={:.0}% M={:.0}% H={:.0}%",
+                        deck.label(),
+                        state.eq_low * 100.0,
+                        state.eq_mid * 100.0,
+                        state.eq_high * 100.0
+                    ),
+                    data: json!({
+                        "deck": deck,
+                        "eq_low": state.eq_low,
+                        "eq_mid": state.eq_mid,
+                        "eq_high": state.eq_high,
+                    }),
+                })
+            }
+            Command::ResetDeckEq { deck } => {
+                self.push_undo();
+                let state = self.deck_mut(deck);
+                state.eq_low = 1.0;
+                state.eq_mid = 1.0;
+                state.eq_high = 1.0;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "reset_deck_eq".to_string(),
+                    message: format!("{} 3-band EQ reset to flat (100%)", deck.label()),
+                    data: json!({ "deck": deck, "eq_low": 1.0, "eq_mid": 1.0, "eq_high": 1.0 }),
                 })
             }
             Command::SetHotCue { deck, slot } => {
