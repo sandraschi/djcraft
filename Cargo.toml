@@ -27,5 +27,6 @@ cpal = "0.15"
 symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "aac", "isomp4", "pcm"] }
 rfd = "0.15"
 midir = "0.10"
+ureq = { version = "2", features = ["json"] }
 databasecraft-store = { path = "../databasecraft/crates/databasecraft-store" }
 databasecraft-core = { path = "../databasecraft/crates/databasecraft-core" }

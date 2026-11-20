@@ -16,3 +16,4 @@ tokio.workspace = true
 chrono.workspace = true
 rusqlite.workspace = true
 midir.workspace = true
+ureq.workspace = true

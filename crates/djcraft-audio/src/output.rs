@@ -10,12 +10,13 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream};
 
-use crate::dsp::{sample_varispeed, DecodedAudio, ThreeBandEq, WsolaDeckState};
+use crate::dsp::{sample_varispeed, DecodedAudio, DecodedStems, ThreeBandEq, WsolaDeckState};
 use crate::{AudioEngine, DeckId, DeckState};
 
 struct LiveMixState {
     decks: [DeckState; 4],
     decoded: [Option<Arc<DecodedAudio>>; 4],
+    decoded_stems: [Option<Arc<DecodedStems>>; 4],
     wsola: [WsolaDeckState; 4],
     eqs: [ThreeBandEq; 4],
     crossfader: f64,
@@ -35,6 +36,7 @@ impl LiveMixState {
                 AudioEngine::create_deck(DeckId::DeckD),
             ],
             decoded: [None, None, None, None],
+            decoded_stems: [None, None, None, None],
             wsola: [
                 WsolaDeckState::new(sample_rate),
                 WsolaDeckState::new(sample_rate),
@@ -201,7 +203,18 @@ impl AudioOutput {
                 guard.wsola[deck_idx].reset(0.0);
             }
             guard.decoded[deck_idx] = audio;
+            guard.decoded_stems[deck_idx] = None;
             guard.play_times[deck_idx] = 0.0;
+        }
+    }
+
+    /// Attach transparent 4-stem WAV buffers for real-time stem knob isolation on a deck (0..4).
+    pub fn set_deck_stems(&self, deck_idx: usize, stems: Option<Arc<DecodedStems>>) {
+        if deck_idx >= 4 {
+            return;
+        }
+        if let Ok(mut guard) = self.state.lock() {
+            guard.decoded_stems[deck_idx] = stems;
         }
     }
 
@@ -267,7 +280,30 @@ fn next_stereo_frame(guard: &mut LiveMixState, dt: f64) -> (f32, f32) {
             continue;
         }
         let rate = (1.0 + deck.pitch_bend_pct / 100.0).clamp(0.5, 2.0);
-        if let Some(audio) = guard.decoded[i].as_ref() {
+        if let Some(stems) = guard.decoded_stems[i].as_ref() {
+            let sample_pos = guard.play_times[i] * stems.sample_rate() as f64;
+            let (vl, vr) = sample_varispeed(&stems.vocals, sample_pos);
+            let (dl, dr) = sample_varispeed(&stems.drums, sample_pos);
+            let (bl, br) = sample_varispeed(&stems.bass, sample_pos);
+            let (ol, or) = sample_varispeed(&stems.other, sample_pos);
+            guard.play_times[i] += dt * rate;
+
+            let gv = deck.stem_vocals_gain as f32;
+            let gd = deck.stem_drums_gain as f32;
+            let gb = deck.stem_bass_gain as f32;
+            let go = deck.stem_other_gain as f32;
+            let vol = deck.volume_fader as f32;
+            let l = (vl * gv + dl * gd + bl * gb + ol * go) * vol;
+            let r = (vr * gv + dr * gd + br * gb + or * go) * vol;
+            let (el, er) = guard.eqs[i].process_stereo(
+                l,
+                r,
+                deck.eq_low as f32,
+                deck.eq_mid as f32,
+                deck.eq_high as f32,
+            );
+            *slot = (el, er);
+        } else if let Some(audio) = guard.decoded[i].as_ref() {
             let sr_ratio = audio.sample_rate as f64 / out_sr;
             let (l, r) = if deck.keylock {
                 let (wl, wr) = guard.wsola[i].next_sample(audio, rate * sr_ratio);

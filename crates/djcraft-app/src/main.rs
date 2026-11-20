@@ -6,16 +6,21 @@ mod video;
 mod widgets;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use clap::Parser;
-use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid, WaveformSummary};
+use djcraft_audio::dsp::{
+    decode_audio_file, detect_beatgrid, load_sidecar_stems, WaveformSummary,
+};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
 use djcraft_core::{
-    action_to_command, resolve_dettato_binary, resolve_mixxxxx_binary, Command,
-    ControllerProfileId, CrateNode, CrateQuery, CrateSortField, CrateStore, CrateTrack,
-    DjOrchestrator, MidiControllerManager, MidiTargetAction, MixxxxxVideoControls,
+    action_to_command, batch_stem_folder, butterchurn_sync_bpm, chat_with_booth_ai,
+    generate_speech_drop, parse_natural_language_command, plan_harmonic_setlist,
+    probe_fleet_health, resolve_dettato_binary, resolve_mixxxxx_binary, sfx_search,
+    vfx_apply_preset, AiChatConfig, Command, ControllerProfileId, CrateNode, CrateQuery,
+    CrateSortField, CrateStore, CrateTrack, DjOrchestrator, FleetEndpoints, FleetHealthReport,
+    MidiControllerManager, MidiTargetAction, MixxxxxVideoControls,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -74,6 +79,8 @@ enum LowerDockTab {
     Crates,
     VideoMixer,
     MidiControllers,
+    AiChatAndWorkflows,
+    FleetHub,
     CamelotAndMixxxxx,
 }
 
@@ -190,6 +197,20 @@ pub struct DjCraftApp {
     mixxxxx_saturation: f32,
     mixxxxx_last_pong: bool,
 
+    // AI Booth Chat & Workflows
+    ai_cfg: AiChatConfig,
+    ai_input: String,
+    ai_log: Arc<Mutex<Vec<(String, String)>>>,
+    bg_status: Arc<Mutex<Option<String>>>,
+
+    // Fleet Hub (SpeechCraft, sfx-mcp, vfx-mcp, butterchurn-mcp)
+    fleet_endpoints: FleetEndpoints,
+    fleet_health: FleetHealthReport,
+    speech_drop_text: String,
+    sfx_query: String,
+    vfx_preset: String,
+    fleet_last_output: String,
+
     // Help Suite modals
     show_command_palette: bool,
     palette_query: String,
@@ -273,6 +294,21 @@ impl DjCraftApp {
             mixxxxx_contrast: 0.5,
             mixxxxx_saturation: 0.5,
             mixxxxx_last_pong: false,
+
+            ai_cfg: AiChatConfig::default(),
+            ai_input: String::new(),
+            ai_log: Arc::new(Mutex::new(vec![(
+                "AI".to_string(),
+                "Booth Assistant ready. Try 'sync', 'phase sync', 'kill bass a', or ask a mix question (Ollama :11434 / LM Studio :1234).".to_string(),
+            )])),
+            bg_status: Arc::new(Mutex::new(None)),
+
+            fleet_endpoints: FleetEndpoints::default(),
+            fleet_health: FleetHealthReport::default(),
+            speech_drop_text: "DJCraft Live in the Mix!".to_string(),
+            sfx_query: "riser impact".to_string(),
+            vfx_preset: "vhs_glitch".to_string(),
+            fleet_last_output: "Click Probe Fleet to check local MCP services.".to_string(),
 
             show_command_palette: false,
             palette_query: String::new(),
@@ -404,6 +440,12 @@ impl DjCraftApp {
                 let deck_idx = deck_index(deck);
                 self.deck_waveforms[deck_idx] = Some(WaveformSummary::from_decoded(&decoded));
                 self.audio_out.set_deck_audio(deck_idx, Some(Arc::new(decoded)));
+                let stems_tag = if let Some(stems) = load_sidecar_stems(&path) {
+                    self.audio_out.set_deck_stems(deck_idx, Some(Arc::new(stems)));
+                    " [4-STEMS LIVE]"
+                } else {
+                    ""
+                };
                 self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
                 let st = self.orch.deck_mut(deck);
                 st.beatgrid_offset_sec = grid.first_beat_sec;
@@ -416,11 +458,12 @@ impl DjCraftApp {
                     };
                 }
                 self.status_msg = format!(
-                    "Loaded '{}' to {} ({:.1} BPM, beat 1 at {:.2}s)",
+                    "Loaded '{}' to {} ({:.1} BPM, beat 1 at {:.2}s){}",
                     title,
                     deck.label(),
                     grid.bpm,
-                    grid.first_beat_sec
+                    grid.first_beat_sec,
+                    stems_tag
                 );
             }
             Err(err) => self.status_msg = format!("Audio decode failed: {err}"),
@@ -510,6 +553,9 @@ impl DjCraftApp {
                 self.deck_waveforms[idx] = Some(WaveformSummary::from_decoded(&decoded));
                 self.audio_out
                     .set_deck_audio(idx, Some(Arc::new(decoded.clone())));
+                if let Some(stems) = load_sidecar_stems(path) {
+                    self.audio_out.set_deck_stems(idx, Some(Arc::new(stems)));
+                }
                 let meta = TrackMeta {
                     title: track.title.clone(),
                     artist: track.artist.clone(),
@@ -813,6 +859,13 @@ impl eframe::App for DjCraftApp {
             self.typography_applied = true;
         }
         ctx.set_visuals(palette.to_visuals());
+
+        // Drain background worker status updates (batch stemming, AI replies)
+        if let Ok(mut guard) = self.bg_status.try_lock() {
+            if let Some(msg) = guard.take() {
+                self.status_msg = msg;
+            }
+        }
 
         // Poll hardware MIDI controllers (Rane Twelve MKII, Rane Seventy-Two MKII, etc.)
         for (action, val) in self.midi.poll_actions() {
@@ -1318,18 +1371,28 @@ impl eframe::App for DjCraftApp {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 self.render_battle_mixer(ui, &palette);
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut self.lower_tab, LowerDockTab::Crates, "Crate Library");
                     ui.selectable_value(&mut self.lower_tab, LowerDockTab::VideoMixer, "Video Mixer");
                     ui.selectable_value(
                         &mut self.lower_tab,
                         LowerDockTab::MidiControllers,
-                        "MIDI Controllers (Rane 12/72)",
+                        "MIDI (Rane 12/72)",
+                    );
+                    ui.selectable_value(
+                        &mut self.lower_tab,
+                        LowerDockTab::AiChatAndWorkflows,
+                        "AI Chat & Workflows",
+                    );
+                    ui.selectable_value(
+                        &mut self.lower_tab,
+                        LowerDockTab::FleetHub,
+                        "Fleet Hub (Speech/SFX/VFX/Butterchurn)",
                     );
                     ui.selectable_value(
                         &mut self.lower_tab,
                         LowerDockTab::CamelotAndMixxxxx,
-                        "Camelot & Mixxxxx OSC",
+                        "Camelot & Mixxxxx",
                     );
                 });
                 ui.add_space(4.0);
@@ -1337,6 +1400,8 @@ impl eframe::App for DjCraftApp {
                     LowerDockTab::Crates => self.render_crate_dock(ui, &palette),
                     LowerDockTab::VideoMixer => self.render_video_dock(ui, &palette),
                     LowerDockTab::MidiControllers => self.render_midi_dock(ui, &palette),
+                    LowerDockTab::AiChatAndWorkflows => self.render_ai_chat_dock(ui, &palette),
+                    LowerDockTab::FleetHub => self.render_fleet_hub_dock(ui, &palette),
                     LowerDockTab::CamelotAndMixxxxx => self.render_camelot_mixxxxx_dock(ui, &palette),
                 }
             });
@@ -1569,6 +1634,28 @@ impl DjCraftApp {
                                 }
                             }
                         }
+                    }
+                }
+                if ui
+                    .small_button("Batch Stem Folder...")
+                    .on_hover_text("Run Demucs into transparent .djcraft-stems/<track>/ subfolders")
+                    .clicked()
+                {
+                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                        self.status_msg = format!("Batch stemming {} in background...", dir.display());
+                        let bg = Arc::clone(&self.bg_status);
+                        std::thread::spawn(move || {
+                            let msg = match batch_stem_folder(&dir) {
+                                Ok(sum) => format!(
+                                    "Batch stem done: {} stemmed, {} skipped, {} failed",
+                                    sum.stemmed, sum.skipped_existing, sum.failed
+                                ),
+                                Err(e) => format!("Batch stem error: {e}"),
+                            };
+                            if let Ok(mut g) = bg.lock() {
+                                *g = Some(msg);
+                            }
+                        });
                     }
                 }
             });
@@ -1851,6 +1938,222 @@ impl DjCraftApp {
                     ev.value
                 ));
             }
+        });
+    }
+
+    fn render_ai_chat_dock(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+        theme::card_frame(ui, palette, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("AI Booth Assistant & Workflows");
+                if ui.small_button("Ollama :11434").clicked() {
+                    self.ai_cfg.endpoint = "http://127.0.0.1:11434/v1/chat/completions".to_string();
+                }
+                if ui.small_button("LM Studio :1234").clicked() {
+                    self.ai_cfg.endpoint = "http://127.0.0.1:1234/v1/chat/completions".to_string();
+                }
+                if ui.small_button("Build 4-Track Harmonic Setlist").clicked() {
+                    let seed = self
+                        .orch
+                        .deck_a
+                        .loaded_track
+                        .as_ref()
+                        .map(|t| t.musical_key.as_str())
+                        .unwrap_or("8A");
+                    if let Some(ref store) = self.crate_store {
+                        match plan_harmonic_setlist(store, seed, 4) {
+                            Ok(list) => {
+                                let lines: Vec<String> = list
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, t)| {
+                                        format!(
+                                            "{}. {} - {} ({} | {:.1} BPM)",
+                                            i + 1,
+                                            t.artist,
+                                            t.title,
+                                            t.musical_key,
+                                            t.bpm
+                                        )
+                                    })
+                                    .collect();
+                                let reply = if lines.is_empty() {
+                                    "No harmonic tracks found in crate store.".to_string()
+                                } else {
+                                    format!("Harmonic Setlist from {seed}:\n{}", lines.join("\n"))
+                                };
+                                if let Ok(mut log) = self.ai_log.lock() {
+                                    log.push(("Workflow".to_string(), reply));
+                                }
+                            }
+                            Err(e) => self.status_msg = format!("Setlist error: {e}"),
+                        }
+                    }
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Model:");
+                ui.add(egui::TextEdit::singleline(&mut self.ai_cfg.model).desired_width(140.0));
+                ui.label("URL:");
+                ui.add(egui::TextEdit::singleline(&mut self.ai_cfg.endpoint).desired_width(260.0));
+            });
+
+            egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                if let Ok(log) = self.ai_log.lock() {
+                    for (who, msg) in log.iter() {
+                        ui.label(format!("[{who}] {msg}"));
+                    }
+                }
+            });
+
+            ui.horizontal(|ui| {
+                let enter = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut self.ai_input)
+                            .desired_width(340.0)
+                            .hint_text("Type a deck command ('sync', 'kill bass a') or ask AI..."),
+                    )
+                    .lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if (ui.button("Send").clicked() || enter) && !self.ai_input.trim().is_empty() {
+                    let prompt = self.ai_input.trim().to_string();
+                    self.ai_input.clear();
+                    if let Ok(mut log) = self.ai_log.lock() {
+                        log.push(("You".to_string(), prompt.clone()));
+                    }
+                    if let Some(cmd) = parse_natural_language_command(&prompt) {
+                        self.dispatch_and_report(cmd);
+                        if let Ok(mut log) = self.ai_log.lock() {
+                            log.push(("DJCraft".to_string(), self.status_msg.clone()));
+                        }
+                    } else {
+                        let cfg = self.ai_cfg.clone();
+                        let ctx_str = format!(
+                            "Deck A: {:?}, Deck B: {:?}, Crossfader: {:+.2}",
+                            self.orch.deck_a.loaded_track.as_ref().map(|t| (&t.title, t.bpm, &t.musical_key)),
+                            self.orch.deck_b.loaded_track.as_ref().map(|t| (&t.title, t.bpm, &t.musical_key)),
+                            self.orch.crossfader
+                        );
+                        let log_arc = Arc::clone(&self.ai_log);
+                        let bg = Arc::clone(&self.bg_status);
+                        std::thread::spawn(move || {
+                            let reply = match chat_with_booth_ai(&cfg, &prompt, &ctx_str) {
+                                Ok(r) => r,
+                                Err(e) => format!("LLM offline: {e}"),
+                            };
+                            if let Ok(mut log) = log_arc.lock() {
+                                log.push(("AI".to_string(), reply));
+                            }
+                            if let Ok(mut g) = bg.lock() {
+                                *g = Some("AI Booth reply received".to_string());
+                            }
+                        });
+                    }
+                }
+            });
+        });
+    }
+
+    fn render_fleet_hub_dock(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+        theme::card_frame(ui, palette, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Fleet Audio/Visual Hub");
+                if ui.small_button("Probe Fleet").clicked() {
+                    self.fleet_health = probe_fleet_health(&self.fleet_endpoints);
+                    self.fleet_last_output = "Probed local fleet endpoints.".to_string();
+                }
+                theme::status_dot(ui, self.fleet_health.speechcraft_up);
+                ui.monospace("SpeechCraft:14132");
+                theme::status_dot(ui, self.fleet_health.sfx_up);
+                ui.monospace("SFX:11120");
+                theme::status_dot(ui, self.fleet_health.vfx_up);
+                ui.monospace("VFX:11122");
+                theme::status_dot(ui, self.fleet_health.butterchurn_up);
+                ui.monospace("Butterchurn:10878");
+                theme::status_dot(ui, self.fleet_health.ollama_up);
+                ui.monospace("Ollama:11434");
+            });
+
+            ui.separator();
+            // SpeechCraft / SAPI DJ Vocal Drop -> Deck C
+            ui.horizontal(|ui| {
+                ui.strong("DJ Vocal Drop:");
+                ui.add(egui::TextEdit::singleline(&mut self.speech_drop_text).desired_width(220.0));
+                if ui.small_button("Speak -> Deck C").clicked() {
+                    let out_wav = std::env::temp_dir().join("djcraft_vocal_drop.wav");
+                    match generate_speech_drop(&self.speech_drop_text, &out_wav) {
+                        Ok(path) => {
+                            if let Ok(decoded) = decode_audio_file(&path) {
+                                let dur = decoded.duration_seconds;
+                                self.deck_waveforms[2] = Some(WaveformSummary::from_decoded(&decoded));
+                                self.audio_out.set_deck_audio(2, Some(Arc::new(decoded)));
+                                let meta = TrackMeta {
+                                    title: self.speech_drop_text.clone(),
+                                    artist: "DJ Vocal Drop".to_string(),
+                                    bpm: 126.0,
+                                    musical_key: "8A".to_string(),
+                                    duration_seconds: dur,
+                                };
+                                self.dispatch_and_report(Command::LoadTrack {
+                                    deck: DeckId::DeckC,
+                                    track: meta,
+                                });
+                                self.dispatch_and_report(Command::PlayPause { deck: DeckId::DeckC });
+                                self.fleet_last_output = format!("Played vocal drop on Deck C ({dur:.1}s)");
+                            }
+                        }
+                        Err(e) => self.fleet_last_output = format!("Speech drop error: {e}"),
+                    }
+                }
+            });
+
+            // Butterchurn BPM sync + SFX + VFX triggers
+            ui.horizontal_wrapped(|ui| {
+                if ui.small_button("Sync BPM -> Butterchurn (:10878)").clicked() {
+                    let bpm = self
+                        .orch
+                        .deck_a
+                        .loaded_track
+                        .as_ref()
+                        .map(|t| t.bpm * (1.0 + self.orch.deck_a.pitch_bend_pct / 100.0))
+                        .unwrap_or(126.0);
+                    self.fleet_last_output = match butterchurn_sync_bpm(
+                        self.fleet_endpoints.butterchurn_port,
+                        bpm,
+                        None,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => e.to_string(),
+                    };
+                }
+                ui.add(egui::TextEdit::singleline(&mut self.sfx_query).desired_width(110.0));
+                if ui.small_button("Search SFX (:11120)").clicked() {
+                    self.fleet_last_output =
+                        match sfx_search(self.fleet_endpoints.sfx_port, &self.sfx_query) {
+                            Ok(s) => s,
+                            Err(e) => e.to_string(),
+                        };
+                }
+                ui.add(egui::TextEdit::singleline(&mut self.vfx_preset).desired_width(95.0));
+                if ui.small_button("Apply VFX (:11122)").clicked() {
+                    let vid = self
+                        .orch
+                        .deck_a
+                        .audio_path
+                        .as_deref()
+                        .unwrap_or("deck_a.mp4");
+                    self.fleet_last_output = match vfx_apply_preset(
+                        self.fleet_endpoints.vfx_port,
+                        vid,
+                        &self.vfx_preset,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => e.to_string(),
+                    };
+                }
+            });
+
+            ui.monospace(&self.fleet_last_output);
         });
     }
 

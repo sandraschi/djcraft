@@ -4,14 +4,16 @@ use std::time::Duration;
 
 use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
 use djcraft_audio::dsp::{
-    detect_beatgrid, sample_varispeed, DecodedAudio, ThreeBandEq, WaveformSummary, WsolaDeckState,
+    detect_beatgrid, has_sidecar_stems, sample_varispeed, stem_dir_for_audio, DecodedAudio,
+    ThreeBandEq, WaveformSummary, WsolaDeckState,
 };
 use djcraft_core::{
     action_to_command, builtin_profile_rules, encode_m3u, encode_osc_message,
     encode_serato_crate_bytes, encode_vdj_folder_xml, parse_dettato_json, parse_m3u,
-    parse_raw_midi, parse_serato_crate_bytes, parse_vdj_folder_xml, send_deck_video_controls,
-    Command, ControllerProfileId, CrateQuery, CrateSortField, CrateStore, CrateTrack,
-    DjOrchestrator, MidiTargetAction, MixxxxxConfig, MixxxxxVideoControls, OscArg,
+    parse_natural_language_command, parse_raw_midi, parse_serato_crate_bytes,
+    parse_vdj_folder_xml, plan_harmonic_setlist, send_deck_video_controls, Command,
+    ControllerProfileId, CrateQuery, CrateSortField, CrateStore, CrateTrack, DjOrchestrator,
+    MidiTargetAction, MixxxxxConfig, MixxxxxVideoControls, OscArg,
 };
 
 #[test]
@@ -792,4 +794,55 @@ fn test_midi_rane_twelve_and_seventy_two_profiles_and_autodetect() {
     let mut orch = DjOrchestrator::new();
     orch.dispatch(cmd).expect("dispatch midi crossfader");
     assert!((orch.crossfader - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_transparent_sidecar_stems_layout_and_hidden_scan() {
+    let tmp = std::env::temp_dir().join("djcraft_stems_test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).expect("mkdir");
+
+    let track = tmp.join("Artist - Track.mp3");
+    std::fs::write(&track, b"fake").expect("write mp3");
+    assert!(!has_sidecar_stems(&track));
+
+    let sdir = stem_dir_for_audio(&track);
+    assert!(sdir.to_string_lossy().contains(".djcraft-stems"));
+    std::fs::create_dir_all(&sdir).expect("mkdir stems");
+    for wav in ["vocals.wav", "drums.wav", "bass.wav", "other.wav"] {
+        std::fs::write(sdir.join(wav), b"RIFF").expect("write stem wav");
+    }
+    assert!(has_sidecar_stems(&track));
+
+    // Folder scan MUST ignore .djcraft-stems/ so stem WAVs never pollute crates!
+    let store = CrateStore::open_in_memory().expect("db");
+    let cid = store.ensure_crate_path("Scanned").expect("crate");
+    let count = store.scan_audio_folder(cid, &tmp).expect("scan");
+    assert_eq!(count, 1);
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_ai_natural_language_commands_and_harmonic_setlist() {
+    assert!(matches!(
+        parse_natural_language_command("phase sync"),
+        Some(Command::PhaseSyncBeatgrid)
+    ));
+    assert!(matches!(
+        parse_natural_language_command("kill bass a"),
+        Some(Command::SetDeckEq {
+            deck: DeckId::DeckA,
+            ..
+        })
+    ));
+    assert!(matches!(
+        parse_natural_language_command("stop all"),
+        Some(Command::StopAllDecks)
+    ));
+
+    let store = CrateStore::open_in_memory().expect("db");
+    store.seed_demo_if_empty().expect("seed");
+    let setlist = plan_harmonic_setlist(&store, "8A", 4).expect("setlist");
+    assert!(setlist.len() >= 3);
 }

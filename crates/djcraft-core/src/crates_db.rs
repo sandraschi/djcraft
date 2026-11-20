@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid};
+use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid, has_sidecar_stems, stem_dir_for_audio};
 use djcraft_audio::AudioEngine;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -115,6 +115,15 @@ pub struct ImportSummary {
     pub crate_id: i64,
     pub crate_path: String,
     pub imported_tracks: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchStemSummary {
+    pub total: usize,
+    pub stemmed: usize,
+    pub skipped_existing: usize,
+    pub failed: usize,
+    pub errors: Vec<String>,
 }
 
 pub struct CrateStore {
@@ -610,7 +619,14 @@ impl CrateStore {
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p.is_dir() {
-                    stack.push(p);
+                    let is_hidden = p
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .map(|n| n.starts_with('.'))
+                        .unwrap_or(false);
+                    if !is_hidden {
+                        stack.push(p);
+                    }
                 } else if is_supported_audio(&p) {
                     let (artist, title) = infer_artist_title(&p);
                     let tid = self.upsert_track(
@@ -754,6 +770,169 @@ impl CrateStore {
             .map_err(|e| DjError::Deck(format!("Cannot write {}: {e}", dest_file.display())))?;
         Ok(tracks.len())
     }
+
+    /// Batch-stem every real audio file in a crate (and its subcrates) into transparent
+    /// `<parent>/.djcraft-stems/<stem>/{vocals,drums,bass,other}.wav` folders.
+    pub fn batch_stem_crate(&self, crate_id: i64) -> Result<BatchStemSummary, DjError> {
+        let tracks = self.query_tracks(&CrateQuery {
+            crate_id: Some(crate_id),
+            include_subcrates: true,
+            ..Default::default()
+        })?;
+        let paths: Vec<PathBuf> = tracks
+            .into_iter()
+            .filter(|t| !t.path.starts_with("demo://"))
+            .map(|t| PathBuf::from(t.path))
+            .collect();
+        Ok(batch_stem_paths(&paths))
+    }
+}
+
+/// Resolve local `demucs` executable (`DEMUCS_BIN`, `stems-mcp/.venv`, or `PATH`).
+pub fn resolve_demucs_binary() -> Option<PathBuf> {
+    if let Ok(env_bin) = std::env::var("DEMUCS_BIN") {
+        let p = PathBuf::from(env_bin);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    for candidate in [
+        r"D:\Dev\repos\stems-mcp\.venv\Scripts\demucs.exe",
+        r"D:\Dev\tools\demucs\.venv\Scripts\demucs.exe",
+    ] {
+        let p = PathBuf::from(candidate);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            for name in ["demucs.exe", "demucs"] {
+                let c = dir.join(name);
+                if c.is_file() {
+                    return Some(c);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Separate one audio file transparently into `<parent>/.djcraft-stems/<stem>/{vocals,drums,bass,other}.wav`.
+/// Skips immediately if all 4 stem WAVs already exist.
+pub fn stem_audio_file_transparent(audio_path: &Path) -> Result<bool, DjError> {
+    if !audio_path.is_file() {
+        return Err(DjError::Sidecar(format!(
+            "Audio file not found: {}",
+            audio_path.display()
+        )));
+    }
+    if has_sidecar_stems(audio_path) {
+        return Ok(false); // already stemmed
+    }
+    let demucs = resolve_demucs_binary().ok_or_else(|| {
+        DjError::Sidecar(
+            "demucs CLI not found. Set DEMUCS_BIN or install demucs in stems-mcp/.venv."
+                .to_string(),
+        )
+    })?;
+
+    let target_dir = stem_dir_for_audio(audio_path);
+    let tmp_out = target_dir
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("_demucs_tmp");
+    std::fs::create_dir_all(&tmp_out)
+        .map_err(|e| DjError::Sidecar(format!("Cannot create stem temp dir: {e}")))?;
+
+    let output = std::process::Command::new(&demucs)
+        .args(["-n", "htdemucs", "-o"])
+        .arg(&tmp_out)
+        .arg(audio_path)
+        .output()
+        .map_err(|e| DjError::Sidecar(format!("Failed to launch demucs: {e}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(DjError::Sidecar(format!(
+            "demucs failed ({}): {}",
+            output.status,
+            stderr.trim()
+        )));
+    }
+
+    let stem_name = audio_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("track");
+    let produced = tmp_out.join("htdemucs").join(stem_name);
+    std::fs::create_dir_all(&target_dir)
+        .map_err(|e| DjError::Sidecar(format!("Cannot create {}: {e}", target_dir.display())))?;
+    for wav in ["vocals.wav", "drums.wav", "bass.wav", "other.wav"] {
+        let src_wav = produced.join(wav);
+        let dst_wav = target_dir.join(wav);
+        if src_wav.is_file() {
+            std::fs::copy(&src_wav, &dst_wav)
+                .map_err(|e| DjError::Sidecar(format!("Failed to move {wav}: {e}")))?;
+        }
+    }
+    let _ = std::fs::remove_dir_all(&tmp_out);
+    Ok(true)
+}
+
+pub fn batch_stem_paths(paths: &[PathBuf]) -> BatchStemSummary {
+    let mut summary = BatchStemSummary {
+        total: paths.len(),
+        stemmed: 0,
+        skipped_existing: 0,
+        failed: 0,
+        errors: Vec::new(),
+    };
+    for p in paths {
+        match stem_audio_file_transparent(p) {
+            Ok(true) => summary.stemmed += 1,
+            Ok(false) => summary.skipped_existing += 1,
+            Err(e) => {
+                summary.failed += 1;
+                if summary.errors.len() < 5 {
+                    summary.errors.push(format!("{}: {e}", p.display()));
+                }
+            }
+        }
+    }
+    summary
+}
+
+/// Recursively batch-stem every audio file in `dir` (skipping `.djcraft-stems` and dot dirs).
+pub fn batch_stem_folder(dir: &Path) -> Result<BatchStemSummary, DjError> {
+    if !dir.is_dir() {
+        return Err(DjError::Deck(format!(
+            "Folder not found: {}",
+            dir.display()
+        )));
+    }
+    let mut paths = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(cur) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&cur) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                let is_hidden = p
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|n| n.starts_with('.'))
+                    .unwrap_or(false);
+                if !is_hidden {
+                    stack.push(p);
+                }
+            } else if is_supported_audio(&p) {
+                paths.push(p);
+            }
+        }
+    }
+    Ok(batch_stem_paths(&paths))
 }
 
 fn map_track_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<CrateTrack> {

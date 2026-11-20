@@ -6,6 +6,7 @@
 
 pub mod command;
 pub mod crates_db;
+pub mod fleet_ai;
 pub mod i18n;
 pub mod midi;
 pub mod mixxxxx_osc;
@@ -15,9 +16,15 @@ pub use command::{
     DettatoTrackSummary, DispatchOutcome,
 };
 pub use crates_db::{
-    encode_m3u, encode_serato_crate_bytes, encode_vdj_folder_xml, parse_m3u,
-    parse_serato_crate_bytes, parse_vdj_folder_xml, CrateNode, CrateQuery, CrateSortField,
+    batch_stem_folder, encode_m3u, encode_serato_crate_bytes, encode_vdj_folder_xml, parse_m3u,
+    parse_serato_crate_bytes, parse_vdj_folder_xml, resolve_demucs_binary,
+    stem_audio_file_transparent, BatchStemSummary, CrateNode, CrateQuery, CrateSortField,
     CrateStore, CrateTrack, ImportSummary,
+};
+pub use fleet_ai::{
+    butterchurn_sync_bpm, chat_with_booth_ai, generate_speech_drop, parse_natural_language_command,
+    plan_harmonic_setlist, probe_fleet_health, sfx_search, vfx_apply_preset, AiChatConfig,
+    FleetEndpoints, FleetHealthReport,
 };
 pub use midi::{
     action_to_command, builtin_profile_rules, parse_raw_midi, ControllerProfileId, MidiBindingKey,

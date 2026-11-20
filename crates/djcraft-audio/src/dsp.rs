@@ -3,7 +3,7 @@
 //! WSOLA keylock time-stretching, and autocorrelation beatgrid detection.
 
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use symphonia::core::audio::SampleBuffer;
@@ -517,4 +517,57 @@ impl ThreeBandEq {
         let out_r = (low_r * gain_low + mid_r * gain_mid + high_r * gain_high).clamp(-2.0, 2.0);
         (out_l, out_r)
     }
+}
+
+pub const STEMS_DIR_NAME: &str = ".djcraft-stems";
+
+/// Pre-separated 4-stem stereo buffers co-located beside an audio file in `.djcraft-stems/<stem>/`.
+#[derive(Debug, Clone)]
+pub struct DecodedStems {
+    pub vocals: DecodedAudio,
+    pub drums: DecodedAudio,
+    pub bass: DecodedAudio,
+    pub other: DecodedAudio,
+}
+
+impl DecodedStems {
+    pub fn sample_rate(&self) -> u32 {
+        self.vocals.sample_rate
+    }
+}
+
+/// Canonical transparent sidecar stem directory: `<parent>/.djcraft-stems/<track_stem>/`.
+pub fn stem_dir_for_audio(audio_path: &Path) -> PathBuf {
+    let parent = audio_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = audio_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("track");
+    parent.join(STEMS_DIR_NAME).join(stem)
+}
+
+/// Returns true when all 4 transparent sidecar stem WAVs exist for `audio_path`.
+pub fn has_sidecar_stems(audio_path: &Path) -> bool {
+    let dir = stem_dir_for_audio(audio_path);
+    ["vocals.wav", "drums.wav", "bass.wav", "other.wav"]
+        .iter()
+        .all(|name| dir.join(name).is_file())
+}
+
+/// Load all 4 sidecar stem WAVs from `<parent>/.djcraft-stems/<stem>/` if present.
+pub fn load_sidecar_stems(audio_path: &Path) -> Option<DecodedStems> {
+    if !has_sidecar_stems(audio_path) {
+        return None;
+    }
+    let dir = stem_dir_for_audio(audio_path);
+    let vocals = decode_audio_file(&dir.join("vocals.wav")).ok()?;
+    let drums = decode_audio_file(&dir.join("drums.wav")).ok()?;
+    let bass = decode_audio_file(&dir.join("bass.wav")).ok()?;
+    let other = decode_audio_file(&dir.join("other.wav")).ok()?;
+    Some(DecodedStems {
+        vocals,
+        drums,
+        bass,
+        other,
+    })
 }
