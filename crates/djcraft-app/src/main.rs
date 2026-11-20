@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 use clap::Parser;
 use djcraft_audio::{AudioEngine, DeckId};
-use djcraft_core::{resolve_dettato_binary, Command, DjOrchestrator};
+use djcraft_core::{
+    resolve_dettato_binary, resolve_mixxxxx_binary, Command, DjOrchestrator, MixxxxxVideoControls,
+};
 use serde_json::json;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -191,6 +193,20 @@ impl DjCraftApp {
                     Some(p) => format!("Dettato sidecar ready: {}", p.display()),
                     None => "Dettato sidecar not found (set DETTATO_BIN or install into D:\\Dev\\tools\\dettato\\.venv)".to_string(),
                 };
+            }
+            "commands.mixxxxx_ping" => {
+                self.dispatch_and_report(Command::MixxxxxPing {
+                    timeout_ms: Some(200),
+                });
+            }
+            "commands.mixxxxx_video_a_on" => {
+                self.dispatch_and_report(Command::MixxxxxVideo {
+                    deck: DeckId::DeckA,
+                    controls: MixxxxxVideoControls {
+                        enabled: Some(true),
+                        ..Default::default()
+                    },
+                });
             }
             _ => {
                 self.status_msg = format!("Unknown command id: {id}");
@@ -448,6 +464,14 @@ impl eframe::App for DjCraftApp {
                     ui.separator();
                     if ui.button("Check Dettato Sidecar Status").clicked() {
                         self.execute_catalog_id("commands.dettato_status");
+                        ui.close();
+                    }
+                    if ui.button("Ping Mixxxxx Video Engine (OSC)").clicked() {
+                        self.execute_catalog_id("commands.mixxxxx_ping");
+                        ui.close();
+                    }
+                    if ui.button("Mixxxxx: Enable Deck A Video").clicked() {
+                        self.execute_catalog_id("commands.mixxxxx_video_a_on");
                         ui.close();
                     }
                 });
@@ -1003,6 +1027,7 @@ fn run_headless_smoke() -> Result<(), Box<dyn std::error::Error>> {
         "harmonic_compatible": plan.harmonic_compatible,
         "audio_pcm_synthesizer_active": !pcm.is_empty(),
         "dettato_sidecar_available": resolve_dettato_binary().is_some(),
+        "mixxxxx_binary_available": resolve_mixxxxx_binary().is_some(),
     });
     println!("[djcraft] Smoke OK: {smoke_payload}");
     Ok(())

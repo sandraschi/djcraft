@@ -12,6 +12,10 @@ use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::mixxxxx_osc::{
+    ping_mixxxxx, resolve_mixxxxx_binary, send_deck_video_controls, MixxxxxConfig,
+    MixxxxxVideoControls,
+};
 use crate::{DjError, DjOrchestrator};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +101,13 @@ pub enum Command {
         audio_path: String,
         output_dir: Option<String>,
         device: Option<String>,
+    },
+    MixxxxxPing {
+        timeout_ms: Option<u64>,
+    },
+    MixxxxxVideo {
+        deck: DeckId,
+        controls: MixxxxxVideoControls,
     },
 }
 
@@ -211,6 +222,18 @@ impl Command {
             CommandSpec {
                 id: "commands.dettato_status",
                 label: "Check Local Dettato Audio-to-MIDI Sidecar",
+                category: "Commands",
+                hotkey: "",
+            },
+            CommandSpec {
+                id: "commands.mixxxxx_ping",
+                label: "Ping Mixxxxx Video Engine (OSC UDP 11119)",
+                category: "Commands",
+                hotkey: "",
+            },
+            CommandSpec {
+                id: "commands.mixxxxx_video_a_on",
+                label: "Enable Mixxxxx Video Output on Deck A",
                 category: "Commands",
                 hotkey: "",
             },
@@ -686,6 +709,7 @@ impl DjOrchestrator {
                     "undo_depth": self.undo_depth(),
                     "redo_depth": self.redo_depth(),
                     "dettato_available": resolve_dettato_binary().is_some(),
+                    "mixxxxx_binary_available": resolve_mixxxxx_binary().is_some(),
                 }),
             }),
             Command::AnalyzeTrackDettato {
@@ -710,6 +734,37 @@ impl DjOrchestrator {
                         analysis.drum_hits
                     ),
                     data,
+                })
+            }
+            Command::MixxxxxPing { timeout_ms } => {
+                let cfg = MixxxxxConfig::from_env();
+                let res = ping_mixxxxx(&cfg, timeout_ms.unwrap_or(200))?;
+                let data = serde_json::to_value(&res)
+                    .map_err(|e| DjError::Sidecar(format!("Serialize error: {e}")))?;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "mixxxxx_ping".to_string(),
+                    message: res.note,
+                    data,
+                })
+            }
+            Command::MixxxxxVideo { deck, controls } => {
+                let cfg = MixxxxxConfig::from_env();
+                let sent = send_deck_video_controls(&cfg, deck, &controls)?;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "mixxxxx_video".to_string(),
+                    message: format!(
+                        "Sent {} Mixxxxx video OSC message(s) for {} to {}",
+                        sent.len(),
+                        deck.label(),
+                        cfg.target_addr()
+                    ),
+                    data: json!({
+                        "deck": deck,
+                        "target": cfg.target_addr(),
+                        "sent_addresses": sent,
+                    }),
                 })
             }
         }

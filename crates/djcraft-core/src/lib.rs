@@ -6,10 +6,15 @@
 
 pub mod command;
 pub mod i18n;
+pub mod mixxxxx_osc;
 
 pub use command::{
     parse_dettato_json, resolve_dettato_binary, Command, CommandSpec, DettatoAnalysis,
     DettatoTrackSummary, DispatchOutcome,
+};
+pub use mixxxxx_osc::{
+    encode_osc_message, ping_mixxxxx, resolve_mixxxxx_binary, send_deck_video_controls,
+    MixxxxxConfig, MixxxxxPingResult, MixxxxxVideoControls, OscArg,
 };
 
 use djcraft_audio::{AudioEngine, DeckId, DeckState, TrackMeta};

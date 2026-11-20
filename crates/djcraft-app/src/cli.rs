@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 use clap::{Parser, Subcommand};
-use djcraft_core::{Command, DjOrchestrator};
+use djcraft_audio::DeckId;
+use djcraft_core::{Command, DjOrchestrator, MixxxxxVideoControls};
 
 #[derive(Parser)]
 #[command(name = "djcraft-cli", about = "DJCraft Local Performance Mixer CLI")]
@@ -30,6 +31,24 @@ enum Commands {
         /// Inference device: auto, cuda, or cpu
         #[arg(long)]
         device: Option<String>,
+    },
+    /// Ping local Mixxxxx video-extended Mixxx OSC bridge (UDP 11119)
+    MixxxxxPing,
+    /// Send video OSC controls to Mixxxxx for a deck (1-4)
+    MixxxxxVideo {
+        /// Deck number (1=A, 2=B, 3=C, 4=D)
+        #[arg(long, default_value_t = 1)]
+        deck: u8,
+        #[arg(long)]
+        enabled: Option<bool>,
+        #[arg(long)]
+        fullscreen: Option<bool>,
+        #[arg(long)]
+        brightness: Option<f32>,
+        #[arg(long)]
+        contrast: Option<f32>,
+        #[arg(long)]
+        saturation: Option<f32>,
     },
 }
 
@@ -63,6 +82,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 audio_path,
                 output_dir,
                 device,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&outcome)?);
+        }
+        Commands::MixxxxxPing => {
+            let outcome = orch.dispatch(Command::MixxxxxPing {
+                timeout_ms: Some(250),
+            })?;
+            println!("{}", serde_json::to_string_pretty(&outcome)?);
+        }
+        Commands::MixxxxxVideo {
+            deck,
+            enabled,
+            fullscreen,
+            brightness,
+            contrast,
+            saturation,
+        } => {
+            let deck_id = match deck {
+                1 => DeckId::DeckA,
+                2 => DeckId::DeckB,
+                3 => DeckId::DeckC,
+                4 => DeckId::DeckD,
+                _ => return Err(format!("Invalid deck {deck}; expected 1..=4").into()),
+            };
+            let outcome = orch.dispatch(Command::MixxxxxVideo {
+                deck: deck_id,
+                controls: MixxxxxVideoControls {
+                    enabled,
+                    fullscreen,
+                    brightness,
+                    contrast,
+                    saturation,
+                },
             })?;
             println!("{}", serde_json::to_string_pretty(&outcome)?);
         }

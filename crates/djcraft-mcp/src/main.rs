@@ -4,7 +4,8 @@
 //! Line-delimited JSON-RPC: stdout is 100% pure JSON-RPC, every diagnostic
 //! goes to stderr. All tools dispatch through `DjOrchestrator::dispatch`.
 
-use djcraft_core::{Command, DjOrchestrator};
+use djcraft_audio::DeckId;
+use djcraft_core::{Command, DjOrchestrator, MixxxxxVideoControls};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
@@ -102,6 +103,27 @@ fn main() {
                                 },
                                 "required": ["audio_path"]
                             }
+                        },
+                        {
+                            "name": "djcraft_mixxxxx_ping",
+                            "description": "Ping the Mixxxxx video-extended Mixxx OSC bridge on UDP 11119 and report local mixxx.exe presence.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_mixxxxx_video",
+                            "description": "Send video OSC controls (/deck/[N]/video_*) to Mixxxxx for deck 1-4.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "deck": { "type": "integer", "minimum": 1, "maximum": 4 },
+                                    "enabled": { "type": "boolean" },
+                                    "fullscreen": { "type": "boolean" },
+                                    "brightness": { "type": "number" },
+                                    "contrast": { "type": "number" },
+                                    "saturation": { "type": "number" }
+                                },
+                                "required": ["deck"]
+                            }
                         }
                     ]
                 }
@@ -157,6 +179,43 @@ fn main() {
                                 Ok(out) => out.data,
                                 Err(e) => json!({ "error": e.to_string() }),
                             }
+                        }
+                    }
+                    "djcraft_mixxxxx_ping" => match orch.dispatch(Command::MixxxxxPing {
+                        timeout_ms: Some(250),
+                    }) {
+                        Ok(out) => out.data,
+                        Err(e) => json!({ "error": e.to_string() }),
+                    },
+                    "djcraft_mixxxxx_video" => {
+                        let deck_num = args.get("deck").and_then(|v| v.as_u64()).unwrap_or(1);
+                        let deck = match deck_num {
+                            1 => DeckId::DeckA,
+                            2 => DeckId::DeckB,
+                            3 => DeckId::DeckC,
+                            4 => DeckId::DeckD,
+                            _ => {
+                                let err = json!({ "error": format!("Invalid deck {deck_num}; expected 1..=4") });
+                                let resp = json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "result": { "content": [{ "type": "text", "text": err.to_string() }] }
+                                });
+                                let _ = writeln!(stdout, "{resp}");
+                                let _ = stdout.flush();
+                                continue;
+                            }
+                        };
+                        let controls = MixxxxxVideoControls {
+                            enabled: args.get("enabled").and_then(|v| v.as_bool()),
+                            fullscreen: args.get("fullscreen").and_then(|v| v.as_bool()),
+                            brightness: args.get("brightness").and_then(|v| v.as_f64()).map(|v| v as f32),
+                            contrast: args.get("contrast").and_then(|v| v.as_f64()).map(|v| v as f32),
+                            saturation: args.get("saturation").and_then(|v| v.as_f64()).map(|v| v as f32),
+                        };
+                        match orch.dispatch(Command::MixxxxxVideo { deck, controls }) {
+                            Ok(out) => out.data,
+                            Err(e) => json!({ "error": e.to_string() }),
                         }
                     }
                     _ => json!({ "error": format!("Unknown tool: {name}") }),

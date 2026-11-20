@@ -1,7 +1,12 @@
+use std::net::UdpSocket;
 use std::path::Path;
+use std::time::Duration;
 
 use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
-use djcraft_core::{parse_dettato_json, Command, DjOrchestrator};
+use djcraft_core::{
+    encode_osc_message, parse_dettato_json, send_deck_video_controls, Command, DjOrchestrator,
+    MixxxxxConfig, MixxxxxVideoControls, OscArg,
+};
 
 #[test]
 fn test_camelot_wheel_compatible_pairs() {
@@ -324,4 +329,64 @@ fn test_new_session_resets_crossfader_and_preserves_undo() {
     orch.dispatch(Command::NewSession).expect("new session");
     assert_eq!(orch.crossfader, 0.0);
     assert!(orch.undo_depth() >= 2);
+}
+
+#[test]
+fn test_osc_message_encoding_alignment_and_endianness() {
+    let ping = encode_osc_message("/mixxxxx/ping", &[]);
+    assert_eq!(ping.len() % 4, 0);
+    assert!(ping.starts_with(b"/mixxxxx/ping\0"));
+    assert!(ping.ends_with(b",\0\0\0"));
+
+    let vid = encode_osc_message("/deck/1/video_enabled", &[OscArg::Int(1)]);
+    assert_eq!(vid.len() % 4, 0);
+    assert_eq!(&vid[vid.len() - 4..], &1i32.to_be_bytes());
+
+    let bright = encode_osc_message("/deck/2/video_brightness", &[OscArg::Float(0.75)]);
+    assert_eq!(bright.len() % 4, 0);
+    assert_eq!(&bright[bright.len() - 4..], &0.75f32.to_be_bytes());
+}
+
+#[test]
+fn test_mixxxxx_video_controls_udp_loopback_roundtrip() {
+    let receiver = UdpSocket::bind("127.0.0.1:0").expect("bind loopback");
+    receiver
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .expect("timeout");
+    let port = receiver.local_addr().expect("addr").port();
+
+    let cfg = MixxxxxConfig {
+        host: "127.0.0.1".to_string(),
+        in_port: port,
+        out_port: 0,
+    };
+    let sent = send_deck_video_controls(
+        &cfg,
+        DeckId::DeckB,
+        &MixxxxxVideoControls {
+            enabled: Some(true),
+            fullscreen: None,
+            brightness: Some(0.8),
+            contrast: None,
+            saturation: None,
+        },
+    )
+    .expect("send video controls");
+    assert_eq!(
+        sent,
+        vec!["/deck/2/video_enabled", "/deck/2/video_brightness"]
+    );
+
+    let mut buf = [0u8; 128];
+    let (n1, _) = receiver.recv_from(&mut buf).expect("recv pkt 1");
+    assert!(String::from_utf8_lossy(&buf[..n1]).starts_with("/deck/2/video_enabled"));
+    let (n2, _) = receiver.recv_from(&mut buf).expect("recv pkt 2");
+    assert!(String::from_utf8_lossy(&buf[..n2]).starts_with("/deck/2/video_brightness"));
+}
+
+#[test]
+fn test_mixxxxx_video_controls_rejects_empty_payload() {
+    let cfg = MixxxxxConfig::default();
+    let err = send_deck_video_controls(&cfg, DeckId::DeckA, &MixxxxxVideoControls::default());
+    assert!(err.is_err());
 }
