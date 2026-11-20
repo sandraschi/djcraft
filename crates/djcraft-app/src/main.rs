@@ -37,6 +37,18 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 struct Args {
     #[arg(long)]
     smoke: bool,
+    /// Capture one rendered frame to a PPM image path and exit.
+    #[arg(long)]
+    screenshot: Option<PathBuf>,
+    /// Override initial skin (rane, pioneer, serato, vdj, pink, daylight).
+    #[arg(long)]
+    skin: Option<String>,
+    /// Start in 4-deck layout.
+    #[arg(long)]
+    four_deck: bool,
+    /// Start in the dedicated 2-pane Crates & Gig Prep workspace.
+    #[arg(long)]
+    crates: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,6 +256,9 @@ pub struct DjCraftApp {
     help_tab: HelpTab,
     show_licenses_dialog: bool,
     show_about_dialog: bool,
+    screenshot_out: Option<PathBuf>,
+    screenshot_frames: u32,
+    screenshot_requested: bool,
 }
 
 impl Default for DjCraftApp {
@@ -352,6 +367,9 @@ impl DjCraftApp {
             help_tab: HelpTab::GetStarted,
             show_licenses_dialog: false,
             show_about_dialog: false,
+            screenshot_out: None,
+            screenshot_frames: 0,
+            screenshot_requested: false,
         }
     }
 
@@ -1027,6 +1045,22 @@ impl DjCraftApp {
             DeckId::DeckC => t(I18nKey::DeckC, self.locale),
             DeckId::DeckD => t(I18nKey::DeckD, self.locale),
         }
+    }
+
+    fn maybe_capture_screenshot(&mut self, ctx: &egui::Context) {
+        let Some(out_path) = self.screenshot_out.clone() else {
+            return;
+        };
+        self.screenshot_frames += 1;
+        if self.screenshot_frames >= 4 && !self.screenshot_requested {
+            self.screenshot_requested = true;
+            let close_ctx = ctx.clone();
+            ctx.request_screenshot(move |img| {
+                let _ = write_color_image_ppm(&out_path, &img);
+                close_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            });
+        }
+        ctx.request_repaint();
     }
 
     fn sync_audio_and_repaint(&mut self, ctx: &egui::Context) {
@@ -1867,6 +1901,7 @@ impl eframe::App for DjCraftApp {
             });
             self.handle_crate_actions(actions);
             self.sync_audio_and_repaint(&ctx);
+            self.maybe_capture_screenshot(&ctx);
             return;
         }
 
@@ -2011,6 +2046,7 @@ impl eframe::App for DjCraftApp {
 
         // Push all state mutations from this frame straight into WASAPI & keep animating!
         self.sync_audio_and_repaint(&ctx);
+        self.maybe_capture_screenshot(&ctx);
     }
 }
 
@@ -3238,13 +3274,47 @@ fn run_headless_smoke() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn write_color_image_ppm(path: &std::path::Path, img: &egui::ColorImage) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let w = img.size[0];
+    let h = img.size[1];
+    let mut buf = Vec::with_capacity(32 + w * h * 3);
+    write!(&mut buf, "P6\n{w} {h}\n255\n")?;
+    for px in &img.pixels {
+        buf.push(px.r());
+        buf.push(px.g());
+        buf.push(px.b());
+    }
+    std::fs::write(path, buf)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     if args.smoke {
         return run_headless_smoke();
     }
 
-    let app = DjCraftApp::new();
+    let mut app = DjCraftApp::new();
+    if let Some(sk) = args.skin.as_deref() {
+        app.prefs.skin = match sk.to_lowercase().as_str() {
+            "pioneer" => SkinId::PioneerClub,
+            "serato" => SkinId::SeratoMidnight,
+            "vdj" => SkinId::VirtualDjCarbon,
+            "pink" | "shocking_pink" => SkinId::ShockingPink,
+            "daylight" | "light" => SkinId::DaylightBooth,
+            _ => SkinId::RaneBattle,
+        };
+    }
+    if args.four_deck {
+        app.prefs.four_deck_layout = true;
+    }
+    if args.crates {
+        app.workspace_mode = WorkspaceMode::CratesGigPrep;
+    }
+    app.screenshot_out = args.screenshot;
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 900.0])
