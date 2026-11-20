@@ -8,7 +8,12 @@ All notable changes to DJCraft are documented in this file.
 - **L1 Audio & Universal `Command::dispatch` Bus (`djcraft-audio`, `djcraft-core`)**:
   - Enforced `#![forbid(unsafe_code)]` across all workspace crates and eliminated `.unwrap()` from PCM synthesis.
   - Full 4-deck state (`DeckA`-`DeckD`), 4-slot hot cues, beat loops, demo crate library, 64-step Undo/Redo transaction stack, and Camelot `compatible_camelot_keys`.
-  - 19-command `Command::catalog()` shared by GUI, CLI, and MCP stdio.
+  - Live Windows WASAPI 4-deck audio output (`cpal 0.15`), equal-power crossfader, soft-clip `tanh` limiter, Master Loudness slider + `MUTE`, and per-deck Volume faders.
+  - Pure-Rust `symphonia 0.5` audio decoding (MP3, WAV, FLAC, OGG, M4A/AAC), Catmull-Rom varispeed resampling, WSOLA keylock time-stretching, onset autocorrelation beatgrid detection + `Phase Sync`, real-time 3-band kill EQ (`Low`/`Mid`/`High`), and 10 ms `WaveformSummary` real-audio waveforms.
+  - 22-command `Command::catalog()` shared by GUI, CLI, and MCP stdio.
+- **Native Video Mixer & Detachable Projector (`crates/djcraft-app/src/video.rs`)**:
+  - External `ffmpeg` RGB24 frame-pipe decoder for `.mp4`/`.mkv`/`.mov`/`.webm` with companion video autoload and audio-reactive procedural visual fallback.
+  - Crossfader alpha-blend preview + Brightness/Contrast/Saturation controls + detachable secondary projector viewport (`ctx.show_viewport_immediate`).
 - **Offline `kobimusic/dettato` Audio-to-MIDI Sidecar**:
   - Subprocess CLI adapter (`Command::AnalyzeTrackDettato`, `djcraft-cli analyze-dettato`, `djcraft_analyze_dettato`) parsing `<stem>.json` tuning cents, instrument tracks, and drum hit counts.
 - **Pure-Rust `mixxxxx` Video OSC 1.0 Bridge**:

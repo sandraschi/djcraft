@@ -34,3 +34,15 @@
   - `cargo clippy --all-targets -- -D warnings`: pass (0 warnings)
   - `cargo test`: **26 passed, 0 failed** (25 core + `tests::glyph_allowlist`)
   - Rebuilt `dist/djcraft.exe` (14,508,032 bytes) and `dist/djcraft-0.1.0-setup.exe` (4,188,716 bytes) + `SHA256SUMS.txt`.
+
+## 2026-11-20 - v0.1.0 Live WASAPI Audio, DSP/Beatgrid, 3-Band Kill EQ & Native Video Mixer
+
+- **Audio & DSP (`4c6c647`, `d9a18ec`, `5738213`):**
+  - Added `cpal 0.15.3` live WASAPI 4-deck output (`output.rs`), Master Loudness + Mute, per-deck Volume faders.
+  - Added `symphonia 0.5.5` audio file decoding, Catmull-Rom varispeed, WSOLA keylock time-stretching, onset autocorrelation beatgrid detection + `Phase Sync`, real-time 3-band stereo kill EQ, and 10 ms `WaveformSummary` rendering (`dsp.rs`, `widgets.rs`).
+  - Added native FFmpeg RGB24 video mixer + audio-reactive fallback + detachable projector viewport (`video.rs`, `main.rs`, `rfd 0.15.4`).
+- **Gates:**
+  - `cargo clippy --all-targets -- -D warnings`: pass (0 warnings)
+  - `cargo test`: **34 passed, 0 failed** (33 core/audio/DSP/EQ/OSC + `tests::glyph_allowlist` scanning `main.rs`, `theme.rs`, `video.rs`, `widgets.rs`)
+  - `makensis`: 0 warnings (`CHANGELOG.md` now bundled)
+  - Rebuilt `dist/djcraft.exe` (16,624,640 bytes), `dist/djcraft-cli.exe` (1,112,576 bytes), `dist/djcraft-mcp.exe` (698,880 bytes), and `dist/djcraft-0.1.0-setup.exe` (4,812,249 bytes) + `SHA256SUMS.txt`.
