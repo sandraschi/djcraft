@@ -41,10 +41,13 @@ pub struct CrateTrack {
     pub drum_hits: Option<i64>,
     pub rating: i32,
     pub analyzed_at: Option<String>,
+    #[serde(default)]
+    pub crate_position: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CrateSortField {
+    ManualOrder,
     Title,
     Artist,
     Bpm,
@@ -55,7 +58,8 @@ pub enum CrateSortField {
 }
 
 impl CrateSortField {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
+        Self::ManualOrder,
         Self::Title,
         Self::Artist,
         Self::Bpm,
@@ -67,6 +71,7 @@ impl CrateSortField {
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::ManualOrder => "Gig Order (#)",
             Self::Title => "Title",
             Self::Artist => "Artist",
             Self::Bpm => "BPM",
@@ -103,7 +108,7 @@ impl Default for CrateQuery {
             key_filter: None,
             compatible_with_key: None,
             analyzed_only: false,
-            sort_by: CrateSortField::Title,
+            sort_by: CrateSortField::ManualOrder,
             sort_asc: true,
         }
     }
@@ -363,13 +368,248 @@ impl CrateStore {
     }
 
     pub fn add_track_to_crate(&self, crate_id: i64, track_id: i64) -> Result<(), DjError> {
+        let next_pos: i64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(MAX(position) + 1, 0) FROM crate_tracks WHERE crate_id = ?1",
+                params![crate_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
         self.conn
             .execute(
-                "INSERT OR IGNORE INTO crate_tracks (crate_id, track_id) VALUES (?1, ?2)",
-                params![crate_id, track_id],
+                "INSERT OR IGNORE INTO crate_tracks (crate_id, track_id, position) VALUES (?1, ?2, ?3)",
+                params![crate_id, track_id, next_pos],
             )
             .map_err(|e| DjError::Deck(format!("Add track to crate failed: {e}")))?;
         Ok(())
+    }
+
+    /// Rename a crate and recursively update `full_path` for all descendant subcrates.
+    pub fn rename_crate(&self, crate_id: i64, new_name: &str) -> Result<String, DjError> {
+        let clean = new_name.trim().replace('/', "-");
+        if clean.is_empty() {
+            return Err(DjError::Deck("New crate name cannot be empty".to_string()));
+        }
+        let (old_path, parent_id): (String, Option<i64>) = self
+            .conn
+            .query_row(
+                "SELECT full_path, parent_id FROM crates WHERE id = ?1",
+                params![crate_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| DjError::Deck(format!("Crate {crate_id} not found: {e}")))?;
+
+        let new_full_path = match parent_id {
+            Some(pid) => {
+                let ppath: String = self
+                    .conn
+                    .query_row(
+                        "SELECT full_path FROM crates WHERE id = ?1",
+                        params![pid],
+                        |r| r.get(0),
+                    )
+                    .map_err(|e| DjError::Deck(format!("Parent crate {pid} not found: {e}")))?;
+                format!("{ppath}/{clean}")
+            }
+            None => clean.clone(),
+        };
+
+        self.conn
+            .execute(
+                "UPDATE crates SET name = ?1, full_path = ?2 WHERE id = ?3",
+                params![&clean, &new_full_path, crate_id],
+            )
+            .map_err(|e| DjError::Deck(format!("Rename crate failed: {e}")))?;
+
+        let old_prefix = format!("{old_path}/");
+        let new_prefix = format!("{new_full_path}/");
+        let descendants = self.collect_descendant_crate_ids(crate_id)?;
+        for did in descendants {
+            if did == crate_id {
+                continue;
+            }
+            if let Ok(dpath) = self.conn.query_row::<String, _, _>(
+                "SELECT full_path FROM crates WHERE id = ?1",
+                params![did],
+                |r| r.get(0),
+            ) {
+                if let Some(suffix) = dpath.strip_prefix(&old_prefix) {
+                    let updated = format!("{new_prefix}{suffix}");
+                    let _ = self.conn.execute(
+                        "UPDATE crates SET full_path = ?1 WHERE id = ?2",
+                        params![updated, did],
+                    );
+                }
+            }
+        }
+        Ok(new_full_path)
+    }
+
+    /// Delete a crate (and its subcrates via ON DELETE CASCADE).
+    pub fn delete_crate(&self, crate_id: i64) -> Result<(), DjError> {
+        self.conn
+            .execute("DELETE FROM crates WHERE id = ?1", params![crate_id])
+            .map_err(|e| DjError::Deck(format!("Delete crate failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Duplicate a crate and preserve its exact manual track order.
+    pub fn duplicate_crate(&self, crate_id: i64, new_name: &str) -> Result<i64, DjError> {
+        let parent_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT parent_id FROM crates WHERE id = ?1",
+                params![crate_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| DjError::Deck(format!("Crate {crate_id} not found: {e}")))?;
+        let new_id = self.create_subcrate(parent_id, new_name)?;
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT track_id, position FROM crate_tracks WHERE crate_id = ?1 ORDER BY position ASC",
+            )
+            .map_err(|e| DjError::Deck(format!("Read crate order failed: {e}")))?;
+        let pairs: Vec<(i64, i64)> = stmt
+            .query_map(params![crate_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| DjError::Deck(format!("Map crate order failed: {e}")))?
+            .flatten()
+            .collect();
+        for (tid, pos) in pairs {
+            let _ = self.conn.execute(
+                "INSERT OR IGNORE INTO crate_tracks (crate_id, track_id, position) VALUES (?1, ?2, ?3)",
+                params![new_id, tid, pos],
+            );
+        }
+        Ok(new_id)
+    }
+
+    pub fn remove_track_from_crate(&self, crate_id: i64, track_id: i64) -> Result<(), DjError> {
+        self.conn
+            .execute(
+                "DELETE FROM crate_tracks WHERE crate_id = ?1 AND track_id = ?2",
+                params![crate_id, track_id],
+            )
+            .map_err(|e| DjError::Deck(format!("Remove track failed: {e}")))?;
+        self.normalize_crate_positions(crate_id)
+    }
+
+    pub fn delete_track(&self, track_id: i64) -> Result<(), DjError> {
+        self.conn
+            .execute("DELETE FROM tracks WHERE id = ?1", params![track_id])
+            .map_err(|e| DjError::Deck(format!("Delete track failed: {e}")))?;
+        Ok(())
+    }
+
+    fn normalize_crate_positions(&self, crate_id: i64) -> Result<(), DjError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT track_id FROM crate_tracks WHERE crate_id = ?1 ORDER BY position ASC, track_id ASC",
+            )
+            .map_err(|e| DjError::Deck(format!("Read order failed: {e}")))?;
+        let tids: Vec<i64> = stmt
+            .query_map(params![crate_id], |r| r.get(0))
+            .map_err(|e| DjError::Deck(format!("Map order failed: {e}")))?
+            .flatten()
+            .collect();
+        for (idx, tid) in tids.into_iter().enumerate() {
+            let _ = self.conn.execute(
+                "UPDATE crate_tracks SET position = ?1 WHERE crate_id = ?2 AND track_id = ?3",
+                params![idx as i64, crate_id, tid],
+            );
+        }
+        Ok(())
+    }
+
+    /// Move `track_id` to `new_index` (0-based) within `crate_id` for persistent gig-prep ordering.
+    pub fn reorder_crate_track(
+        &self,
+        crate_id: i64,
+        track_id: i64,
+        new_index: usize,
+    ) -> Result<(), DjError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT track_id FROM crate_tracks WHERE crate_id = ?1 ORDER BY position ASC, track_id ASC",
+            )
+            .map_err(|e| DjError::Deck(format!("Read order failed: {e}")))?;
+        let mut tids: Vec<i64> = stmt
+            .query_map(params![crate_id], |r| r.get(0))
+            .map_err(|e| DjError::Deck(format!("Map order failed: {e}")))?
+            .flatten()
+            .collect();
+        let Some(old_idx) = tids.iter().position(|&id| id == track_id) else {
+            return Err(DjError::Deck(format!(
+                "Track {track_id} is not in crate {crate_id}"
+            )));
+        };
+        tids.remove(old_idx);
+        let insert_at = new_index.min(tids.len());
+        tids.insert(insert_at, track_id);
+        for (idx, tid) in tids.into_iter().enumerate() {
+            self.conn
+                .execute(
+                    "UPDATE crate_tracks SET position = ?1 WHERE crate_id = ?2 AND track_id = ?3",
+                    params![idx as i64, crate_id, tid],
+                )
+                .map_err(|e| DjError::Deck(format!("Update order failed: {e}")))?;
+        }
+        Ok(())
+    }
+
+    pub fn move_crate_track_by(
+        &self,
+        crate_id: i64,
+        track_id: i64,
+        delta: isize,
+    ) -> Result<(), DjError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT track_id FROM crate_tracks WHERE crate_id = ?1 ORDER BY position ASC, track_id ASC",
+            )
+            .map_err(|e| DjError::Deck(format!("Read order failed: {e}")))?;
+        let tids: Vec<i64> = stmt
+            .query_map(params![crate_id], |r| r.get(0))
+            .map_err(|e| DjError::Deck(format!("Map order failed: {e}")))?
+            .flatten()
+            .collect();
+        let Some(old_idx) = tids.iter().position(|&id| id == track_id) else {
+            return Ok(());
+        };
+        let target = (old_idx as isize + delta).clamp(0, tids.len().saturating_sub(1) as isize) as usize;
+        self.reorder_crate_track(crate_id, track_id, target)
+    }
+
+    /// Add one or more OS audio files (e.g. from drag-and-drop or multi-file picker) to a crate.
+    pub fn add_audio_files_to_crate(
+        &self,
+        crate_id: i64,
+        paths: &[PathBuf],
+    ) -> Result<usize, DjError> {
+        let mut added = 0usize;
+        for p in paths {
+            if p.is_dir() {
+                added += self.scan_audio_folder(crate_id, p)?;
+            } else if p.is_file() && is_supported_audio(p) {
+                let (artist, title) = infer_artist_title(p);
+                let tid = self.upsert_track(
+                    &p.to_string_lossy(),
+                    &title,
+                    &artist,
+                    "",
+                    0.0,
+                    "",
+                    0.0,
+                )?;
+                self.add_track_to_crate(crate_id, tid)?;
+                added += 1;
+            }
+        }
+        Ok(added)
     }
 
     pub fn set_track_rating(&self, track_id: i64, rating: i32) -> Result<(), DjError> {
@@ -411,12 +651,14 @@ impl CrateStore {
                 .conn
                 .prepare(
                     "
-                    SELECT DISTINCT t.id, t.path, t.title, t.artist, t.genre, t.bpm,
+                    SELECT t.id, t.path, t.title, t.artist, t.genre, t.bpm,
                            t.musical_key, t.duration_seconds, t.beatgrid_offset_sec,
-                           t.tuning_cents, t.drum_hits, t.rating, t.analyzed_at
+                           t.tuning_cents, t.drum_hits, t.rating, t.analyzed_at,
+                           ct.position
                     FROM tracks t
                     INNER JOIN crate_tracks ct ON ct.track_id = t.id
                     WHERE ct.crate_id = ?1
+                    ORDER BY ct.position ASC, t.id ASC
                     ",
                 )
                 .map_err(|e| DjError::Deck(format!("Query crate tracks failed: {e}")))?;
@@ -424,7 +666,7 @@ impl CrateStore {
             let mut acc = Vec::new();
             for target_cid in id_set {
                 let rows = stmt
-                    .query_map(params![target_cid], map_track_row)
+                    .query_map(params![target_cid], map_track_row_with_pos)
                     .map_err(|e| DjError::Deck(format!("Map crate tracks failed: {e}")))?;
                 for row in rows {
                     let t = row.map_err(|e| DjError::Deck(format!("Row error: {e}")))?;
@@ -440,13 +682,13 @@ impl CrateStore {
                 .prepare(
                     "
                     SELECT id, path, title, artist, genre, bpm, musical_key, duration_seconds,
-                           beatgrid_offset_sec, tuning_cents, drum_hits, rating, analyzed_at
+                           beatgrid_offset_sec, tuning_cents, drum_hits, rating, analyzed_at, 0
                     FROM tracks
                     ",
                 )
                 .map_err(|e| DjError::Deck(format!("Query all tracks failed: {e}")))?;
             let rows = stmt
-                .query_map([], map_track_row)
+                .query_map([], map_track_row_with_pos)
                 .map_err(|e| DjError::Deck(format!("Map tracks failed: {e}")))?;
             let mut acc = Vec::new();
             for row in rows {
@@ -503,6 +745,7 @@ impl CrateStore {
 
         tracks.sort_by(|a, b| {
             let ord = match q.sort_by {
+                CrateSortField::ManualOrder => a.crate_position.cmp(&b.crate_position).then(a.id.cmp(&b.id)),
                 CrateSortField::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
                 CrateSortField::Artist => a.artist.to_lowercase().cmp(&b.artist.to_lowercase()),
                 CrateSortField::Bpm => a.bpm.total_cmp(&b.bpm),
@@ -950,7 +1193,14 @@ fn map_track_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<CrateTrack> {
         drum_hits: r.get(10)?,
         rating: r.get(11)?,
         analyzed_at: r.get(12)?,
+        crate_position: 0,
     })
+}
+
+fn map_track_row_with_pos(r: &rusqlite::Row<'_>) -> rusqlite::Result<CrateTrack> {
+    let mut t = map_track_row(r)?;
+    t.crate_position = r.get(13)?;
+    Ok(t)
 }
 
 fn is_supported_audio(path: &Path) -> bool {

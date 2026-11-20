@@ -643,6 +643,7 @@ fn test_vdj_folder_xml_and_m3u_roundtrip() {
             drum_hits: None,
             rating: 5,
             analyzed_at: None,
+            crate_position: 0,
         },
         CrateTrack {
             id: 2,
@@ -658,6 +659,7 @@ fn test_vdj_folder_xml_and_m3u_roundtrip() {
             drum_hits: None,
             rating: 4,
             analyzed_at: None,
+            crate_position: 1,
         },
     ];
     let xml = encode_vdj_folder_xml(&tracks);
@@ -845,4 +847,64 @@ fn test_ai_natural_language_commands_and_harmonic_setlist() {
     store.seed_demo_if_empty().expect("seed");
     let setlist = plan_harmonic_setlist(&store, "8A", 4).expect("setlist");
     assert!(setlist.len() >= 3);
+}
+
+#[test]
+fn test_crate_full_crud_and_manual_gig_reordering() {
+    let store = CrateStore::open_in_memory().expect("db");
+    let root = store.ensure_crate_path("Friday Gig").expect("root");
+    let sub = store.create_subcrate(Some(root), "Warmup").expect("sub");
+
+    let t1 = store
+        .upsert_track("D:/1.mp3", "Track 1", "A", "", 120.0, "8A", 300.0)
+        .expect("t1");
+    let t2 = store
+        .upsert_track("D:/2.mp3", "Track 2", "B", "", 124.0, "8A", 300.0)
+        .expect("t2");
+    let t3 = store
+        .upsert_track("D:/3.mp3", "Track 3", "C", "", 128.0, "9A", 300.0)
+        .expect("t3");
+    store.add_track_to_crate(sub, t1).expect("add 1");
+    store.add_track_to_crate(sub, t2).expect("add 2");
+    store.add_track_to_crate(sub, t3).expect("add 3");
+
+    // Reorder: move Track 3 to slot 0 (opener!)
+    store.reorder_crate_track(sub, t3, 0).expect("reorder");
+    let ordered = store
+        .query_tracks(&CrateQuery {
+            crate_id: Some(sub),
+            include_subcrates: false,
+            sort_by: CrateSortField::ManualOrder,
+            sort_asc: true,
+            ..Default::default()
+        })
+        .expect("query ordered");
+    assert_eq!(
+        ordered.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(),
+        vec!["Track 3", "Track 1", "Track 2"]
+    );
+
+    // Rename root crate -> descendant subcrate path updates automatically
+    let renamed = store.rename_crate(root, "Saturday Club").expect("rename");
+    assert_eq!(renamed, "Saturday Club");
+    let nodes = store.list_crates().expect("list");
+    assert!(nodes.iter().any(|n| n.full_path == "Saturday Club/Warmup"));
+
+    // Duplicate subcrate preserves order
+    let dup_id = store.duplicate_crate(sub, "Warmup Backup").expect("dup");
+    let dup_tracks = store
+        .query_tracks(&CrateQuery {
+            crate_id: Some(dup_id),
+            include_subcrates: false,
+            sort_by: CrateSortField::ManualOrder,
+            ..Default::default()
+        })
+        .expect("dup tracks");
+    assert_eq!(dup_tracks[0].title, "Track 3");
+
+    // Remove track & delete crate
+    store.remove_track_from_crate(dup_id, t3).expect("remove");
+    store.delete_crate(dup_id).expect("delete");
+    let after = store.list_crates().expect("list after");
+    assert!(!after.iter().any(|n| n.id == dup_id));
 }

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod crate_view;
 mod skins;
 mod theme;
 mod video;
@@ -9,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use clap::Parser;
+use crate_view::{render_gig_prep_workspace, CrateAction, CrateUiState};
 use djcraft_audio::dsp::{
     decode_audio_file, detect_beatgrid, load_sidecar_stems, WaveformSummary,
 };
@@ -72,6 +74,12 @@ impl HelpTab {
             Self::ProjectDocs => "Project Docs",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceMode {
+    LiveConsole,
+    CratesGigPrep,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,7 +165,9 @@ pub struct DjCraftApp {
     typography_applied: bool,
 
     prefs: UiPrefs,
+    workspace_mode: WorkspaceMode,
     lower_tab: LowerDockTab,
+    crate_ui: CrateUiState,
 
     // Live WASAPI / cpal audio output & decoded real-audio waveform summaries
     audio_out: AudioOutput,
@@ -260,7 +270,9 @@ impl DjCraftApp {
             typography_applied: false,
 
             prefs: UiPrefs::load(),
+            workspace_mode: WorkspaceMode::LiveConsole,
             lower_tab: LowerDockTab::Crates,
+            crate_ui: CrateUiState::default(),
 
             audio_out,
             deck_waveforms: [None, None, None, None],
@@ -583,6 +595,320 @@ impl DjCraftApp {
         }
     }
 
+    fn handle_crate_actions(&mut self, actions: Vec<CrateAction>) {
+        for act in actions {
+            match act {
+                CrateAction::SelectCrate(cid) => {
+                    self.crate_query.crate_id = cid;
+                    if cid.is_some() {
+                        self.crate_query.sort_by = CrateSortField::ManualOrder;
+                        self.crate_query.sort_asc = true;
+                    }
+                    self.crate_dirty = true;
+                }
+                CrateAction::CreateCrate { parent_id, name } => {
+                    if let Some(ref store) = self.crate_store {
+                        match store.create_subcrate(parent_id, &name) {
+                            Ok(cid) => {
+                                self.crate_query.crate_id = Some(cid);
+                                self.status_msg = format!("Created crate '{name}'");
+                                self.crate_dirty = true;
+                            }
+                            Err(e) => self.status_msg = format!("Create crate error: {e}"),
+                        }
+                    }
+                }
+                CrateAction::RenameCrate { crate_id, new_name } => {
+                    if let Some(ref store) = self.crate_store {
+                        match store.rename_crate(crate_id, &new_name) {
+                            Ok(path) => {
+                                self.status_msg = format!("Renamed crate to '{path}'");
+                                self.crate_dirty = true;
+                            }
+                            Err(e) => self.status_msg = format!("Rename error: {e}"),
+                        }
+                    }
+                }
+                CrateAction::DuplicateCrate { crate_id } => {
+                    if let Some(ref store) = self.crate_store {
+                        let base_name = self
+                            .crate_nodes
+                            .iter()
+                            .find(|n| n.id == crate_id)
+                            .map(|n| format!("{} Copy", n.name))
+                            .unwrap_or_else(|| "Crate Copy".to_string());
+                        match store.duplicate_crate(crate_id, &base_name) {
+                            Ok(new_id) => {
+                                self.crate_query.crate_id = Some(new_id);
+                                self.status_msg = format!("Duplicated crate as '{base_name}'");
+                                self.crate_dirty = true;
+                            }
+                            Err(e) => self.status_msg = format!("Duplicate error: {e}"),
+                        }
+                    }
+                }
+                CrateAction::DeleteCrate { crate_id } => {
+                    if let Some(ref store) = self.crate_store {
+                        match store.delete_crate(crate_id) {
+                            Ok(()) => {
+                                self.crate_query.crate_id = None;
+                                self.status_msg = "Deleted crate".to_string();
+                                self.crate_dirty = true;
+                            }
+                            Err(e) => self.status_msg = format!("Delete error: {e}"),
+                        }
+                    }
+                }
+                CrateAction::AddFilesDialog => {
+                    if let Some(files) = rfd::FileDialog::new()
+                        .add_filter("Audio Files", &["mp3", "wav", "flac", "ogg", "m4a", "aac"])
+                        .pick_files()
+                    {
+                        if let Some(ref store) = self.crate_store {
+                            let target = self
+                                .crate_query
+                                .crate_id
+                                .or_else(|| store.ensure_crate_path("Gig Prep").ok());
+                            if let Some(cid) = target {
+                                match store.add_audio_files_to_crate(cid, &files) {
+                                    Ok(n) => {
+                                        self.crate_query.crate_id = Some(cid);
+                                        self.status_msg = format!("Added {n} audio file(s) to crate");
+                                        self.crate_dirty = true;
+                                    }
+                                    Err(e) => self.status_msg = format!("Add files error: {e}"),
+                                }
+                            }
+                        }
+                    }
+                }
+                CrateAction::ScanFolderDialog => {
+                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                        if let Some(ref store) = self.crate_store {
+                            let target = self
+                                .crate_query
+                                .crate_id
+                                .or_else(|| store.ensure_crate_path("Scanned Music").ok());
+                            if let Some(cid) = target {
+                                match store.scan_audio_folder(cid, &dir) {
+                                    Ok(n) => {
+                                        self.crate_query.crate_id = Some(cid);
+                                        self.status_msg = format!("Scanned {n} tracks");
+                                        self.crate_dirty = true;
+                                    }
+                                    Err(e) => self.status_msg = format!("Scan error: {e}"),
+                                }
+                            }
+                        }
+                    }
+                }
+                CrateAction::ImportSeratoDialog => {
+                    if let Some(f) = rfd::FileDialog::new()
+                        .add_filter("Serato Crate", &["crate"])
+                        .pick_file()
+                    {
+                        if let Some(ref store) = self.crate_store {
+                            match store.import_serato_crate(&f) {
+                                Ok(s) => {
+                                    self.crate_query.crate_id = Some(s.crate_id);
+                                    self.status_msg = format!(
+                                        "Imported {} tracks into Serato crate '{}'",
+                                        s.imported_tracks, s.crate_path
+                                    );
+                                    self.crate_dirty = true;
+                                }
+                                Err(e) => self.status_msg = format!("Serato import error: {e}"),
+                            }
+                        }
+                    }
+                }
+                CrateAction::ExportSeratoDialog => {
+                    if let Some(cid) = self.crate_query.crate_id {
+                        if let Some(d) = rfd::FileDialog::new()
+                            .add_filter("Serato Crate", &["crate"])
+                            .set_file_name("djcraft_gig.crate")
+                            .save_file()
+                        {
+                            if let Some(ref store) = self.crate_store {
+                                match store.export_serato_crate(cid, &d) {
+                                    Ok(n) => self.status_msg = format!("Exported {n} tracks to Serato"),
+                                    Err(e) => self.status_msg = format!("Serato export error: {e}"),
+                                }
+                            }
+                        }
+                    }
+                }
+                CrateAction::ImportVdjDialog => {
+                    if let Some(f) = rfd::FileDialog::new()
+                        .add_filter("VirtualDJ / M3U", &["vdjfolder", "m3u", "m3u8"])
+                        .pick_file()
+                    {
+                        if let Some(ref store) = self.crate_store {
+                            match store.import_vdj_file(&f) {
+                                Ok(s) => {
+                                    self.crate_query.crate_id = Some(s.crate_id);
+                                    self.status_msg = format!(
+                                        "Imported {} tracks into '{}'",
+                                        s.imported_tracks, s.crate_path
+                                    );
+                                    self.crate_dirty = true;
+                                }
+                                Err(e) => self.status_msg = format!("VDJ import error: {e}"),
+                            }
+                        }
+                    }
+                }
+                CrateAction::ExportVdjDialog => {
+                    if let Some(cid) = self.crate_query.crate_id {
+                        if let Some(d) = rfd::FileDialog::new()
+                            .add_filter("VirtualDJ Folder", &["vdjfolder"])
+                            .add_filter("M3U8", &["m3u8"])
+                            .set_file_name("djcraft_gig.vdjfolder")
+                            .save_file()
+                        {
+                            if let Some(ref store) = self.crate_store {
+                                match store.export_vdj_file(cid, &d) {
+                                    Ok(n) => self.status_msg = format!("Exported {n} tracks to VDJ"),
+                                    Err(e) => self.status_msg = format!("VDJ export error: {e}"),
+                                }
+                            }
+                        }
+                    }
+                }
+                CrateAction::BatchStemActiveCrate => {
+                    if let Some(cid) = self.crate_query.crate_id {
+                        self.status_msg = "Batch stemming active crate in background...".to_string();
+                        let bg = Arc::clone(&self.bg_status);
+                        std::thread::spawn(move || {
+                            let msg = match CrateStore::open_default()
+                                .and_then(|s| s.batch_stem_crate(cid))
+                            {
+                                Ok(sum) => format!(
+                                    "Crate stem done: {} stemmed, {} skipped, {} failed",
+                                    sum.stemmed, sum.skipped_existing, sum.failed
+                                ),
+                                Err(e) => format!("Crate stem error: {e}"),
+                            };
+                            if let Ok(mut g) = bg.lock() {
+                                *g = Some(msg);
+                            }
+                        });
+                    }
+                }
+                CrateAction::BatchStemFolderDialog => {
+                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                        self.status_msg = format!("Batch stemming {} in background...", dir.display());
+                        let bg = Arc::clone(&self.bg_status);
+                        std::thread::spawn(move || {
+                            let msg = match batch_stem_folder(&dir) {
+                                Ok(sum) => format!(
+                                    "Folder stem done: {} stemmed, {} skipped, {} failed",
+                                    sum.stemmed, sum.skipped_existing, sum.failed
+                                ),
+                                Err(e) => format!("Folder stem error: {e}"),
+                            };
+                            if let Ok(mut g) = bg.lock() {
+                                *g = Some(msg);
+                            }
+                        });
+                    }
+                }
+                CrateAction::LoadToDeck { deck, track } => {
+                    self.load_crate_track_to_deck(deck, &track);
+                }
+                CrateAction::CopyTrackToCrate { crate_id, track_id } => {
+                    if let Some(ref store) = self.crate_store {
+                        if store.add_track_to_crate(crate_id, track_id).is_ok() {
+                            self.status_msg = "Added track to crate".to_string();
+                            self.crate_dirty = true;
+                        }
+                    }
+                }
+                CrateAction::ReorderTrack {
+                    crate_id,
+                    track_id,
+                    new_index,
+                } => {
+                    if let Some(ref store) = self.crate_store {
+                        if store.reorder_crate_track(crate_id, track_id, new_index).is_ok() {
+                            self.crate_query.sort_by = CrateSortField::ManualOrder;
+                            self.crate_query.sort_asc = true;
+                            self.status_msg = format!("Moved track to slot #{}", new_index + 1);
+                            self.crate_dirty = true;
+                        }
+                    }
+                }
+                CrateAction::MoveTrackBy {
+                    crate_id,
+                    track_id,
+                    delta,
+                } => {
+                    if let Some(ref store) = self.crate_store {
+                        if store.move_crate_track_by(crate_id, track_id, delta).is_ok() {
+                            self.crate_query.sort_by = CrateSortField::ManualOrder;
+                            self.crate_query.sort_asc = true;
+                            self.crate_dirty = true;
+                        }
+                    }
+                }
+                CrateAction::RemoveTrackFromCrate { crate_id, track_id } => {
+                    if let Some(ref store) = self.crate_store {
+                        if store.remove_track_from_crate(crate_id, track_id).is_ok() {
+                            self.status_msg = "Removed track from crate".to_string();
+                            self.crate_dirty = true;
+                        }
+                    }
+                }
+                CrateAction::DeleteTrack { track_id } => {
+                    if let Some(ref store) = self.crate_store {
+                        if store.delete_track(track_id).is_ok() {
+                            self.status_msg = "Deleted track from library".to_string();
+                            self.crate_dirty = true;
+                        }
+                    }
+                }
+                CrateAction::SetRating { track_id, rating } => {
+                    if let Some(ref store) = self.crate_store {
+                        if store.set_track_rating(track_id, rating).is_ok() {
+                            self.crate_dirty = true;
+                        }
+                    }
+                }
+                CrateAction::AnalyzeBuiltin { track_id } => {
+                    if let Some(ref store) = self.crate_store {
+                        match store.analyze_track_builtin(track_id) {
+                            Ok(up) => {
+                                self.status_msg = format!("Analyzed '{}': {:.1} BPM", up.title, up.bpm);
+                                self.crate_dirty = true;
+                            }
+                            Err(e) => self.status_msg = format!("Analyze error: {e}"),
+                        }
+                    }
+                }
+                CrateAction::AnalyzeDettato { track_id } => {
+                    if let Some(ref store) = self.crate_store {
+                        match store.analyze_track_dettato(track_id) {
+                            Ok(up) => {
+                                self.status_msg = format!(
+                                    "Dettato '{}': tuning {:?}c, drums {:?}",
+                                    up.title, up.tuning_cents, up.drum_hits
+                                );
+                                self.crate_dirty = true;
+                            }
+                            Err(e) => self.status_msg = format!("Dettato error: {e}"),
+                        }
+                    }
+                }
+                CrateAction::QueryChanged => {
+                    self.crate_bpm_min_text = self.crate_ui.bpm_min_text.clone();
+                    self.crate_bpm_max_text = self.crate_ui.bpm_max_text.clone();
+                    self.crate_harmonic_deck_a = self.crate_ui.harmonic_deck_a;
+                    self.crate_dirty = true;
+                }
+            }
+        }
+    }
+
     fn execute_catalog_id(&mut self, id: &str) {
         match id {
             "session.new" => self.dispatch_and_report(Command::NewSession),
@@ -859,6 +1185,33 @@ impl eframe::App for DjCraftApp {
             self.typography_applied = true;
         }
         ctx.set_visuals(palette.to_visuals());
+
+        // Handle OS drag-and-drop audio files / folders straight from Windows Explorer
+        let dropped_paths: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .collect()
+        });
+        if !dropped_paths.is_empty() {
+            if let Some(ref store) = self.crate_store {
+                let target = self
+                    .crate_query
+                    .crate_id
+                    .or_else(|| store.ensure_crate_path("Gig Prep").ok());
+                if let Some(cid) = target {
+                    match store.add_audio_files_to_crate(cid, &dropped_paths) {
+                        Ok(n) => {
+                            self.crate_query.crate_id = Some(cid);
+                            self.status_msg = format!("Dropped {n} audio file(s) into crate");
+                            self.crate_dirty = true;
+                        }
+                        Err(e) => self.status_msg = format!("Drop error: {e}"),
+                    }
+                }
+            }
+        }
 
         // Drain background worker status updates (batch stemming, AI replies)
         if let Ok(mut guard) = self.bg_status.try_lock() {
@@ -1255,10 +1608,21 @@ impl eframe::App for DjCraftApp {
         // 2. HELP MODALS (Command Palette, Shortcuts, Help Center, Licenses, About)
         self.render_modals(&ctx);
 
-        // 3. TOP QUICK BAR + PARALLEL STACKED WAVEFORMS BANNER
+        // 3. TOP WORKSPACE SWITCHER + QUICK BAR + PARALLEL STACKED WAVEFORMS BANNER
         egui::Panel::top("parallel_waveforms_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.strong(egui::RichText::new("DJCraft Pro").color(palette.deck_a));
+                ui.separator();
+                ui.selectable_value(
+                    &mut self.workspace_mode,
+                    WorkspaceMode::LiveConsole,
+                    "LIVE CONSOLE",
+                );
+                ui.selectable_value(
+                    &mut self.workspace_mode,
+                    WorkspaceMode::CratesGigPrep,
+                    "CRATES & GIG PREP",
+                );
                 ui.separator();
                 if ui.small_button("Auto-Sync").clicked() {
                     self.execute_catalog_id("commands.auto_sync");
@@ -1275,7 +1639,7 @@ impl eframe::App for DjCraftApp {
                 ui.separator();
                 ui.label(egui::RichText::new(&self.status_msg).color(palette.text_secondary));
             });
-            if self.prefs.show_parallel_waveforms {
+            if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_parallel_waveforms {
                 ui.add_space(4.0);
                 widgets::paint_parallel_waveforms(
                     ui,
@@ -1287,6 +1651,33 @@ impl eframe::App for DjCraftApp {
                 );
             }
         });
+
+        // Dedicated Full-Width File-Oriented CRATES & GIG PREP Workspace
+        if self.workspace_mode == WorkspaceMode::CratesGigPrep {
+            if self.crate_dirty {
+                self.refresh_crates();
+            }
+            let deck_a_key = self
+                .orch
+                .deck_a
+                .loaded_track
+                .as_ref()
+                .map(|t| t.musical_key.clone());
+            let mut actions = Vec::new();
+            egui::CentralPanel::default().show(ui, |ui| {
+                actions = render_gig_prep_workspace(
+                    ui,
+                    &palette,
+                    &mut self.crate_ui,
+                    &mut self.crate_query,
+                    &self.crate_nodes,
+                    &self.crate_results,
+                    deck_a_key.as_deref(),
+                );
+            });
+            self.handle_crate_actions(actions);
+            return;
+        }
 
         // 4. BOTTOM DECKS C & D STRIP
         if self.prefs.show_decks_cd {
@@ -2422,6 +2813,7 @@ mod tests {
     fn glyph_allowlist() {
         const ALLOWED: &[char] = &['\u{00B0}', '\u{00D7}', '\u{00B7}', '\u{2026}', '\u{2014}'];
         let sources = [
+            ("crate_view.rs", include_str!("crate_view.rs")),
             ("main.rs", include_str!("main.rs")),
             ("skins.rs", include_str!("skins.rs")),
             ("theme.rs", include_str!("theme.rs")),

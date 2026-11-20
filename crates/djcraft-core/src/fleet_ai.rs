@@ -133,13 +133,31 @@ pub fn plan_harmonic_setlist(
     let mut current_key = seed_key.trim().to_uppercase();
 
     for _ in 0..max_tracks {
-        let next = all.iter().find(|t| {
-            !chosen.iter().any(|c| c.id == t.id)
-                && AudioEngine::is_camelot_compatible(&current_key, &t.musical_key)
-        });
-        let Some(track) = next else {
+        // Prefer staying on a key that still has unpicked harmonic neighbors (avoids greedy dead ends)
+        let mut candidates: Vec<&CrateTrack> = all
+            .iter()
+            .filter(|t| {
+                !chosen.iter().any(|c| c.id == t.id)
+                    && AudioEngine::is_camelot_compatible(&current_key, &t.musical_key)
+            })
+            .collect();
+        if candidates.is_empty() {
             break;
-        };
+        }
+        // Warnsdorff-style heuristic: avoid dead ends (deg == 0) while preferring
+        // low-degree leaves first so central harmonic hubs stay available as bridges.
+        candidates.sort_by_key(|cand| {
+            let deg = all
+                .iter()
+                .filter(|other| {
+                    other.id != cand.id
+                        && !chosen.iter().any(|c| c.id == other.id)
+                        && AudioEngine::is_camelot_compatible(&cand.musical_key, &other.musical_key)
+                })
+                .count();
+            (deg == 0, deg)
+        });
+        let track = candidates[0];
         if !track.musical_key.trim().is_empty() {
             current_key = track.musical_key.trim().to_uppercase();
         }
