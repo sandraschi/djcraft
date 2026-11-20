@@ -44,3 +44,15 @@ Tier 1: Core Engine ──> Tier 2: MCP / CLI ──> Tier 3: Desktop UI ──>
 - [ ] Tofu Guard verification (100% font glyph coverage, zero tofu placeholder boxes).
 - [ ] Headless `--smoke` parity validation.
 - [ ] Standalone release binary packaging and NSIS installer.
+
+---
+
+### Post-Phase-4 Backlog (Craft Consolidation Freeze)
+
+Deferred until Craft Fleet Consolidation Plan Phase 4 exits:
+
+- [ ] **Offline track analysis via `kobimusic/dettato` CLI sidecar** (`D:\Dev\tools\dettato\.venv\Scripts\dettato.exe`, Apache-2.0, 28.1M params, CUDA <4 GB VRAM):
+  - Invoke headless `dettato <track> -o <cache_dir>` (with optional `DETTATO_WEIGHTS` for offline safetensors) during crate ingest/prep, never on the real-time deck audio thread.
+  - Consume `<stem>.json` (`tuning_cents`, `tracks`, `drums.hits`, `drums.model`) + `<stem>.mid` to surface A440 tuning-drift warnings, verify Camelot key from transcribed pitch content, and extract drum-hit transient markers.
+  - Smoke-tested on Goliath (RTX 4090, `torch 2.14.1+cu126`, `dettato 2.0.0`) on 2026-11-20 (`lofi_cafe.mp3`: 30 s -> electric piano 59 notes, harp 37 notes, Drums 144 hits, tuning +0.61 cents).
+  - Shared reference bridge already implemented in `reaper-mcp` (`reaper_mcp/dettato_bridge.py`).
