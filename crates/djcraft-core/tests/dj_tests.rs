@@ -7,8 +7,10 @@ use djcraft_audio::dsp::{
     detect_beatgrid, sample_varispeed, DecodedAudio, ThreeBandEq, WaveformSummary, WsolaDeckState,
 };
 use djcraft_core::{
-    encode_osc_message, parse_dettato_json, send_deck_video_controls, Command, DjOrchestrator,
-    MixxxxxConfig, MixxxxxVideoControls, OscArg,
+    encode_m3u, encode_osc_message, encode_serato_crate_bytes, encode_vdj_folder_xml,
+    parse_dettato_json, parse_m3u, parse_serato_crate_bytes, parse_vdj_folder_xml,
+    send_deck_video_controls, Command, CrateQuery, CrateSortField, CrateStore, CrateTrack,
+    DjOrchestrator, MixxxxxConfig, MixxxxxVideoControls, OscArg,
 };
 
 #[test]
@@ -607,4 +609,156 @@ fn test_waveform_summary_from_decoded_and_eq_dispatch() {
     })
     .expect("reset eq");
     assert_eq!(orch.deck_a.eq_low, 1.0);
+}
+
+#[test]
+fn test_serato_crate_binary_roundtrip_utf16be() {
+    let inputs = vec![
+        r"D:\Music\House\Artist A - Track 1.mp3".to_string(),
+        r"D:\Music\Techno\Café del Mar.flac".to_string(),
+    ];
+    let bytes = encode_serato_crate_bytes(&inputs);
+    assert!(bytes.starts_with(b"vrsn"));
+    let parsed = parse_serato_crate_bytes(&bytes, Some(r"D:\")).expect("parse serato");
+    assert_eq!(parsed, inputs);
+}
+
+#[test]
+fn test_vdj_folder_xml_and_m3u_roundtrip() {
+    let tracks = vec![
+        CrateTrack {
+            id: 1,
+            path: r#"D:\Music\Rock & Roll\Track "One".mp3"#.to_string(),
+            title: "Track One".to_string(),
+            artist: "Rock & Roll".to_string(),
+            genre: "House".to_string(),
+            bpm: 126.0,
+            musical_key: "8A".to_string(),
+            duration_seconds: 310.0,
+            beatgrid_offset_sec: 0.0,
+            tuning_cents: None,
+            drum_hits: None,
+            rating: 5,
+            analyzed_at: None,
+        },
+        CrateTrack {
+            id: 2,
+            path: r"D:\Music\Deep\Track Two.wav".to_string(),
+            title: "Track Two".to_string(),
+            artist: "Deep".to_string(),
+            genre: "Deep".to_string(),
+            bpm: 122.0,
+            musical_key: "7A".to_string(),
+            duration_seconds: 280.0,
+            beatgrid_offset_sec: 0.0,
+            tuning_cents: None,
+            drum_hits: None,
+            rating: 4,
+            analyzed_at: None,
+        },
+    ];
+    let xml = encode_vdj_folder_xml(&tracks);
+    let parsed_xml = parse_vdj_folder_xml(&xml);
+    assert_eq!(parsed_xml.len(), 2);
+    assert_eq!(parsed_xml[0], tracks[0].path);
+
+    let m3u = encode_m3u(&tracks);
+    let parsed_m3u = parse_m3u(&m3u);
+    assert_eq!(parsed_m3u, vec![tracks[0].path.clone(), tracks[1].path.clone()]);
+}
+
+#[test]
+fn test_crate_store_subcrates_filtering_and_sorting() {
+    let store = CrateStore::open_in_memory().expect("in memory db");
+    let house_id = store.ensure_crate_path("House").expect("house");
+    let deep_id = store.create_subcrate(Some(house_id), "Deep House").expect("deep");
+    let tech_id = store.ensure_crate_path("Techno").expect("tech");
+
+    let t1 = store
+        .upsert_track("D:/a.mp3", "Alpha", "Artist A", "House", 124.0, "8A", 300.0)
+        .expect("t1");
+    let t2 = store
+        .upsert_track("D:/b.mp3", "Beta", "Artist B", "Deep House", 128.0, "9A", 360.0)
+        .expect("t2");
+    let t3 = store
+        .upsert_track("D:/c.mp3", "Gamma", "Artist C", "Techno", 138.0, "3B", 400.0)
+        .expect("t3");
+
+    store.add_track_to_crate(house_id, t1).expect("add t1");
+    store.add_track_to_crate(deep_id, t2).expect("add t2");
+    store.add_track_to_crate(tech_id, t3).expect("add t3");
+    store.set_track_rating(t2, 5).expect("rate");
+
+    // Recursive subcrate roll-up: House includes Deep House
+    let house_all = store
+        .query_tracks(&CrateQuery {
+            crate_id: Some(house_id),
+            include_subcrates: true,
+            sort_by: CrateSortField::Bpm,
+            sort_asc: false,
+            ..Default::default()
+        })
+        .expect("query house");
+    assert_eq!(house_all.len(), 2);
+    assert_eq!(house_all[0].title, "Beta"); // 128 BPM first (desc)
+
+    // Non-recursive: only direct tracks in House
+    let house_direct = store
+        .query_tracks(&CrateQuery {
+            crate_id: Some(house_id),
+            include_subcrates: false,
+            ..Default::default()
+        })
+        .expect("query direct");
+    assert_eq!(house_direct.len(), 1);
+    assert_eq!(house_direct[0].title, "Alpha");
+
+    // Camelot harmonic filter compatible with 8A -> Alpha (8A) + Beta (9A), excludes Gamma (3B)
+    let harmonic = store
+        .query_tracks(&CrateQuery {
+            compatible_with_key: Some("8A".to_string()),
+            ..Default::default()
+        })
+        .expect("harmonic");
+    assert_eq!(harmonic.len(), 2);
+
+    // BPM range filter 130..145 -> only Gamma
+    let fast = store
+        .query_tracks(&CrateQuery {
+            bpm_min: Some(130.0),
+            bpm_max: Some(145.0),
+            ..Default::default()
+        })
+        .expect("fast");
+    assert_eq!(fast.len(), 1);
+    assert_eq!(fast[0].title, "Gamma");
+}
+
+#[test]
+fn test_crate_store_serato_and_vdj_file_import_export() {
+    let store = CrateStore::open_in_memory().expect("db");
+    let tmp = std::env::temp_dir().join("djcraft_crate_test");
+    let _ = std::fs::create_dir_all(&tmp);
+
+    // Create a Serato subcrate file named "Club%%Peak Hour.crate"
+    let serato_in = tmp.join("Club%%Peak Hour.crate");
+    let raw = encode_serato_crate_bytes(&[r"D:\Sets\DJ X - Peak Anthem.mp3".to_string()]);
+    std::fs::write(&serato_in, raw).expect("write serato");
+
+    let summary = store.import_serato_crate(&serato_in).expect("import serato");
+    assert_eq!(summary.crate_path, "Club/Peak Hour");
+    assert_eq!(summary.imported_tracks, 1);
+
+    // Export that crate to VirtualDJ .vdjfolder and re-import
+    let vdj_out = tmp.join("Peak Hour.vdjfolder");
+    let exported = store
+        .export_vdj_file(summary.crate_id, &vdj_out)
+        .expect("export vdj");
+    assert_eq!(exported, 1);
+
+    let vdj_summary = store.import_vdj_file(&vdj_out).expect("import vdj");
+    assert_eq!(vdj_summary.crate_path, "VirtualDJ/Peak Hour");
+    assert_eq!(vdj_summary.imported_tracks, 1);
+
+    let _ = std::fs::remove_dir_all(&tmp);
 }

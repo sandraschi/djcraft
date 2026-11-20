@@ -37,7 +37,7 @@ Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH)
 | MCP stdio Server (`djcraft-mcp`) | **Implemented** | MCP `2024-11-05` stdio, 7 tools (`djcraft_status`, `djcraft_plan_transition`, `djcraft_camelot_check`, `djcraft_commands`, `djcraft_analyze_dettato`, `djcraft_mixxxxx_ping`, `djcraft_mixxxxx_video`) |
 | Standalone Release & NSIS Installer | **Implemented** | Per-user NSIS (`%LOCALAPPDATA%\Programs\DjCraft`), `SHA256SUMS.txt`, [BUILD_LOG.md](BUILD_LOG.md) |
 | Dual-Bus Headphone PFL Pre-Cue & Mix Recording | **Planned** | Split Master + Headphone cue routing and live WAV/FLAC recording |
-| Persistent SQLite Crate Library (`databasecraft-store`) | **Planned** | Demo crate library is pre-loaded in memory; persistent disk crate DB is planned |
+| Persistent SQLite Crate & Subcrate Library (`crates_db.rs`) | **Implemented** | `%LOCALAPPDATA%\djcraft\crates.db`, unlimited nested subcrates, Serato DJ `.crate` (UTF-16BE TLV + `%%` subcrates) and VirtualDJ `.vdjfolder`/`.m3u8` import/export, folder scan, multi-field sorting, BPM/Camelot harmonic filtering, per-track Symphonia & `dettato` analysis |
 | USB MIDI Controller Mapping (Pioneer / Hercules) | **Planned** | Future hardware controller layer (`midir`) |
 
 ---

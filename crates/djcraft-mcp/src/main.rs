@@ -4,8 +4,10 @@
 //! Line-delimited JSON-RPC: stdout is 100% pure JSON-RPC, every diagnostic
 //! goes to stderr. All tools dispatch through `DjOrchestrator::dispatch`.
 
+use std::path::Path;
+
 use djcraft_audio::DeckId;
-use djcraft_core::{Command, DjOrchestrator, MixxxxxVideoControls};
+use djcraft_core::{Command, CrateStore, DjOrchestrator, MixxxxxVideoControls};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
@@ -124,6 +126,36 @@ fn main() {
                                 },
                                 "required": ["deck"]
                             }
+                        },
+                        {
+                            "name": "djcraft_crates_list",
+                            "description": "List all persistent SQLite crates and subcrates in DJCraft.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_crate_import",
+                            "description": "Import a Serato DJ (.crate) or VirtualDJ (.vdjfolder / .m3u / .m3u8) crate into DJCraft.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "format": { "type": "string", "enum": ["serato", "vdj"] },
+                                    "path": { "type": "string" }
+                                },
+                                "required": ["format", "path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_export",
+                            "description": "Export a DJCraft crate by id to Serato DJ (.crate) or VirtualDJ (.vdjfolder / .m3u8).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "format": { "type": "string", "enum": ["serato", "vdj"] },
+                                    "crate_id": { "type": "integer" },
+                                    "dest": { "type": "string" }
+                                },
+                                "required": ["format", "crate_id", "dest"]
+                            }
                         }
                     ]
                 }
@@ -215,6 +247,62 @@ fn main() {
                         };
                         match orch.dispatch(Command::MixxxxxVideo { deck, controls }) {
                             Ok(out) => out.data,
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crates_list" => match CrateStore::open_default() {
+                        Ok(store) => {
+                            let _ = store.seed_demo_if_empty();
+                            match store.list_crates() {
+                                Ok(list) => serde_json::to_value(list).unwrap_or_else(|_| json!([])),
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        Err(e) => json!({ "error": e.to_string() }),
+                    },
+                    "djcraft_crate_import" => {
+                        let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("");
+                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                        match CrateStore::open_default() {
+                            Ok(store) => {
+                                let res = match fmt {
+                                    "serato" => store.import_serato_crate(Path::new(path)),
+                                    "vdj" => store.import_vdj_file(Path::new(path)),
+                                    _ => Err(djcraft_core::DjError::Deck(format!(
+                                        "Unsupported format '{fmt}'. Expected serato or vdj."
+                                    ))),
+                                };
+                                match res {
+                                    Ok(sum) => serde_json::to_value(sum).unwrap_or_else(|_| json!({})),
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                }
+                            }
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crate_export" => {
+                        let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("");
+                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let dest = args.get("dest").and_then(|v| v.as_str()).unwrap_or("");
+                        match CrateStore::open_default() {
+                            Ok(store) => {
+                                let res = match fmt {
+                                    "serato" => store.export_serato_crate(crate_id, Path::new(dest)),
+                                    "vdj" => store.export_vdj_file(crate_id, Path::new(dest)),
+                                    _ => Err(djcraft_core::DjError::Deck(format!(
+                                        "Unsupported format '{fmt}'. Expected serato or vdj."
+                                    ))),
+                                };
+                                match res {
+                                    Ok(cnt) => json!({
+                                        "format": fmt,
+                                        "crate_id": crate_id,
+                                        "dest": dest,
+                                        "exported_tracks": cnt
+                                    }),
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                }
+                            }
                             Err(e) => json!({ "error": e.to_string() }),
                         }
                     }

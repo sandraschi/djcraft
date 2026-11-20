@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
+use std::path::Path;
+
 use clap::{Parser, Subcommand};
 use djcraft_audio::DeckId;
-use djcraft_core::{Command, DjOrchestrator, MixxxxxVideoControls};
+use djcraft_core::{Command, CrateStore, DjOrchestrator, MixxxxxVideoControls};
 
 #[derive(Parser)]
 #[command(name = "djcraft-cli", about = "DJCraft Local Performance Mixer CLI")]
@@ -50,6 +52,16 @@ enum Commands {
         #[arg(long)]
         saturation: Option<f32>,
     },
+    /// List persistent SQLite crates and subcrates
+    CrateList,
+    /// Import a Serato DJ .crate file (preserves %% subcrate hierarchy)
+    CrateImportSerato { path: String },
+    /// Export a crate by id to a Serato DJ .crate file
+    CrateExportSerato { crate_id: i64, dest: String },
+    /// Import a VirtualDJ .vdjfolder or .m3u/.m3u8 playlist
+    CrateImportVdj { path: String },
+    /// Export a crate by id to a VirtualDJ .vdjfolder or .m3u8 file
+    CrateExportVdj { crate_id: i64, dest: String },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -117,6 +129,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             })?;
             println!("{}", serde_json::to_string_pretty(&outcome)?);
+        }
+        Commands::CrateList => {
+            let store = CrateStore::open_default()?;
+            store.seed_demo_if_empty()?;
+            let crates = store.list_crates()?;
+            println!("{}", serde_json::to_string_pretty(&crates)?);
+        }
+        Commands::CrateImportSerato { path } => {
+            let store = CrateStore::open_default()?;
+            let summary = store.import_serato_crate(Path::new(&path))?;
+            println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Commands::CrateExportSerato { crate_id, dest } => {
+            let store = CrateStore::open_default()?;
+            let count = store.export_serato_crate(crate_id, Path::new(&dest))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "format": "serato",
+                    "crate_id": crate_id,
+                    "dest": dest,
+                    "exported_tracks": count
+                }))?
+            );
+        }
+        Commands::CrateImportVdj { path } => {
+            let store = CrateStore::open_default()?;
+            let summary = store.import_vdj_file(Path::new(&path))?;
+            println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Commands::CrateExportVdj { crate_id, dest } => {
+            let store = CrateStore::open_default()?;
+            let count = store.export_vdj_file(crate_id, Path::new(&dest))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "format": "vdj",
+                    "crate_id": crate_id,
+                    "dest": dest,
+                    "exported_tracks": count
+                }))?
+            );
         }
     }
     Ok(())

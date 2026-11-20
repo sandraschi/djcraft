@@ -12,7 +12,8 @@ use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid, WaveformSummary};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
 use djcraft_core::{
-    resolve_dettato_binary, resolve_mixxxxx_binary, Command, DjOrchestrator, MixxxxxVideoControls,
+    resolve_dettato_binary, resolve_mixxxxx_binary, Command, CrateNode, CrateQuery, CrateSortField,
+    CrateStore, CrateTrack, DjOrchestrator, MixxxxxVideoControls,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -151,6 +152,17 @@ pub struct DjCraftApp {
     audio_out: AudioOutput,
     deck_waveforms: [Option<WaveformSummary>; 4],
 
+    // Persistent SQLite Crate & Subcrate Library
+    crate_store: Option<CrateStore>,
+    crate_nodes: Vec<CrateNode>,
+    crate_results: Vec<CrateTrack>,
+    crate_query: CrateQuery,
+    crate_new_name: String,
+    crate_bpm_min_text: String,
+    crate_bpm_max_text: String,
+    crate_harmonic_deck_a: bool,
+    crate_dirty: bool,
+
     // Native Video Mixer (FFmpeg frame-pipe + procedural reactive fallback + detachable projector)
     video_deck_a: VideoDeckPlayer,
     video_deck_b: VideoDeckPlayer,
@@ -187,6 +199,10 @@ impl DjCraftApp {
         let crossfader_draft = orch.crossfader;
         let master_volume_draft = orch.master_volume;
         let audio_out = AudioOutput::start_default();
+        let crate_store = CrateStore::open_default().ok();
+        if let Some(ref store) = crate_store {
+            let _ = store.seed_demo_if_empty();
+        }
         let status_msg = if audio_out.active {
             format!(
                 "4-Deck Studio Ready | Audio: {} ({} Hz)",
@@ -220,6 +236,16 @@ impl DjCraftApp {
 
             audio_out,
             deck_waveforms: [None, None, None, None],
+
+            crate_store,
+            crate_nodes: Vec::new(),
+            crate_results: Vec::new(),
+            crate_query: CrateQuery::default(),
+            crate_new_name: String::new(),
+            crate_bpm_min_text: String::new(),
+            crate_bpm_max_text: String::new(),
+            crate_harmonic_deck_a: false,
+            crate_dirty: true,
 
             video_deck_a: VideoDeckPlayer::new(),
             video_deck_b: VideoDeckPlayer::new(),
@@ -365,6 +391,99 @@ impl DjCraftApp {
                 );
             }
             Err(err) => self.status_msg = format!("Video load error: {err}"),
+        }
+    }
+
+    fn refresh_crates(&mut self) {
+        let Some(ref store) = self.crate_store else {
+            return;
+        };
+        self.crate_query.bpm_min = self.crate_bpm_min_text.trim().parse::<f64>().ok();
+        self.crate_query.bpm_max = self.crate_bpm_max_text.trim().parse::<f64>().ok();
+        self.crate_query.compatible_with_key = if self.crate_harmonic_deck_a {
+            self.orch
+                .deck_a
+                .loaded_track
+                .as_ref()
+                .map(|t| t.musical_key.clone())
+        } else {
+            None
+        };
+        if let Ok(nodes) = store.list_crates() {
+            self.crate_nodes = nodes;
+        }
+        if let Ok(tracks) = store.query_tracks(&self.crate_query) {
+            self.crate_results = tracks;
+        }
+        self.crate_dirty = false;
+    }
+
+    fn load_crate_track_to_deck(&mut self, deck: DeckId, track: &CrateTrack) {
+        let deck_idx = match deck {
+            DeckId::DeckA => 0,
+            DeckId::DeckB => 1,
+            DeckId::DeckC => 2,
+            DeckId::DeckD => 3,
+        };
+        if track.path.starts_with("demo://") {
+            self.deck_waveforms[deck_idx] = None;
+            self.audio_out.set_deck_audio(deck_idx, None);
+            let meta = TrackMeta {
+                title: track.title.clone(),
+                artist: track.artist.clone(),
+                bpm: if track.bpm > 0.0 { track.bpm } else { 126.0 },
+                musical_key: if track.musical_key.is_empty() {
+                    "8A".to_string()
+                } else {
+                    track.musical_key.clone()
+                },
+                duration_seconds: if track.duration_seconds > 0.0 {
+                    track.duration_seconds
+                } else {
+                    360.0
+                },
+            };
+            self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
+            return;
+        }
+
+        let path = std::path::Path::new(&track.path);
+        match decode_audio_file(path) {
+            Ok(decoded) => {
+                let (bpm, offset) = if track.bpm > 0.0 {
+                    (track.bpm, track.beatgrid_offset_sec)
+                } else {
+                    let g = detect_beatgrid(&decoded);
+                    (g.bpm, g.first_beat_sec)
+                };
+                self.deck_waveforms[deck_idx] = Some(WaveformSummary::from_decoded(&decoded));
+                self.audio_out.set_deck_audio(deck_idx, Some(Arc::new(decoded.clone())));
+                let meta = TrackMeta {
+                    title: track.title.clone(),
+                    artist: track.artist.clone(),
+                    bpm,
+                    musical_key: if track.musical_key.is_empty() {
+                        "8A".to_string()
+                    } else {
+                        track.musical_key.clone()
+                    },
+                    duration_seconds: decoded.duration_seconds,
+                };
+                self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
+                let st = self.orch.deck_mut(deck);
+                st.beatgrid_offset_sec = offset;
+                st.audio_path = Some(track.path.clone());
+                if let Some(vid) = find_companion_video(path) {
+                    let _ = match deck {
+                        DeckId::DeckA => self.video_deck_a.load_file(&vid),
+                        DeckId::DeckB => self.video_deck_b.load_file(&vid),
+                        _ => Ok(()),
+                    };
+                }
+            }
+            Err(err) => {
+                self.status_msg = format!("Cannot decode {}: {err}", track.path);
+            }
         }
     }
 
@@ -1658,28 +1777,276 @@ impl eframe::App for DjCraftApp {
                 }
 
                 if self.prefs.show_crate_browser {
+                    if self.crate_dirty {
+                        self.refresh_crates();
+                    }
                     ui.add_space(8.0);
                     theme::card_frame(ui, dark, |ui| {
-                        ui.strong("Demo Crate Browser");
-                        let tracks = self.orch.crate_tracks.clone();
-                        for (idx, t) in tracks.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                ui.label(format!(
-                                    "{} - {} | {} | {:.0} BPM",
-                                    t.artist, t.title, t.musical_key, t.bpm
-                                ));
-                                for (btn_lbl, deck_id) in [
-                                    ("A", DeckId::DeckA),
-                                    ("B", DeckId::DeckB),
-                                    ("C", DeckId::DeckC),
-                                    ("D", DeckId::DeckD),
-                                ] {
-                                    if ui.small_button(btn_lbl).clicked() {
-                                        self.dispatch_and_report(Command::LoadDemoCrateTrack {
-                                            deck: deck_id,
-                                            index: idx,
-                                        });
+                        ui.horizontal_wrapped(|ui| {
+                            ui.strong("Crate & Subcrate Library (SQLite)");
+                            if ui.small_button("Scan Folder...").clicked() {
+                                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                                    if let Some(ref store) = self.crate_store {
+                                        let target_id = self
+                                            .crate_query
+                                            .crate_id
+                                            .or_else(|| store.ensure_crate_path("Scanned Music").ok());
+                                        if let Some(cid) = target_id {
+                                            match store.scan_audio_folder(cid, &dir) {
+                                                Ok(n) => {
+                                                    self.status_msg = format!("Scanned {n} audio tracks from {}", dir.display());
+                                                    self.crate_dirty = true;
+                                                }
+                                                Err(e) => self.status_msg = format!("Scan error: {e}"),
+                                            }
+                                        }
                                     }
+                                }
+                            }
+                            if ui.small_button("Import Serato...").clicked() {
+                                if let Some(file) = rfd::FileDialog::new()
+                                    .add_filter("Serato Crate", &["crate"])
+                                    .pick_file()
+                                {
+                                    if let Some(ref store) = self.crate_store {
+                                        match store.import_serato_crate(&file) {
+                                            Ok(sum) => {
+                                                self.crate_query.crate_id = Some(sum.crate_id);
+                                                self.status_msg = format!(
+                                                    "Imported {} tracks into Serato crate '{}'",
+                                                    sum.imported_tracks, sum.crate_path
+                                                );
+                                                self.crate_dirty = true;
+                                            }
+                                            Err(e) => self.status_msg = format!("Serato import error: {e}"),
+                                        }
+                                    }
+                                }
+                            }
+                            if ui.small_button("Export Serato...").clicked() {
+                                if let Some(cid) = self.crate_query.crate_id {
+                                    if let Some(dest) = rfd::FileDialog::new()
+                                        .add_filter("Serato Crate", &["crate"])
+                                        .set_file_name("djcraft_export.crate")
+                                        .save_file()
+                                    {
+                                        if let Some(ref store) = self.crate_store {
+                                            match store.export_serato_crate(cid, &dest) {
+                                                Ok(n) => self.status_msg = format!("Exported {n} tracks to Serato {}", dest.display()),
+                                                Err(e) => self.status_msg = format!("Serato export error: {e}"),
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    self.status_msg = "Select a crate first to export to Serato".to_string();
+                                }
+                            }
+                            if ui.small_button("Import VDJ...").clicked() {
+                                if let Some(file) = rfd::FileDialog::new()
+                                    .add_filter("VirtualDJ / M3U", &["vdjfolder", "m3u", "m3u8"])
+                                    .pick_file()
+                                {
+                                    if let Some(ref store) = self.crate_store {
+                                        match store.import_vdj_file(&file) {
+                                            Ok(sum) => {
+                                                self.crate_query.crate_id = Some(sum.crate_id);
+                                                self.status_msg = format!(
+                                                    "Imported {} tracks into '{}'",
+                                                    sum.imported_tracks, sum.crate_path
+                                                );
+                                                self.crate_dirty = true;
+                                            }
+                                            Err(e) => self.status_msg = format!("VDJ import error: {e}"),
+                                        }
+                                    }
+                                }
+                            }
+                            if ui.small_button("Export VDJ...").clicked() {
+                                if let Some(cid) = self.crate_query.crate_id {
+                                    if let Some(dest) = rfd::FileDialog::new()
+                                        .add_filter("VirtualDJ Folder", &["vdjfolder"])
+                                        .add_filter("M3U8 Playlist", &["m3u8"])
+                                        .set_file_name("djcraft_export.vdjfolder")
+                                        .save_file()
+                                    {
+                                        if let Some(ref store) = self.crate_store {
+                                            match store.export_vdj_file(cid, &dest) {
+                                                Ok(n) => self.status_msg = format!("Exported {n} tracks to {}", dest.display()),
+                                                Err(e) => self.status_msg = format!("VDJ export error: {e}"),
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    self.status_msg = "Select a crate first to export to VirtualDJ".to_string();
+                                }
+                            }
+                        });
+
+                        // Create crate / subcrate row
+                        ui.horizontal(|ui| {
+                            ui.label("New:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.crate_new_name)
+                                    .desired_width(140.0)
+                                    .hint_text("Crate name..."),
+                            );
+                            if ui.small_button("+ Root Crate").clicked() && !self.crate_new_name.trim().is_empty() {
+                                if let Some(ref store) = self.crate_store {
+                                    if let Ok(cid) = store.create_subcrate(None, &self.crate_new_name) {
+                                        self.crate_query.crate_id = Some(cid);
+                                        self.crate_new_name.clear();
+                                        self.crate_dirty = true;
+                                    }
+                                }
+                            }
+                            if ui
+                                .add_enabled(
+                                    self.crate_query.crate_id.is_some() && !self.crate_new_name.trim().is_empty(),
+                                    egui::Button::new("+ Subcrate").small(),
+                                )
+                                .clicked()
+                            {
+                                if let Some(ref store) = self.crate_store {
+                                    if let Ok(cid) = store.create_subcrate(self.crate_query.crate_id, &self.crate_new_name) {
+                                        self.crate_query.crate_id = Some(cid);
+                                        self.crate_new_name.clear();
+                                        self.crate_dirty = true;
+                                    }
+                                }
+                            }
+                        });
+
+                        // Crate / subcrate selector chips
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.selectable_label(self.crate_query.crate_id.is_none(), "All Tracks").clicked() {
+                                self.crate_query.crate_id = None;
+                                self.crate_dirty = true;
+                            }
+                            let nodes = self.crate_nodes.clone();
+                            for node in nodes {
+                                let lbl = format!("{} ({})", node.full_path, node.track_count);
+                                if ui
+                                    .selectable_label(self.crate_query.crate_id == Some(node.id), lbl)
+                                    .clicked()
+                                {
+                                    self.crate_query.crate_id = Some(node.id);
+                                    self.crate_dirty = true;
+                                }
+                            }
+                        });
+
+                        // Filter & Sort bar
+                        ui.separator();
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label("Search:");
+                            if ui
+                                .add(egui::TextEdit::singleline(&mut self.crate_query.search).desired_width(120.0))
+                                .changed()
+                            {
+                                self.crate_dirty = true;
+                            }
+                            ui.label("BPM:");
+                            if ui
+                                .add(egui::TextEdit::singleline(&mut self.crate_bpm_min_text).desired_width(40.0).hint_text("min"))
+                                .changed()
+                            {
+                                self.crate_dirty = true;
+                            }
+                            ui.label("-");
+                            if ui
+                                .add(egui::TextEdit::singleline(&mut self.crate_bpm_max_text).desired_width(40.0).hint_text("max"))
+                                .changed()
+                            {
+                                self.crate_dirty = true;
+                            }
+                            if ui.checkbox(&mut self.crate_harmonic_deck_a, "Harmonic A").changed() {
+                                self.crate_dirty = true;
+                            }
+                            if ui.checkbox(&mut self.crate_query.include_subcrates, "Subcrates").changed() {
+                                self.crate_dirty = true;
+                            }
+                            if ui.checkbox(&mut self.crate_query.analyzed_only, "Analyzed").changed() {
+                                self.crate_dirty = true;
+                            }
+                            egui::ComboBox::from_id_salt("crate_sort_field")
+                                .selected_text(format!("Sort: {}", self.crate_query.sort_by.label()))
+                                .show_ui(ui, |ui| {
+                                    for field in CrateSortField::ALL {
+                                        if ui
+                                            .selectable_value(&mut self.crate_query.sort_by, field, field.label())
+                                            .changed()
+                                        {
+                                            self.crate_dirty = true;
+                                        }
+                                    }
+                                });
+                            let dir_lbl = if self.crate_query.sort_asc { "ASC" } else { "DESC" };
+                            if ui.small_button(dir_lbl).clicked() {
+                                self.crate_query.sort_asc = !self.crate_query.sort_asc;
+                                self.crate_dirty = true;
+                            }
+                        });
+
+                        ui.separator();
+                        let results = self.crate_results.clone();
+                        if results.is_empty() {
+                            ui.label("No tracks match current filter.");
+                        } else {
+                            egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                                for t in results {
+                                    ui.horizontal(|ui| {
+                                        let key_str = if t.musical_key.is_empty() { "--" } else { t.musical_key.as_str() };
+                                        let bpm_str = if t.bpm > 0.0 {
+                                            format!("{:.1}", t.bpm)
+                                        } else {
+                                            "---".to_string()
+                                        };
+                                        let dettato_tag = match (t.tuning_cents, t.drum_hits) {
+                                            (Some(c), Some(h)) => format!(" | {c:+.1}c {h}d"),
+                                            _ => String::new(),
+                                        };
+                                        ui.label(format!(
+                                            "{} - {} | {} | {} BPM{}",
+                                            t.artist, t.title, key_str, bpm_str, dettato_tag
+                                        ));
+                                        for (btn_lbl, deck_id) in [
+                                            ("A", DeckId::DeckA),
+                                            ("B", DeckId::DeckB),
+                                            ("C", DeckId::DeckC),
+                                            ("D", DeckId::DeckD),
+                                        ] {
+                                            if ui.small_button(btn_lbl).clicked() {
+                                                self.load_crate_track_to_deck(deck_id, &t);
+                                            }
+                                        }
+                                        if !t.path.starts_with("demo://") {
+                                            if ui.small_button("BPM").on_hover_text("Run built-in Symphonia beatgrid analysis").clicked() {
+                                                if let Some(ref store) = self.crate_store {
+                                                    match store.analyze_track_builtin(t.id) {
+                                                        Ok(up) => {
+                                                            self.status_msg = format!("Analyzed '{}': {:.1} BPM", up.title, up.bpm);
+                                                            self.crate_dirty = true;
+                                                        }
+                                                        Err(e) => self.status_msg = format!("Analyze error: {e}"),
+                                                    }
+                                                }
+                                            }
+                                            if ui.small_button("Dettato").on_hover_text("Run local dettato audio-to-MIDI sidecar").clicked() {
+                                                if let Some(ref store) = self.crate_store {
+                                                    match store.analyze_track_dettato(t.id) {
+                                                        Ok(up) => {
+                                                            self.status_msg = format!(
+                                                                "Dettato '{}': tuning {:?}c, drums {:?}",
+                                                                up.title, up.tuning_cents, up.drum_hits
+                                                            );
+                                                            self.crate_dirty = true;
+                                                        }
+                                                        Err(e) => self.status_msg = format!("Dettato error: {e}"),
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    });
                                 }
                             });
                         }
