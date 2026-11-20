@@ -7,6 +7,7 @@
 pub mod command;
 pub mod crates_db;
 pub mod i18n;
+pub mod midi;
 pub mod mixxxxx_osc;
 
 pub use command::{
@@ -17,6 +18,10 @@ pub use crates_db::{
     encode_m3u, encode_serato_crate_bytes, encode_vdj_folder_xml, parse_m3u,
     parse_serato_crate_bytes, parse_vdj_folder_xml, CrateNode, CrateQuery, CrateSortField,
     CrateStore, CrateTrack, ImportSummary,
+};
+pub use midi::{
+    action_to_command, builtin_profile_rules, parse_raw_midi, ControllerProfileId, MidiBindingKey,
+    MidiControllerManager, MidiMappingRule, MidiMsgKind, MidiTargetAction, RawMidiEvent,
 };
 pub use mixxxxx_osc::{
     encode_osc_message, ping_mixxxxx, resolve_mixxxxx_binary, send_deck_video_controls,

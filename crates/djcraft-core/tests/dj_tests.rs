@@ -7,10 +7,11 @@ use djcraft_audio::dsp::{
     detect_beatgrid, sample_varispeed, DecodedAudio, ThreeBandEq, WaveformSummary, WsolaDeckState,
 };
 use djcraft_core::{
-    encode_m3u, encode_osc_message, encode_serato_crate_bytes, encode_vdj_folder_xml,
-    parse_dettato_json, parse_m3u, parse_serato_crate_bytes, parse_vdj_folder_xml,
-    send_deck_video_controls, Command, CrateQuery, CrateSortField, CrateStore, CrateTrack,
-    DjOrchestrator, MixxxxxConfig, MixxxxxVideoControls, OscArg,
+    action_to_command, builtin_profile_rules, encode_m3u, encode_osc_message,
+    encode_serato_crate_bytes, encode_vdj_folder_xml, parse_dettato_json, parse_m3u,
+    parse_raw_midi, parse_serato_crate_bytes, parse_vdj_folder_xml, send_deck_video_controls,
+    Command, ControllerProfileId, CrateQuery, CrateSortField, CrateStore, CrateTrack,
+    DjOrchestrator, MidiTargetAction, MixxxxxConfig, MixxxxxVideoControls, OscArg,
 };
 
 #[test]
@@ -761,4 +762,34 @@ fn test_crate_store_serato_and_vdj_file_import_export() {
     assert_eq!(vdj_summary.imported_tracks, 1);
 
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_midi_rane_twelve_and_seventy_two_profiles_and_autodetect() {
+    assert_eq!(
+        ControllerProfileId::auto_detect_from_port_name("RANE TWELVE MKII USB MIDI"),
+        ControllerProfileId::RaneTwelveMk2
+    );
+    assert_eq!(
+        ControllerProfileId::auto_detect_from_port_name("RANE SEVENTY-TWO MKII"),
+        ControllerProfileId::RaneSeventyTwoMk2
+    );
+    assert_eq!(
+        ControllerProfileId::auto_detect_from_port_name("Pioneer DDJ-FLX4"),
+        ControllerProfileId::PioneerDdjFlx4
+    );
+
+    let r12 = builtin_profile_rules(ControllerProfileId::RaneTwelveMk2);
+    assert!(r12.len() >= 20, "Rane Twelve MKII must map Decks 1-4");
+
+    let r72 = builtin_profile_rules(ControllerProfileId::RaneSeventyTwoMk2);
+    assert!(r72.iter().any(|r| r.action == MidiTargetAction::Crossfader));
+    assert!(r72.iter().any(|r| r.action == MidiTargetAction::MasterVolume));
+
+    // Parse MAG FOUR crossfader CC 0x0B on channel 0 at value 127 (+1.0 full Deck B)
+    let ev = parse_raw_midi(&[0xB0, 0x0B, 127]).expect("parse CC");
+    let cmd = action_to_command(MidiTargetAction::Crossfader, ev.value, (1.0, 1.0, 1.0));
+    let mut orch = DjOrchestrator::new();
+    orch.dispatch(cmd).expect("dispatch midi crossfader");
+    assert!((orch.crossfader - 1.0).abs() < 1e-6);
 }
