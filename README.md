@@ -27,7 +27,7 @@ Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
 ```
 
-Or run the per-user Windows installer (`dist\djcraft-0.1.0-setup.exe`) or standalone `dist\djcraft.exe`.
+Or run the per-user Windows installer (`dist\djcraft-0.2.0-setup.exe`) or standalone `dist\djcraft.exe`.
 
 ---
 

@@ -2,6 +2,16 @@
 
 All notable changes to DJCraft are documented in this file.
 
+## [0.2.0] - 2026-11-21
+
+### Added
+- **6 Console Skins, Sparkle Club Underlay, 2/4-Deck Layout, Vinyl Scratching & i18n (`skins.rs`, `widgets.rs`, `i18n.rs`, `main.rs`)**:
+  - Added **Shocking Pink Club** skin and fixed **Daylight Booth (Light)** to high-contrast deep ink (`#020617` / `#1E293B`).
+  - Added 4 textured/dynamic underlays (`Solid`, `Brushed Metal`, `Carbon Weave`, animated `Sparkle Club`).
+  - Added `2-DECK` (with `A/C` & `B/D` layer switchers) / `4-DECK` stacked layout toggle, interactive forward/reverse vinyl platter scratching (`-4x`..`+4x`), and 7-language i18n (`EN`/`DE`/`FR`/`ES`/`JA`/`KO`/`ZH`).
+  - Fixed Deck B start/sync race via explicit `seek_gen` and end-of-frame `sync_audio_and_repaint()`.
+  - Split README into lean root `README.md` + 4 focused guides in `docs/` (`AUDIO_AND_MIXING.md`, `CRATES_AND_GIG_PREP.md`, `SKINS_MIDI_AND_VIDEO.md`, `AI_FLEET_AND_MCP.md`) and expanded `HELP.md` + 8-tab Help Center.
+
 ## [0.1.0] - 2026-11-20
 
 ### Added
