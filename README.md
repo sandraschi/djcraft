@@ -27,7 +27,7 @@ Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH)
 | Real Audio Decode, Varispeed, WSOLA Keylock & Auto-Beatgrid | **Implemented** | Pure-Rust `symphonia 0.5` (MP3/WAV/FLAC/OGG/M4A), Catmull-Rom varispeed, WSOLA Master Tempo keylock, onset autocorrelation BPM + downbeat detector, `/2` / `x2`, `Grid -10ms`/`+10ms`, `Phase Sync`, 10 ms real-audio waveforms |
 | 3-Band Kill EQ (`Low` / `Mid` / `High`) | **Implemented** | Real-time stereo crossover (<250 Hz, 250-2500 Hz, >2500 Hz) driven by rotary knobs and performance pad kills |
 | Transparent Sidecar Stemming (`.djcraft-stems/`) | **Implemented** | Co-located `<parent>/.djcraft-stems/<stem>/{vocals,drums,bass,other}.wav`, hidden from crate scanners, idempotent background `Batch Stem Folder...` (Demucs), real-time 4-stem WAV mixing via VOC/DRM/BAS/OTH rotary knobs |
-| Pro DJ Console UI & 5 Switchable Skins (`djcraft-app`) | **Implemented** | 5 skins (Rane Seventy-Two Battle, Pioneer Club Dark, Serato Midnight, VirtualDJ Carbon, Daylight Booth), stacked Parallel Waveforms banner, GPU-painted rotary knobs, vertical channel/pitch faders, MAG FOUR crossfader, 8 RGB MPC pads, stereo VU meters, 8-menu Bookend bar + `switch_on_hover`, `Ctrl+Wheel` zoom, `ui.json` prefs, `glyph_allowlist` Tofu Guard |
+| Pro DJ Console UI, 6 Skins, Sparkle Underlay, 4-Deck Layout & i18n (`djcraft-app`) | **Implemented** | 6 skins (**Rane Seventy-Two Battle**, **Pioneer Club Dark**, **Serato Midnight**, **VirtualDJ Carbon**, **Shocking Pink Club**, high-contrast **Daylight Booth**), 4 textured/dynamic backdrops (`Solid`, `Brushed Metal`, `Carbon Weave`, animated `Sparkle Club`), `2-DECK` (with `A/C` & `B/D` layer switchers) / `4-DECK` stacked layout, live interactive vinyl platter scratching (forward & reverse), 7-language i18n (`EN`/`DE`/`FR`/`ES`/`JA`/`KO`/`ZH`), stacked Parallel Waveforms, rotary knobs, vertical faders, MAG FOUR crossfader, 8 RGB MPC pads, stereo VU meters, 8-menu Bookend bar + `switch_on_hover`, `Ctrl+Wheel` zoom, `ui.json` prefs, `glyph_allowlist` Tofu Guard |
 | Hardware MIDI Controllers & MIDI Learn (`midir 0.10`) | **Implemented** | USB MIDI port scanner + auto-detect profiles for **Rane Twelve MKII**, **Rane Seventy-Two MKII**, **Pioneer DDJ-FLX4 / DDJ-400**, **Hercules DJControl**, plus in-app MIDI Learn persisted to `midi_learn.json` |
 | Persistent SQLite Crates, Dedicated 2-Pane Gig Prep UI & Serato/VDJ Interop | **Implemented** | Dedicated `CRATES & GIG PREP` mode (`crate_view.rs`): 2-pane file-oriented Crate/Subcrate tree (`+ Root`, `+ Sub`, `Rename`, `Duplicate`, `Delete`), persistent `Gig Order (#)` with `[::]` drag-drop reordering & `^`/`v` nudge, drag tracks onto crates, Windows Explorer file/folder drop, Serato `.crate` & VirtualDJ `.vdjfolder`/`.m3u8` import/export, BPM/Camelot filtering, Symphonia/`dettato` analysis |
 | Native Video Mixer & Detachable Projector (`video.rs`) | **Implemented** | Per-deck `.mp4`/`.mkv`/`.mov`/`.webm` via `ffmpeg` RGB24 pipe, companion video autoload, audio-reactive procedural fallback, crossfader blend + Brightness/Contrast/Saturation, detachable secondary projector window |
@@ -51,7 +51,7 @@ Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH)
 ## Verification & Usage
 
 ```powershell
-# Lint & test suite (44 tests: 43 core/audio/DSP/EQ/Crates/MIDI/Stems/AI/PFL/Recorder + glyph_allowlist)
+# Lint & test suite (45 tests: 44 core/audio/DSP/EQ/Crates/MIDI/Stems/AI/PFL/Recorder/Scratch/i18n + glyph_allowlist)
 cargo clippy --all-targets -- -D warnings
 cargo test
 
