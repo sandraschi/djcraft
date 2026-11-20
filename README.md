@@ -13,6 +13,16 @@ Features:
 - **Camelot Harmonic Wheel Intelligence**: Automated key clash prevention and harmonic compatibility algorithms ($8A \leftrightarrow 8B$, $8A \leftrightarrow 9A$, relative major/minor switches).
 - **FastMCP Protocol**: Port `14118` interface for multi-agent autonomous performance swarms.
 
+## Install
+
+Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
+```
+
+Installs the Windows app, the CLI, and the MCP bundle.
+
 ---
 
 ## Workspace Architecture
