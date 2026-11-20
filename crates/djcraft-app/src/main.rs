@@ -6,6 +6,7 @@ mod widgets;
 use std::path::PathBuf;
 
 use clap::Parser;
+use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{AudioEngine, DeckId};
 use djcraft_core::{
     resolve_dettato_binary, resolve_mixxxxx_binary, Command, DjOrchestrator, MixxxxxVideoControls,
@@ -140,8 +141,12 @@ pub struct DjCraftApp {
     mixxxxx_saturation: f32,
     mixxxxx_last_pong: bool,
 
+    // Live WASAPI / cpal audio output stream
+    audio_out: AudioOutput,
+
     // Slider draft values (committed via Command::dispatch on drag_stopped for Undo/Redo)
     crossfader_draft: f64,
+    master_volume_draft: f64,
 
     // Mandatory Help Suite modals
     show_command_palette: bool,
@@ -163,10 +168,23 @@ impl DjCraftApp {
     pub fn new() -> Self {
         let orch = DjOrchestrator::new();
         let crossfader_draft = orch.crossfader;
+        let master_volume_draft = orch.master_volume;
+        let audio_out = AudioOutput::start_default();
+        let status_msg = if audio_out.active {
+            format!(
+                "4-Deck Studio Ready | Audio: {} ({} Hz)",
+                audio_out.device_name, audio_out.sample_rate
+            )
+        } else {
+            format!(
+                "4-Deck Studio Ready | Audio offline: {}",
+                audio_out.error.as_deref().unwrap_or("unavailable")
+            )
+        };
         Self {
             orch,
             locale: djcraft_core::i18n::AppLocale::default(),
-            status_msg: "4-Deck DJ Studio Ready (Safe Rust, Port 14118)".to_string(),
+            status_msg,
             platter_angle_a: 0.0,
             platter_angle_b: 0.0,
             crate_cursor_a: 0,
@@ -183,7 +201,10 @@ impl DjCraftApp {
             mixxxxx_saturation: 0.5,
             mixxxxx_last_pong: false,
 
+            audio_out,
+
             crossfader_draft,
+            master_volume_draft,
 
             show_command_palette: false,
             palette_query: String::new(),
@@ -220,6 +241,7 @@ impl DjCraftApp {
                         .unwrap_or(false);
                 }
                 self.crossfader_draft = self.orch.crossfader;
+                self.master_volume_draft = self.orch.master_volume;
                 self.status_msg = outcome.message;
             }
             Err(err) => self.status_msg = format!("Error: {err}"),
@@ -277,6 +299,7 @@ impl DjCraftApp {
             "modify.center_crossfader" => {
                 self.dispatch_and_report(Command::SetCrossfader { value: 0.0 })
             }
+            "modify.toggle_mute" => self.dispatch_and_report(Command::ToggleMasterMute),
             "commands.auto_sync" => self.dispatch_and_report(Command::AutoSyncBeatgrid),
             "commands.plan_transition" => self.dispatch_and_report(Command::PlanTransition),
             "commands.dettato_status" => {
@@ -397,7 +420,23 @@ impl DjCraftApp {
 
         ui.add_space(6.0);
         theme::card_frame(ui, dark, |ui| {
-            ui.strong("4-Stem Isolation");
+            ui.strong("Channel Volume & 4-Stem Isolation");
+            let mut vol = deck_snapshot.volume_fader;
+            let r_vol = ui.add(
+                egui::Slider::new(&mut vol, 0.0..=1.0)
+                    .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                    .text("Volume"),
+            );
+            if r_vol.changed() {
+                self.orch.deck_mut(deck_id).volume_fader = vol;
+            }
+            if r_vol.drag_stopped() {
+                self.dispatch_and_report(Command::SetDeckVolume {
+                    deck: deck_id,
+                    volume: vol,
+                });
+            }
+
             let mut vocals = deck_snapshot.stem_vocals_gain;
             let mut drums = deck_snapshot.stem_drums_gain;
             let mut bass = deck_snapshot.stem_bass_gain;
@@ -520,6 +559,19 @@ impl eframe::App for DjCraftApp {
         if any_playing {
             ctx.request_repaint();
         }
+
+        // Sync live mixer state into the WASAPI/cpal audio thread (non-blocking)
+        self.audio_out.sync_state(
+            [
+                self.orch.deck_a.clone(),
+                self.orch.deck_b.clone(),
+                self.orch.deck_c.clone(),
+                self.orch.deck_d.clone(),
+            ],
+            self.orch.crossfader,
+            self.orch.master_volume,
+            self.orch.master_muted,
+        );
 
         // 1. UNIVERSAL 8-MENU BOOKEND BAR
         egui::Panel::top("top_menu_bar").show(ui, |ui| {
@@ -1084,7 +1136,42 @@ impl eframe::App for DjCraftApp {
         egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 theme::card_frame(ui, dark, |ui| {
-                    ui.heading("4-Channel Club Mixer");
+                    ui.horizontal(|ui| {
+                        ui.heading("4-Channel Club Mixer");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let mute_lbl = if self.orch.master_muted {
+                                "UNMUTE"
+                            } else {
+                                "MUTE"
+                            };
+                            if ui.button(mute_lbl).clicked() {
+                                self.execute_catalog_id("modify.toggle_mute");
+                            }
+                            ui.monospace(format!(
+                                "WASAPI: {}",
+                                if self.audio_out.active {
+                                    self.audio_out.device_name.as_str()
+                                } else {
+                                    "Offline"
+                                }
+                            ));
+                            theme::status_dot(ui, self.audio_out.active && !self.orch.master_muted);
+                        });
+                    });
+
+                    let mv_resp = ui.add(
+                        egui::Slider::new(&mut self.master_volume_draft, 0.0..=1.0)
+                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                            .text("Master Loudness"),
+                    );
+                    if mv_resp.changed() {
+                        self.orch.master_volume = self.master_volume_draft;
+                    }
+                    if mv_resp.drag_stopped() {
+                        let vol = self.master_volume_draft;
+                        self.dispatch_and_report(Command::SetMasterVolume { volume: vol });
+                    }
+
                     let xf_resp = ui.add(
                         egui::Slider::new(&mut self.crossfader_draft, -1.0..=1.0)
                             .text("Master Crossfader (Deck A <-> Deck B)"),

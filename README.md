@@ -32,7 +32,7 @@ Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH)
 | `mixxxxx` Video OSC 1.0 UDP Bridge | **Implemented** | Pure-Rust UDP OSC (`127.0.0.1:11119` in / `11118` out): `/mixxxxx/ping` + `/deck/{1..4}/video_*` + inline Mixxxxx Video Dock |
 | MCP stdio Server (`djcraft-mcp`) | **Implemented** | MCP `2024-11-05` stdio, 7 tools (`djcraft_status`, `djcraft_plan_transition`, `djcraft_camelot_check`, `djcraft_commands`, `djcraft_analyze_dettato`, `djcraft_mixxxxx_ping`, `djcraft_mixxxxx_video`) |
 | Standalone Release & NSIS Installer | **Implemented** | Per-user NSIS (`%LOCALAPPDATA%\Programs\DjCraft`), `SHA256SUMS.txt`, [BUILD_LOG.md](BUILD_LOG.md) |
-| Live WASAPI / `cpal` Hardware Audio Output | **Planned** | PCM synthesis is implemented; hardware audio device output stream is next |
+| Live WASAPI / `cpal` Hardware Audio Output | **Implemented** | Real-time 4-deck WASAPI mixer (`cpal 0.15`), equal-power crossfader, soft-clip limiter, Master Loudness slider + `MUTE`, per-deck Volume faders |
 | Persistent SQLite Crate Library (`databasecraft-store`) | **Planned** | Demo crate library is pre-loaded in memory; persistent disk crate DB is planned |
 | USB MIDI Controller Mapping (Pioneer / Hercules) | **Planned** | Future hardware controller layer |
 

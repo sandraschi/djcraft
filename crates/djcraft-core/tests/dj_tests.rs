@@ -390,3 +390,47 @@ fn test_mixxxxx_video_controls_rejects_empty_payload() {
     let err = send_deck_video_controls(&cfg, DeckId::DeckA, &MixxxxxVideoControls::default());
     assert!(err.is_err());
 }
+
+#[test]
+fn test_master_loudness_mute_and_deck_volume_dispatch() {
+    let mut orch = DjOrchestrator::new();
+    assert!((orch.master_volume - 0.75).abs() < 1e-6);
+    assert!(!orch.master_muted);
+
+    orch.dispatch(Command::SetMasterVolume { volume: 1.5 })
+        .expect("clamp high");
+    assert_eq!(orch.master_volume, 1.0);
+
+    orch.dispatch(Command::ToggleMasterMute).expect("mute");
+    assert!(orch.master_muted);
+
+    orch.dispatch(Command::SetDeckVolume {
+        deck: DeckId::DeckA,
+        volume: 0.4,
+    })
+    .expect("deck vol");
+    assert!((orch.deck_a.volume_fader - 0.4).abs() < 1e-6);
+}
+
+#[test]
+fn test_mix_4deck_frame_respects_mute_loudness_and_crossfader() {
+    let orch = DjOrchestrator::new();
+    let decks = [
+        orch.deck_a.clone(),
+        orch.deck_b.clone(),
+        orch.deck_c.clone(),
+        orch.deck_d.clone(),
+    ];
+    let times = [0.05, 0.05, 0.0, 0.0];
+
+    let muted = AudioEngine::mix_4deck_frame(&decks, 0.0, 0.8, true, &times, 100);
+    assert_eq!(muted, (0.0, 0.0));
+
+    let loud = AudioEngine::mix_4deck_frame(&decks, -1.0, 1.0, false, &times, 100);
+    let quiet = AudioEngine::mix_4deck_frame(&decks, -1.0, 0.25, false, &times, 100);
+    assert!(loud.0.abs() > quiet.0.abs());
+
+    // Deck A is playing, Deck B is paused -> full right crossfader (+1.0) should silence Deck A
+    let right_only = AudioEngine::mix_4deck_frame(&decks, 1.0, 1.0, false, &times, 100);
+    assert!(right_only.0.abs() < 1e-5);
+}

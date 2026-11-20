@@ -50,6 +50,8 @@ struct MixerSnapshot {
     deck_c: DeckState,
     deck_d: DeckState,
     crossfader: f64,
+    master_volume: f64,
+    master_muted: bool,
 }
 
 pub struct DjOrchestrator {
@@ -57,7 +59,9 @@ pub struct DjOrchestrator {
     pub deck_b: DeckState,
     pub deck_c: DeckState,
     pub deck_d: DeckState,
-    pub crossfader: f64, // -1.0 (full Deck A) to +1.0 (full Deck B)
+    pub crossfader: f64,    // -1.0 (full Deck A) to +1.0 (full Deck B)
+    pub master_volume: f64, // 0.0 to 1.0
+    pub master_muted: bool,
     pub crate_tracks: Vec<TrackMeta>,
     undo_stack: Vec<MixerSnapshot>,
     redo_stack: Vec<MixerSnapshot>,
@@ -108,6 +112,8 @@ impl DjOrchestrator {
             deck_c: AudioEngine::create_deck(DeckId::DeckC),
             deck_d: AudioEngine::create_deck(DeckId::DeckD),
             crossfader: 0.0,
+            master_volume: 0.75,
+            master_muted: false,
             crate_tracks,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -146,6 +152,8 @@ impl DjOrchestrator {
             deck_c: self.deck_c.clone(),
             deck_d: self.deck_d.clone(),
             crossfader: self.crossfader,
+            master_volume: self.master_volume,
+            master_muted: self.master_muted,
         }
     }
 
@@ -155,6 +163,8 @@ impl DjOrchestrator {
         self.deck_c = snap.deck_c;
         self.deck_d = snap.deck_d;
         self.crossfader = snap.crossfader;
+        self.master_volume = snap.master_volume;
+        self.master_muted = snap.master_muted;
     }
 
     pub(crate) fn push_undo(&mut self) {

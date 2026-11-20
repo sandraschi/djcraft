@@ -70,6 +70,14 @@ pub enum Command {
     SetCrossfader {
         value: f64,
     },
+    SetMasterVolume {
+        volume: f64,
+    },
+    ToggleMasterMute,
+    SetDeckVolume {
+        deck: DeckId,
+        volume: f64,
+    },
     SetPitchBend {
         deck: DeckId,
         pct: f64,
@@ -206,6 +214,12 @@ impl Command {
                 label: "Center Master Crossfader (0.0)",
                 category: "Modify",
                 hotkey: "C",
+            },
+            CommandSpec {
+                id: "modify.toggle_mute",
+                label: "Toggle Master Audio Mute",
+                category: "Modify",
+                hotkey: "M",
             },
             CommandSpec {
                 id: "commands.auto_sync",
@@ -535,6 +549,41 @@ impl DjOrchestrator {
                     command: "set_crossfader".to_string(),
                     message: format!("Crossfader set to {:+.2}", self.crossfader),
                     data: json!({ "crossfader": self.crossfader }),
+                })
+            }
+            Command::SetMasterVolume { volume } => {
+                self.push_undo();
+                self.master_volume = volume.clamp(0.0, 1.0);
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "set_master_volume".to_string(),
+                    message: format!("Master Loudness set to {:.0}%", self.master_volume * 100.0),
+                    data: json!({ "master_volume": self.master_volume }),
+                })
+            }
+            Command::ToggleMasterMute => {
+                self.push_undo();
+                self.master_muted = !self.master_muted;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "toggle_master_mute".to_string(),
+                    message: if self.master_muted {
+                        "Master Audio MUTED".to_string()
+                    } else {
+                        "Master Audio UNMUTED".to_string()
+                    },
+                    data: json!({ "master_muted": self.master_muted }),
+                })
+            }
+            Command::SetDeckVolume { deck, volume } => {
+                self.push_undo();
+                let clamped = volume.clamp(0.0, 1.0);
+                self.deck_mut(deck).volume_fader = clamped;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "set_deck_volume".to_string(),
+                    message: format!("{} volume set to {:.0}%", deck.label(), clamped * 100.0),
+                    data: json!({ "deck": deck, "volume_fader": clamped }),
                 })
             }
             Command::SetPitchBend { deck, pct } => {
