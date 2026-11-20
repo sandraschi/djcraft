@@ -64,6 +64,10 @@ pub struct DeckState {
     pub eq_high: f64,          // 0.0 (kill) to 2.0 (boost), 1.0 = flat
     pub hot_cue_seconds: [Option<f64>; 4],
     pub loop_bars: Option<u32>,
+    #[serde(default)]
+    pub seek_gen: u64,
+    #[serde(default)]
+    pub scratch_velocity: Option<f64>,
 }
 
 pub struct AudioEngine;
@@ -91,6 +95,8 @@ impl AudioEngine {
             eq_high: 1.0,
             hot_cue_seconds: [None; 4],
             loop_bars: None,
+            seek_gen: 0,
+            scratch_velocity: None,
         }
     }
 
@@ -99,7 +105,7 @@ impl AudioEngine {
         let Some(track) = deck.loaded_track.as_ref() else {
             return 0.0;
         };
-        if !deck.is_playing || track.bpm <= 0.0 {
+        if (!deck.is_playing && deck.scratch_velocity.is_none()) || track.bpm <= 0.0 {
             return 0.0;
         }
 

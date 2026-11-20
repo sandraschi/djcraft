@@ -32,8 +32,14 @@ pub fn card_frame<R>(
     palette: &SkinPalette,
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::InnerResponse<R> {
+    let fill = Color32::from_rgba_unmultiplied(
+        palette.card_fill.r(),
+        palette.card_fill.g(),
+        palette.card_fill.b(),
+        if palette.is_light { 242 } else { 226 },
+    );
     Frame::new()
-        .fill(palette.card_fill)
+        .fill(fill)
         .stroke(Stroke::new(1.0, palette.card_border))
         .corner_radius(CornerRadius::same(8))
         .inner_margin(Margin::same(9))

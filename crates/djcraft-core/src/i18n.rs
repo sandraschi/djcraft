@@ -60,6 +60,18 @@ impl AppLocale {
         }
     }
 
+    pub fn short_label(&self) -> &'static str {
+        match self {
+            AppLocale::En => "EN",
+            AppLocale::De => "DE",
+            AppLocale::Fr => "FR",
+            AppLocale::Es => "ES",
+            AppLocale::Ja => "JA",
+            AppLocale::Ko => "KO",
+            AppLocale::Zh => "ZH",
+        }
+    }
+
     pub fn flag(&self) -> &'static str {
         match self {
             AppLocale::En => "🇬🇧",
@@ -86,6 +98,15 @@ pub enum I18nKey {
     VinylScratch,
     Equalizer,
     StatusReady,
+    LiveConsole,
+    CratesGigPrep,
+    BattleMixer,
+    HeadphonePfl,
+    MixRecorder,
+    Play,
+    Pause,
+    DeckC,
+    DeckD,
 }
 
 pub fn t(key: I18nKey, locale: AppLocale) -> &'static str {
@@ -169,5 +190,63 @@ pub fn t(key: I18nKey, locale: AppLocale) -> &'static str {
         (I18nKey::StatusReady, AppLocale::Ja) => "DJCraft リアルタイム音響DSP 準備完了",
         (I18nKey::StatusReady, AppLocale::Ko) => "DJCraft 실시간 오디오 DSP 준비완료",
         (I18nKey::StatusReady, AppLocale::Zh) => "DJCraft 实时音频数字信号处理器 (DSP) 就绪",
+
+        (I18nKey::LiveConsole, AppLocale::En) => "LIVE CONSOLE",
+        (I18nKey::LiveConsole, AppLocale::De) => "LIVE-KONSOLE",
+        (I18nKey::LiveConsole, AppLocale::Fr) => "CONSOLE LIVE",
+        (I18nKey::LiveConsole, AppLocale::Es) => "CONSOLA EN VIVO",
+        (I18nKey::LiveConsole, AppLocale::Ja) => "LIVE CONSOLE (JP)",
+        (I18nKey::LiveConsole, AppLocale::Ko) => "LIVE CONSOLE (KR)",
+        (I18nKey::LiveConsole, AppLocale::Zh) => "LIVE CONSOLE (ZH)",
+
+        (I18nKey::CratesGigPrep, AppLocale::En) => "CRATES & GIG PREP",
+        (I18nKey::CratesGigPrep, AppLocale::De) => "CRATES & GIG-PREP",
+        (I18nKey::CratesGigPrep, AppLocale::Fr) => "CRATES & PREP SET",
+        (I18nKey::CratesGigPrep, AppLocale::Es) => "CRATES Y PREP GIG",
+        (I18nKey::CratesGigPrep, AppLocale::Ja) => "CRATES & GIG PREP (JP)",
+        (I18nKey::CratesGigPrep, AppLocale::Ko) => "CRATES & GIG PREP (KR)",
+        (I18nKey::CratesGigPrep, AppLocale::Zh) => "CRATES & GIG PREP (ZH)",
+
+        (I18nKey::BattleMixer, AppLocale::En) => "Battle Mixer (3-Band EQ, Faders, MAG FOUR Crossfader)",
+        (I18nKey::BattleMixer, AppLocale::De) => "Battle-Mixer (3-Band-EQ, Fader, MAG FOUR Crossfader)",
+        (I18nKey::BattleMixer, AppLocale::Fr) => "Mixeur Battle (EQ 3 Bandes, Faders, MAG FOUR)",
+        (I18nKey::BattleMixer, AppLocale::Es) => "Mezclador Battle (EQ 3 Bandas, Faders, MAG FOUR)",
+        (I18nKey::BattleMixer, _) => "Battle Mixer (3-Band EQ, Faders, MAG FOUR)",
+
+        (I18nKey::HeadphonePfl, AppLocale::En) => "Headphone PFL:",
+        (I18nKey::HeadphonePfl, AppLocale::De) => "Kopfhoerer PFL:",
+        (I18nKey::HeadphonePfl, AppLocale::Fr) => "Casque PFL:",
+        (I18nKey::HeadphonePfl, AppLocale::Es) => "Auriculares PFL:",
+        (I18nKey::HeadphonePfl, _) => "Headphone PFL:",
+
+        (I18nKey::MixRecorder, AppLocale::En) => "Mix Recorder:",
+        (I18nKey::MixRecorder, AppLocale::De) => "Mix-Aufnahme:",
+        (I18nKey::MixRecorder, AppLocale::Fr) => "Enregistreur:",
+        (I18nKey::MixRecorder, AppLocale::Es) => "Grabadora Mix:",
+        (I18nKey::MixRecorder, _) => "Mix Recorder:",
+
+        (I18nKey::Play, AppLocale::En) => "PLAY",
+        (I18nKey::Play, AppLocale::De) => "START",
+        (I18nKey::Play, AppLocale::Fr) => "LECTURE",
+        (I18nKey::Play, AppLocale::Es) => "PLAY",
+        (I18nKey::Play, _) => "PLAY",
+
+        (I18nKey::Pause, AppLocale::En) => "PAUSE",
+        (I18nKey::Pause, AppLocale::De) => "PAUSE",
+        (I18nKey::Pause, AppLocale::Fr) => "PAUSE",
+        (I18nKey::Pause, AppLocale::Es) => "PAUSA",
+        (I18nKey::Pause, _) => "PAUSE",
+
+        (I18nKey::DeckC, AppLocale::En) => "Deck C (Left 2)",
+        (I18nKey::DeckC, AppLocale::De) => "Deck C (Links 2)",
+        (I18nKey::DeckC, AppLocale::Fr) => "Platine C (Gauche 2)",
+        (I18nKey::DeckC, AppLocale::Es) => "Plato C (Izq 2)",
+        (I18nKey::DeckC, _) => "Deck C",
+
+        (I18nKey::DeckD, AppLocale::En) => "Deck D (Right 2)",
+        (I18nKey::DeckD, AppLocale::De) => "Deck D (Rechts 2)",
+        (I18nKey::DeckD, AppLocale::Fr) => "Platine D (Droite 2)",
+        (I18nKey::DeckD, AppLocale::Es) => "Plato D (Der 2)",
+        (I18nKey::DeckD, _) => "Deck D",
     }
 }

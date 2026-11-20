@@ -553,6 +553,7 @@ impl DjOrchestrator {
                 state.is_playing = false;
                 state.is_cue_active = true;
                 state.position_seconds = 0.0;
+                state.seek_gen = state.seek_gen.wrapping_add(1);
                 Ok(DispatchOutcome {
                     ok: true,
                     command: "cue_return".to_string(),
@@ -579,6 +580,7 @@ impl DjOrchestrator {
                 state.loaded_track = Some(track);
                 state.position_seconds = 0.0;
                 state.is_playing = false;
+                state.seek_gen = state.seek_gen.wrapping_add(1);
                 Ok(DispatchOutcome {
                     ok: true,
                     command: "load_track".to_string(),

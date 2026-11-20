@@ -421,14 +421,16 @@ impl AudioOutput {
                     .as_ref()
                     .map(|t| t.title.as_str())
                     != new_deck.loaded_track.as_ref().map(|t| t.title.as_str());
+                let seek_changed = guard.decks[idx].seek_gen != new_deck.seek_gen;
                 let keylock_changed = guard.decks[idx].keylock != new_deck.keylock;
-                if track_changed || new_deck.position_seconds < 0.02 {
-                    guard.play_times[idx] = new_deck.position_seconds;
+                if track_changed || seek_changed {
+                    let t0 = new_deck.position_seconds.max(0.0);
+                    guard.play_times[idx] = t0;
                     let sr = guard.decoded[idx]
                         .as_ref()
                         .map(|a| a.sample_rate as f64)
                         .unwrap_or(self.sample_rate as f64);
-                    guard.wsola[idx].reset(new_deck.position_seconds * sr);
+                    guard.wsola[idx].reset(t0 * sr);
                 } else if keylock_changed {
                     let sr = guard.decoded[idx]
                         .as_ref()
@@ -463,17 +465,27 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
 
     for i in 0..4 {
         let deck = &guard.decks[i];
-        if !deck.is_playing || deck.loaded_track.is_none() {
+        let scratching = deck.scratch_velocity;
+        if (!deck.is_playing && scratching.is_none()) || deck.loaded_track.is_none() {
             continue;
         }
-        let rate = (1.0 + deck.pitch_bend_pct / 100.0).clamp(0.5, 2.0);
+        // Holding the vinyl platter still produces silence (hand brake)
+        if let Some(vel) = scratching {
+            if vel.abs() < 0.02 {
+                continue;
+            }
+        }
+        let rate = match scratching {
+            Some(vel) => vel.clamp(-4.0, 4.0),
+            None => (1.0 + deck.pitch_bend_pct / 100.0).clamp(0.5, 2.0),
+        };
         let (pre_l, pre_r) = if let Some(stems) = guard.decoded_stems[i].as_ref() {
-            let sample_pos = guard.play_times[i] * stems.sample_rate() as f64;
+            let sample_pos = (guard.play_times[i] * stems.sample_rate() as f64).max(0.0);
             let (vl, vr) = sample_varispeed(&stems.vocals, sample_pos);
             let (dl, dr) = sample_varispeed(&stems.drums, sample_pos);
             let (bl, br) = sample_varispeed(&stems.bass, sample_pos);
             let (ol, or) = sample_varispeed(&stems.other, sample_pos);
-            guard.play_times[i] += dt * rate;
+            guard.play_times[i] = (guard.play_times[i] + dt * rate).max(0.0);
 
             let gv = deck.stem_vocals_gain as f32;
             let gd = deck.stem_drums_gain as f32;
@@ -490,15 +502,15 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
             )
         } else if let Some(audio) = guard.decoded[i].as_ref() {
             let sr_ratio = audio.sample_rate as f64 / out_sr;
-            let (l, r) = if deck.keylock {
+            let (l, r) = if deck.keylock && scratching.is_none() {
                 let (wl, wr) = guard.wsola[i].next_sample(audio, rate * sr_ratio);
                 guard.play_times[i] =
                     guard.wsola[i].current_input_sample() / audio.sample_rate.max(1) as f64;
                 (wl, wr)
             } else {
-                let sample_pos = guard.play_times[i] * audio.sample_rate as f64;
+                let sample_pos = (guard.play_times[i] * audio.sample_rate as f64).max(0.0);
                 let lr = sample_varispeed(audio, sample_pos);
-                guard.play_times[i] += dt * rate;
+                guard.play_times[i] = (guard.play_times[i] + dt * rate).max(0.0);
                 lr
             };
             guard.eqs[i].process_stereo(
@@ -512,7 +524,7 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
             let mut unit_deck = deck.clone();
             unit_deck.volume_fader = 1.0;
             let s = AudioEngine::sample_deck_frame(&unit_deck, guard.play_times[i], idx);
-            guard.play_times[i] += dt;
+            guard.play_times[i] = (guard.play_times[i] + dt * rate).max(0.0);
             guard.eqs[i].process_stereo(
                 s,
                 s,

@@ -1013,3 +1013,41 @@ fn test_lossless_wav_mix_recorder_streaming_and_header_integrity() {
 
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
+
+#[test]
+fn test_deck_b_start_seek_gen_vinyl_scratch_and_i18n() {
+    use djcraft_core::i18n::{t, AppLocale, I18nKey};
+
+    let mut orch = DjOrchestrator::new();
+    let gen0 = orch.deck_b.seek_gen;
+    orch.dispatch(Command::LoadDemoCrateTrack {
+        deck: DeckId::DeckB,
+        index: 1,
+    })
+    .expect("load b");
+    assert!(orch.deck_b.seek_gen > gen0);
+    assert!(!orch.deck_b.is_playing);
+
+    // Clicking PlayPause on Deck B starts it cleanly
+    let res = orch
+        .dispatch(Command::PlayPause {
+            deck: DeckId::DeckB,
+        })
+        .expect("play b");
+    assert!(res.ok);
+    assert!(orch.deck_b.is_playing);
+
+    // Paused deck with vinyl scratch_velocity still synthesizes audio (baby scratch)
+    orch.deck_b.is_playing = false;
+    orch.deck_b.scratch_velocity = Some(-1.5);
+    let mut energy = 0.0_f32;
+    for i in 0..200_u64 {
+        energy += AudioEngine::sample_deck_frame(&orch.deck_b, 1.0 + i as f64 / 44100.0, i).abs();
+    }
+    assert!(energy > 1.0, "Vinyl scratching must produce audio even when paused");
+
+    // i18n checks
+    assert_eq!(t(I18nKey::LiveConsole, AppLocale::De), "LIVE-KONSOLE");
+    assert_eq!(t(I18nKey::Play, AppLocale::De), "START");
+    assert_eq!(AppLocale::De.short_label(), "DE");
+}

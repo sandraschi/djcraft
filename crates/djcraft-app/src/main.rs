@@ -16,6 +16,7 @@ use djcraft_audio::dsp::{
 };
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{AudioEngine, DeckId, RecordingFormat, TrackMeta};
+use djcraft_core::i18n::{t, AppLocale, I18nKey};
 use djcraft_core::{
     action_to_command, batch_stem_folder, butterchurn_sync_bpm, chat_with_booth_ai,
     generate_speech_drop, parse_natural_language_command, plan_harmonic_setlist,
@@ -26,7 +27,7 @@ use djcraft_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use skins::{SkinId, SkinPalette};
+use skins::{paint_backdrop, BackdropStyle, SkinId, SkinPalette};
 use video::{composite_video_frame, find_companion_video, VideoDeckPlayer, VIDEO_H, VIDEO_W};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -98,6 +99,12 @@ struct UiPrefs {
     skin: SkinId,
     #[serde(default = "default_last_dark")]
     last_dark_skin: SkinId,
+    #[serde(default)]
+    backdrop: BackdropStyle,
+    #[serde(default)]
+    locale: AppLocale,
+    #[serde(default)]
+    four_deck_layout: bool,
     zoom_factor: f32,
     show_deck_a: bool,
     show_deck_b: bool,
@@ -114,6 +121,9 @@ impl Default for UiPrefs {
         Self {
             skin: SkinId::RaneBattle,
             last_dark_skin: SkinId::RaneBattle,
+            backdrop: BackdropStyle::SparkleClub,
+            locale: AppLocale::En,
+            four_deck_layout: false,
             zoom_factor: 1.0,
             show_deck_a: true,
             show_deck_b: true,
@@ -156,10 +166,12 @@ impl UiPrefs {
 
 pub struct DjCraftApp {
     orch: DjOrchestrator,
-    locale: djcraft_core::i18n::AppLocale,
+    locale: AppLocale,
     status_msg: String,
-    platter_angle_a: f32,
-    platter_angle_b: f32,
+    platter_angles: [f32; 4],
+    backdrop_time: f32,
+    left_layer_c: bool,
+    right_layer_d: bool,
     crate_cursor_a: usize,
     crate_cursor_b: usize,
     typography_applied: bool,
@@ -263,17 +275,21 @@ impl DjCraftApp {
                 audio_out.error.as_deref().unwrap_or("unavailable")
             )
         };
+        let prefs = UiPrefs::load();
+        let locale = prefs.locale;
         Self {
             orch,
-            locale: djcraft_core::i18n::AppLocale::default(),
+            locale,
             status_msg,
-            platter_angle_a: 0.0,
-            platter_angle_b: 0.0,
+            platter_angles: [0.0; 4],
+            backdrop_time: 0.0,
+            left_layer_c: false,
+            right_layer_d: false,
             crate_cursor_a: 0,
             crate_cursor_b: 1,
             typography_applied: false,
 
-            prefs: UiPrefs::load(),
+            prefs,
             workspace_mode: WorkspaceMode::LiveConsole,
             lower_tab: LowerDockTab::Crates,
             crate_ui: CrateUiState::default(),
@@ -1004,165 +1020,288 @@ impl DjCraftApp {
         }
     }
 
+    fn deck_localized_label(&self, deck_id: DeckId) -> &'static str {
+        match deck_id {
+            DeckId::DeckA => t(I18nKey::DeckA, self.locale),
+            DeckId::DeckB => t(I18nKey::DeckB, self.locale),
+            DeckId::DeckC => t(I18nKey::DeckC, self.locale),
+            DeckId::DeckD => t(I18nKey::DeckD, self.locale),
+        }
+    }
+
+    fn sync_audio_and_repaint(&mut self, ctx: &egui::Context) {
+        self.audio_out.sync_state(
+            [
+                self.orch.deck_a.clone(),
+                self.orch.deck_b.clone(),
+                self.orch.deck_c.clone(),
+                self.orch.deck_d.clone(),
+            ],
+            self.orch.crossfader,
+            self.orch.master_volume,
+            self.orch.master_muted,
+        );
+        self.audio_out.set_headphone_mix(
+            self.orch.headphone_volume,
+            self.orch.headphone_cue_mix,
+            self.orch.headphone_split_cue,
+        );
+        let any_active = self.orch.deck_a.is_playing
+            || self.orch.deck_b.is_playing
+            || self.orch.deck_c.is_playing
+            || self.orch.deck_d.is_playing
+            || self.orch.deck_a.scratch_velocity.is_some()
+            || self.orch.deck_b.scratch_velocity.is_some()
+            || self.orch.deck_c.scratch_velocity.is_some()
+            || self.orch.deck_d.scratch_velocity.is_some()
+            || self.midi.connected_port.is_some()
+            || self.audio_out.is_recording()
+            || self.prefs.backdrop == BackdropStyle::SparkleClub;
+        if any_active {
+            ctx.request_repaint();
+        }
+    }
+
     fn render_hardware_deck(
         &mut self,
         ui: &mut egui::Ui,
         deck_id: DeckId,
         accent: egui::Color32,
-        platter_angle: f32,
         palette: &SkinPalette,
     ) {
         let d = self.orch.deck(deck_id).clone();
+        let idx = deck_index(deck_id);
+        let deck_title = self.deck_localized_label(deck_id);
 
-        theme::card_frame(ui, palette, |ui| {
-            ui.horizontal(|ui| {
-                theme::status_dot(ui, d.is_playing);
-                ui.strong(egui::RichText::new(deck_id.label()).color(accent));
-                if let Some(track) = &d.loaded_track {
-                    ui.label(egui::RichText::new(&track.title).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.monospace(format!("{} | {:.1} BPM", track.musical_key, track.bpm));
+        ui.push_id(deck_id, |ui| {
+            theme::card_frame(ui, palette, |ui| {
+                ui.horizontal(|ui| {
+                    theme::status_dot(ui, d.is_playing);
+                    ui.strong(egui::RichText::new(deck_title).color(accent));
+                    if !self.prefs.four_deck_layout {
+                        match deck_id {
+                            DeckId::DeckA | DeckId::DeckC => {
+                                let sw_lbl = if self.left_layer_c { "-> A" } else { "-> C" };
+                                if ui
+                                    .small_button(sw_lbl)
+                                    .on_hover_text("Switch left side between Deck A and Deck C")
+                                    .clicked()
+                                {
+                                    self.left_layer_c = !self.left_layer_c;
+                                }
+                            }
+                            DeckId::DeckB | DeckId::DeckD => {
+                                let sw_lbl = if self.right_layer_d { "-> B" } else { "-> D" };
+                                if ui
+                                    .small_button(sw_lbl)
+                                    .on_hover_text("Switch right side between Deck B and Deck D")
+                                    .clicked()
+                                {
+                                    self.right_layer_d = !self.right_layer_d;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(track) = &d.loaded_track {
+                        ui.label(egui::RichText::new(&track.title).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.monospace(format!("{} | {:.1} BPM", track.musical_key, track.bpm));
+                        });
+                    } else {
+                        ui.label("Empty Deck");
+                    }
+                });
+                ui.horizontal_wrapped(|ui| {
+                    let play_lbl = if d.is_playing {
+                        t(I18nKey::Pause, self.locale)
+                    } else {
+                        t(I18nKey::Play, self.locale)
+                    };
+                    let play_fill = if d.is_playing {
+                        egui::Color32::from_rgb(22, 163, 74)
+                    } else {
+                        accent
+                    };
+                    let play_fg = if palette.is_light || d.is_playing {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::BLACK
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(play_lbl).strong().color(play_fg),
+                            )
+                            .fill(play_fill),
+                        )
+                        .clicked()
+                    {
+                        self.dispatch_and_report(Command::PlayPause { deck: deck_id });
+                    }
+                    if ui.button("CUE").clicked() {
+                        self.dispatch_and_report(Command::CueReturn { deck: deck_id });
+                    }
+                    let pfl_btn = egui::Button::new("PFL").small().fill(if d.pfl_cue {
+                        egui::Color32::from_rgb(245, 158, 11)
+                    } else {
+                        palette.card_fill
                     });
-                } else {
-                    ui.label("Empty Deck");
-                }
+                    if ui.add(pfl_btn).on_hover_text("Headphone PFL Pre-Cue").clicked() {
+                        self.dispatch_and_report(Command::TogglePflCue { deck: deck_id });
+                    }
+                    let kl = if d.keylock { "KEYLOCK" } else { "VINYL" };
+                    if ui.small_button(kl).clicked() {
+                        self.dispatch_and_report(Command::ToggleKeylock { deck: deck_id });
+                    }
+                    if ui.small_button("AUDIO").clicked() {
+                        self.load_audio_file_dialog(deck_id);
+                    }
+                    if ui.small_button("VIDEO").clicked() {
+                        self.load_video_file_dialog(deck_id);
+                    }
+                });
             });
-            ui.horizontal(|ui| {
-                let play_lbl = if d.is_playing { "PAUSE" } else { "PLAY" };
-                if ui.button(egui::RichText::new(play_lbl).strong()).clicked() {
-                    self.dispatch_and_report(Command::PlayPause { deck: deck_id });
-                }
-                if ui.button("CUE").clicked() {
-                    self.dispatch_and_report(Command::CueReturn { deck: deck_id });
-                }
-                let kl = if d.keylock { "KEYLOCK" } else { "VINYL" };
-                if ui.small_button(kl).clicked() {
-                    self.dispatch_and_report(Command::ToggleKeylock { deck: deck_id });
-                }
-                if ui.small_button("AUDIO").clicked() {
-                    self.load_audio_file_dialog(deck_id);
-                }
-                if ui.small_button("VIDEO").clicked() {
-                    self.load_video_file_dialog(deck_id);
-                }
-            });
-        });
 
-        ui.add_space(6.0);
+            ui.add_space(6.0);
 
-        // Motorized Platter + Vertical Pitch Fader side-by-side
-        theme::card_frame(ui, palette, |ui| {
-            ui.horizontal(|ui| {
-                let eff_bpm = d
-                    .loaded_track
-                    .as_ref()
-                    .map(|t| t.bpm * (1.0 + d.pitch_bend_pct / 100.0));
-                widgets::paint_platter(ui, platter_angle, accent, d.is_playing, eff_bpm);
+            // Motorized Platter (interactive vinyl scratching!) + Vertical Pitch Fader
+            theme::card_frame(ui, palette, |ui| {
+                ui.horizontal(|ui| {
+                    let eff_bpm = d
+                        .loaded_track
+                        .as_ref()
+                        .map(|t| t.bpm * (1.0 + d.pitch_bend_pct / 100.0));
+                    let pr = widgets::paint_platter(
+                        ui,
+                        self.platter_angles[idx],
+                        accent,
+                        d.is_playing,
+                        eff_bpm,
+                    );
+                    self.orch.deck_mut(deck_id).scratch_velocity = pr.scratch_velocity;
+                    if let Some(vel) = pr.scratch_velocity {
+                        self.platter_angles[idx] += pr.angle_delta;
+                        let st = self.orch.deck_mut(deck_id);
+                        st.position_seconds = (st.position_seconds + vel * 0.016).max(0.0);
+                    }
 
-                ui.add_space(6.0);
-                let mut pitch = d.pitch_bend_pct;
-                let pf = widgets::vertical_fader(
-                    ui,
-                    &format!("{pitch:+.1}%"),
-                    &mut pitch,
-                    -16.0,
-                    16.0,
-                    0.0,
-                    120.0,
-                    accent,
-                    palette,
-                );
-                if pf.changed {
-                    self.orch.deck_mut(deck_id).pitch_bend_pct = pitch;
-                }
-                if pf.committed {
-                    self.dispatch_and_report(Command::SetPitchBend {
-                        deck: deck_id,
-                        pct: pitch,
-                    });
-                }
-
-                ui.vertical(|ui| {
-                    ui.label(egui::RichText::new("Beatgrid").size(11.0).color(palette.text_secondary));
-                    if ui.small_button("0% Pitch").clicked() {
+                    ui.add_space(6.0);
+                    let mut pitch = d.pitch_bend_pct;
+                    let pf = widgets::vertical_fader(
+                        ui,
+                        &format!("{pitch:+.1}%"),
+                        &mut pitch,
+                        -16.0,
+                        16.0,
+                        0.0,
+                        120.0,
+                        accent,
+                        palette,
+                    );
+                    if pf.changed {
+                        self.orch.deck_mut(deck_id).pitch_bend_pct = pitch;
+                    }
+                    if pf.committed {
                         self.dispatch_and_report(Command::SetPitchBend {
                             deck: deck_id,
-                            pct: 0.0,
+                            pct: pitch,
                         });
                     }
-                    if ui.small_button("/2 BPM").clicked() {
-                        self.dispatch_and_report(Command::ScaleBpm {
-                            deck: deck_id,
-                            multiplier: 0.5,
-                        });
-                    }
-                    if ui.small_button("x2 BPM").clicked() {
-                        self.dispatch_and_report(Command::ScaleBpm {
-                            deck: deck_id,
-                            multiplier: 2.0,
-                        });
-                    }
-                    if ui.small_button("-10ms").clicked() {
-                        self.dispatch_and_report(Command::NudgeBeatgrid {
-                            deck: deck_id,
-                            delta_ms: -10.0,
-                        });
-                    }
-                    if ui.small_button("+10ms").clicked() {
-                        self.dispatch_and_report(Command::NudgeBeatgrid {
-                            deck: deck_id,
-                            delta_ms: 10.0,
-                        });
-                    }
+
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("Beatgrid")
+                                .size(11.0)
+                                .color(palette.text_secondary),
+                        );
+                        if ui.small_button("0% Pitch").clicked() {
+                            self.dispatch_and_report(Command::SetPitchBend {
+                                deck: deck_id,
+                                pct: 0.0,
+                            });
+                        }
+                        if ui.small_button("/2 BPM").clicked() {
+                            self.dispatch_and_report(Command::ScaleBpm {
+                                deck: deck_id,
+                                multiplier: 0.5,
+                            });
+                        }
+                        if ui.small_button("x2 BPM").clicked() {
+                            self.dispatch_and_report(Command::ScaleBpm {
+                                deck: deck_id,
+                                multiplier: 2.0,
+                            });
+                        }
+                        if ui.small_button("-10ms").clicked() {
+                            self.dispatch_and_report(Command::NudgeBeatgrid {
+                                deck: deck_id,
+                                delta_ms: -10.0,
+                            });
+                        }
+                        if ui.small_button("+10ms").clicked() {
+                            self.dispatch_and_report(Command::NudgeBeatgrid {
+                                deck: deck_id,
+                                delta_ms: 10.0,
+                            });
+                        }
+                    });
                 });
             });
-        });
 
-        ui.add_space(6.0);
+            ui.add_space(6.0);
 
-        // 8 RGB MPC Performance Pads
-        theme::card_frame(ui, palette, |ui| {
-            ui.label(egui::RichText::new("MPC Performance Pads").size(11.5).color(palette.text_secondary));
-            if let Some(pad_idx) = widgets::performance_pads_grid(ui, &d, palette) {
-                self.handle_pad_click(deck_id, pad_idx);
-            }
-        });
-
-        ui.add_space(6.0);
-
-        // 4 Rotary Stem Knobs
-        theme::card_frame(ui, palette, |ui| {
-            ui.label(egui::RichText::new("Stems (Double-click = 100%)").size(11.5).color(palette.text_secondary));
-            let mut v = d.stem_vocals_gain;
-            let mut dr = d.stem_drums_gain;
-            let mut ba = d.stem_bass_gain;
-            let mut ot = d.stem_other_gain;
-            let mut changed = false;
-            let mut committed = false;
-            ui.horizontal(|ui| {
-                let r1 = widgets::rotary_knob(ui, "VOC", &mut v, 0.0, 1.0, 1.0, false, accent, palette);
-                let r2 = widgets::rotary_knob(ui, "DRM", &mut dr, 0.0, 1.0, 1.0, false, accent, palette);
-                let r3 = widgets::rotary_knob(ui, "BAS", &mut ba, 0.0, 1.0, 1.0, false, accent, palette);
-                let r4 = widgets::rotary_knob(ui, "OTH", &mut ot, 0.0, 1.0, 1.0, false, accent, palette);
-                changed = r1.changed || r2.changed || r3.changed || r4.changed;
-                committed = r1.committed || r2.committed || r3.committed || r4.committed;
+            // 8 RGB MPC Performance Pads
+            theme::card_frame(ui, palette, |ui| {
+                ui.label(
+                    egui::RichText::new(t(I18nKey::HotCue, self.locale))
+                        .size(11.5)
+                        .color(palette.text_secondary),
+                );
+                if let Some(pad_idx) = widgets::performance_pads_grid(ui, &d, palette) {
+                    self.handle_pad_click(deck_id, pad_idx);
+                }
             });
-            if changed {
-                let st = self.orch.deck_mut(deck_id);
-                st.stem_vocals_gain = v;
-                st.stem_drums_gain = dr;
-                st.stem_bass_gain = ba;
-                st.stem_other_gain = ot;
-            }
-            if committed {
-                self.dispatch_and_report(Command::SetStemGains {
-                    deck: deck_id,
-                    vocals: v,
-                    drums: dr,
-                    bass: ba,
-                    other: ot,
+
+            ui.add_space(6.0);
+
+            // 4 Rotary Stem Knobs
+            theme::card_frame(ui, palette, |ui| {
+                ui.label(
+                    egui::RichText::new(t(I18nKey::StemSeparation, self.locale))
+                        .size(11.5)
+                        .color(palette.text_secondary),
+                );
+                let mut v = d.stem_vocals_gain;
+                let mut dr = d.stem_drums_gain;
+                let mut ba = d.stem_bass_gain;
+                let mut ot = d.stem_other_gain;
+                let mut changed = false;
+                let mut committed = false;
+                ui.horizontal(|ui| {
+                    let r1 = widgets::rotary_knob(ui, "VOC", &mut v, 0.0, 1.0, 1.0, false, accent, palette);
+                    let r2 = widgets::rotary_knob(ui, "DRM", &mut dr, 0.0, 1.0, 1.0, false, accent, palette);
+                    let r3 = widgets::rotary_knob(ui, "BAS", &mut ba, 0.0, 1.0, 1.0, false, accent, palette);
+                    let r4 = widgets::rotary_knob(ui, "OTH", &mut ot, 0.0, 1.0, 1.0, false, accent, palette);
+                    changed = r1.changed || r2.changed || r3.changed || r4.changed;
+                    committed = r1.committed || r2.committed || r3.committed || r4.committed;
                 });
-            }
+                if changed {
+                    let st = self.orch.deck_mut(deck_id);
+                    st.stem_vocals_gain = v;
+                    st.stem_drums_gain = dr;
+                    st.stem_bass_gain = ba;
+                    st.stem_other_gain = ot;
+                }
+                if committed {
+                    self.dispatch_and_report(Command::SetStemGains {
+                        deck: deck_id,
+                        vocals: v,
+                        drums: dr,
+                        bass: ba,
+                        other: ot,
+                    });
+                }
+            });
         });
     }
 }
@@ -1197,7 +1336,20 @@ impl eframe::App for DjCraftApp {
             theme::apply_fleet_typography(&ctx);
             self.typography_applied = true;
         }
-        ctx.set_visuals(palette.to_visuals());
+        ctx.set_visuals(palette.to_visuals(self.prefs.backdrop != BackdropStyle::Solid));
+        let dt_vis = ctx.input(|i| i.stable_dt).clamp(0.004, 0.05);
+        self.backdrop_time += dt_vis;
+        let active_decks = [
+            self.orch.deck_a.is_playing,
+            self.orch.deck_b.is_playing,
+            self.orch.deck_c.is_playing,
+            self.orch.deck_d.is_playing,
+        ]
+        .into_iter()
+        .filter(|&p| p)
+        .count() as f32;
+        let energy = (active_decks * 0.35 + (self.backdrop_time * 3.0).sin().abs() * 0.25).clamp(0.15, 1.0);
+        paint_backdrop(&ctx, &palette, self.prefs.backdrop, self.backdrop_time, energy);
 
         // Handle OS drag-and-drop audio files / folders straight from Windows Explorer
         let dropped_paths: Vec<PathBuf> = ctx.input(|i| {
@@ -1288,49 +1440,30 @@ impl eframe::App for DjCraftApp {
                 self.prefs.zoom_factor = 1.0;
                 self.prefs.save();
             }
+            if !ctx.egui_wants_keyboard_input() && i.key_pressed(egui::Key::Space) {
+                if i.modifiers.shift {
+                    self.execute_catalog_id("deck.play_pause.b");
+                } else {
+                    self.execute_catalog_id("deck.play_pause.a");
+                }
+            }
         });
 
-        // Continuous playback tick
+        // Continuous playback tick (uses actual frame dt; skips decks currently being vinyl-scratched)
         let mut any_playing = false;
-        if self.orch.deck_a.is_playing {
-            self.platter_angle_a += 0.04;
-            self.orch.deck_a.position_seconds += 0.016;
-            any_playing = true;
+        let dt_play = dt_vis as f64;
+        for (i, deck_id) in [DeckId::DeckA, DeckId::DeckB, DeckId::DeckC, DeckId::DeckD]
+            .into_iter()
+            .enumerate()
+        {
+            let d = self.orch.deck_mut(deck_id);
+            if d.is_playing && d.scratch_velocity.is_none() {
+                let rate = (1.0 + d.pitch_bend_pct / 100.0).clamp(0.5, 2.0);
+                self.platter_angles[i] += (0.04 * rate as f32) * (dt_vis / 0.016);
+                d.position_seconds += dt_play * rate;
+                any_playing = true;
+            }
         }
-        if self.orch.deck_b.is_playing {
-            self.platter_angle_b += 0.04;
-            self.orch.deck_b.position_seconds += 0.016;
-            any_playing = true;
-        }
-        if self.orch.deck_c.is_playing {
-            self.orch.deck_c.position_seconds += 0.016;
-            any_playing = true;
-        }
-        if self.orch.deck_d.is_playing {
-            self.orch.deck_d.position_seconds += 0.016;
-            any_playing = true;
-        }
-        if any_playing || self.midi.connected_port.is_some() || self.audio_out.is_recording() {
-            ctx.request_repaint();
-        }
-
-        // Sync live audio mixer into WASAPI (Master + Headphone PFL Bus)
-        self.audio_out.sync_state(
-            [
-                self.orch.deck_a.clone(),
-                self.orch.deck_b.clone(),
-                self.orch.deck_c.clone(),
-                self.orch.deck_d.clone(),
-            ],
-            self.orch.crossfader,
-            self.orch.master_volume,
-            self.orch.master_muted,
-        );
-        self.audio_out.set_headphone_mix(
-            self.orch.headphone_volume,
-            self.orch.headphone_cue_mix,
-            self.orch.headphone_split_cue,
-        );
 
         // Update native video mixer texture
         self.video_deck_a.set_playing(self.orch.deck_a.is_playing);
@@ -1585,13 +1718,20 @@ impl eframe::App for DjCraftApp {
                     egui::ComboBox::from_id_salt("topbar_locale_selector")
                         .selected_text(cur_loc.code().to_uppercase())
                         .show_ui(ui, |ui| {
-                            for loc_item in djcraft_core::i18n::AppLocale::all() {
+                            for loc_item in AppLocale::all() {
                                 let text = format!(
                                     "{} - {}",
-                                    loc_item.code().to_uppercase(),
-                                    loc_item.display_name()
+                                    loc_item.short_label(),
+                                    loc_item.code().to_uppercase()
                                 );
-                                let _ = ui.selectable_value(&mut self.locale, *loc_item, text);
+                                if ui
+                                    .selectable_value(&mut self.locale, *loc_item, text)
+                                    .clicked()
+                                {
+                                    self.prefs.locale = *loc_item;
+                                    self.prefs.save();
+                                    self.status_msg = t(I18nKey::StatusReady, *loc_item).to_string();
+                                }
                             }
                         });
                     if theme::theme_toggle_button(ui, palette.is_light) {
@@ -1608,6 +1748,21 @@ impl eframe::App for DjCraftApp {
                             for sk in SkinId::ALL {
                                 if ui.selectable_label(self.prefs.skin == sk, sk.label()).clicked() {
                                     self.set_skin(sk);
+                                }
+                            }
+                        });
+                    egui::ComboBox::from_id_salt("topbar_backdrop_selector")
+                        .selected_text(self.prefs.backdrop.label())
+                        .width(105.0)
+                        .show_ui(ui, |ui| {
+                            for bg in BackdropStyle::ALL {
+                                if ui
+                                    .selectable_label(self.prefs.backdrop == bg, bg.label())
+                                    .clicked()
+                                {
+                                    self.prefs.backdrop = bg;
+                                    self.prefs.save();
+                                    self.status_msg = format!("Backdrop: {}", bg.label());
                                 }
                             }
                         });
@@ -1634,13 +1789,30 @@ impl eframe::App for DjCraftApp {
                 ui.selectable_value(
                     &mut self.workspace_mode,
                     WorkspaceMode::LiveConsole,
-                    "LIVE CONSOLE",
+                    t(I18nKey::LiveConsole, self.locale),
                 );
                 ui.selectable_value(
                     &mut self.workspace_mode,
                     WorkspaceMode::CratesGigPrep,
-                    "CRATES & GIG PREP",
+                    t(I18nKey::CratesGigPrep, self.locale),
                 );
+                ui.separator();
+                if ui
+                    .selectable_label(!self.prefs.four_deck_layout, "2-DECK")
+                    .on_hover_text("2-Deck view with A/C and B/D layer buttons + C/D strip")
+                    .clicked()
+                {
+                    self.prefs.four_deck_layout = false;
+                    self.prefs.save();
+                }
+                if ui
+                    .selectable_label(self.prefs.four_deck_layout, "4-DECK")
+                    .on_hover_text("Full 4-Deck stacked hardware layout (A+C left, B+D right)")
+                    .clicked()
+                {
+                    self.prefs.four_deck_layout = true;
+                    self.prefs.save();
+                }
                 ui.separator();
                 if ui.small_button("Auto-Sync").clicked() {
                     self.execute_catalog_id("commands.auto_sync");
@@ -1694,11 +1866,12 @@ impl eframe::App for DjCraftApp {
                 );
             });
             self.handle_crate_actions(actions);
+            self.sync_audio_and_repaint(&ctx);
             return;
         }
 
-        // 4. BOTTOM DECKS C & D STRIP
-        if self.prefs.show_decks_cd {
+        // 4. BOTTOM DECKS C & D STRIP (shown in 2-DECK mode when enabled)
+        if !self.prefs.four_deck_layout && self.prefs.show_decks_cd {
             egui::Panel::bottom("decks_cd_panel")
                 .resizable(false)
                 .show(ui, |ui| {
@@ -1754,35 +1927,43 @@ impl eframe::App for DjCraftApp {
                 });
         }
 
-        // 5. HARDWARE DECK A (Left) & DECK B (Right)
+        // 5. HARDWARE DECKS: 2-DECK (with A/C & B/D layer switch) OR FULL 4-DECK (A+C Left, B+D Right)
         if self.prefs.show_deck_a {
             egui::Panel::left("deck_a_panel")
-                .default_size(310.0)
+                .default_size(320.0)
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.render_hardware_deck(
-                            ui,
-                            DeckId::DeckA,
-                            palette.deck_a,
-                            self.platter_angle_a,
-                            &palette,
-                        );
+                        if self.prefs.four_deck_layout {
+                            self.render_hardware_deck(ui, DeckId::DeckA, palette.deck_a, &palette);
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(6.0);
+                            self.render_hardware_deck(ui, DeckId::DeckC, palette.deck_c, &palette);
+                        } else if self.left_layer_c {
+                            self.render_hardware_deck(ui, DeckId::DeckC, palette.deck_c, &palette);
+                        } else {
+                            self.render_hardware_deck(ui, DeckId::DeckA, palette.deck_a, &palette);
+                        }
                     });
                 });
         }
 
         if self.prefs.show_deck_b {
             egui::Panel::right("deck_b_panel")
-                .default_size(310.0)
+                .default_size(320.0)
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.render_hardware_deck(
-                            ui,
-                            DeckId::DeckB,
-                            palette.deck_b,
-                            self.platter_angle_b,
-                            &palette,
-                        );
+                        if self.prefs.four_deck_layout {
+                            self.render_hardware_deck(ui, DeckId::DeckB, palette.deck_b, &palette);
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(6.0);
+                            self.render_hardware_deck(ui, DeckId::DeckD, palette.deck_d, &palette);
+                        } else if self.right_layer_d {
+                            self.render_hardware_deck(ui, DeckId::DeckD, palette.deck_d, &palette);
+                        } else {
+                            self.render_hardware_deck(ui, DeckId::DeckB, palette.deck_b, &palette);
+                        }
                     });
                 });
         }
@@ -1827,6 +2008,9 @@ impl eframe::App for DjCraftApp {
                 }
             });
         });
+
+        // Push all state mutations from this frame straight into WASAPI & keep animating!
+        self.sync_audio_and_repaint(&ctx);
     }
 }
 
@@ -1834,7 +2018,7 @@ impl DjCraftApp {
     fn render_battle_mixer(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
         theme::card_frame(ui, palette, |ui| {
             ui.horizontal(|ui| {
-                ui.strong("Battle Mixer (3-Band Rotary EQ, Vertical Faders, MAG FOUR Crossfader)");
+                ui.strong(t(I18nKey::BattleMixer, self.locale));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mute_lbl = if self.orch.master_muted { "UNMUTE" } else { "MUTE" };
                     if ui.small_button(mute_lbl).clicked() {
@@ -1966,7 +2150,7 @@ impl DjCraftApp {
             ui.separator();
             // Dual-Bus Headphone PFL Pre-Cue Strip
             ui.horizontal_wrapped(|ui| {
-                ui.strong("Headphone PFL:");
+                ui.strong(t(I18nKey::HeadphonePfl, self.locale));
                 let pfl_a = egui::Button::new("PFL A").small().fill(if da.pfl_cue {
                     palette.deck_a
                 } else {
@@ -2077,7 +2261,7 @@ impl DjCraftApp {
 
             // Live Lossless WAV / FLAC Mix Recorder Strip
             ui.horizontal_wrapped(|ui| {
-                ui.strong("Mix Recorder:");
+                ui.strong(t(I18nKey::MixRecorder, self.locale));
                 let is_rec = self.audio_out.is_recording();
                 ui.add_enabled_ui(!is_rec, |ui| {
                     ui.selectable_value(&mut self.recording_format, RecordingFormat::Wav, "WAV");
@@ -2886,11 +3070,11 @@ impl DjCraftApp {
 
         if self.show_help_center {
             let mut open = self.show_help_center;
-            egui::Window::new("DJCraft Help Center")
+            egui::Window::new("DJCraft Pro Help Center")
                 .open(&mut open)
                 .collapsible(false)
-                .default_width(640.0)
-                .default_height(400.0)
+                .default_width(740.0)
+                .default_height(480.0)
                 .show(ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         for tab in HelpTab::ALL {
@@ -2902,40 +3086,76 @@ impl DjCraftApp {
                     ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| match self.help_tab {
                         HelpTab::GetStarted => {
-                            ui.label("1. WASAPI audio starts live; switch console skins in the top bar.");
-                            ui.label("2. Load MP3/WAV/FLAC via AUDIO or Crate Library (Serato/VDJ import supported).");
-                            ui.label("3. Drag rotary EQ knobs, vertical channel faders, and MAG FOUR crossfader.");
-                            ui.label("4. Connect Rane Twelve MKII / Seventy-Two MKII in the MIDI Controllers tab.");
+                            ui.strong("1. Starting Playback on Deck A, B, C, or D");
+                            ui.label("- Click the highlighted PLAY button on any deck (or press Space for Deck A, Shift+Space for Deck B).");
+                            ui.label("- Check the Battle Mixer: make sure the deck's CH A / CH B vertical volume fader is up, MST loudness is > 0%, MUTE is off, and the MAG FOUR crossfader is centered (0.0) or toward the playing deck.");
+                            ui.add_space(6.0);
+                            ui.strong("2. Switching Decks & 2-Deck vs 4-Deck Layout");
+                            ui.label("- Click 2-DECK or 4-DECK in the top bar right next to CRATES & GIG PREP.");
+                            ui.label("- In 2-DECK mode: click the '-> C' button in Deck A's header to flip the left side between Deck A and Deck C, or '-> D' in Deck B's header to flip the right side between Deck B and Deck D. A compact C/D transport strip also sits at the bottom.");
+                            ui.label("- In 4-DECK mode: the left column stacks full Deck A + Deck C, and the right column stacks full Deck B + Deck D.");
+                            ui.add_space(6.0);
+                            ui.strong("3. Skins, Textured & Sparkly Underlay, and Language (i18n)");
+                            ui.label("- Top-right bar: pick from 6 skins (Rane Seventy-Two Battle, Pioneer Club Dark, Serato Midnight, VirtualDJ Carbon, Shocking Pink Club, Daylight Booth Light).");
+                            ui.label("- Next to Skin: choose Backdrop Underlay (Solid, Brushed Metal, Carbon Weave, Sparkle Club).");
+                            ui.label("- Next to Backdrop: switch UI language (EN, DE, FR, ES, JA, KO, ZH). All preferences save automatically to %LOCALAPPDATA%\\djcraft\\ui.json.");
                         }
                         HelpTab::Functions => {
-                            ui.label("- 4-Deck WASAPI Audio, Dual-Bus Headphone PFL Pre-Cue (2nd WASAPI + Split Mono), Lossless WAV/FLAC Mix Recorder.");
-                            ui.label("- Dedicated 2-Pane Crates & Gig Prep Workspace with full CRUD, drag-drop gig ordering, OS Explorer drop, Serato & VirtualDJ interop.");
-                            ui.label("- Native FFmpeg Video Mixer + Detachable Projector + Mixxxxx OSC 1.0.");
-                            ui.label("- Hardware MIDI Engine (midir) + MIDI Learn + Rane 12/72, Pioneer, Hercules profiles.");
+                            ui.strong("Audio, Vinyl Scratching & Dual-Bus PFL");
+                            ui.label("- Real-time 4-Deck WASAPI audio (cpal 0.15) with pure-Rust symphonia decoding (MP3, WAV, FLAC, OGG, M4A).");
+                            ui.label("- Vinyl Scratching: click and drag any deck's motorized platter left/right to scratch forward or in reverse (even while paused/cued for baby scratches). Release to resume normal playback.");
+                            ui.label("- Dual-Bus Headphone PFL Pre-Cue: toggle PFL on any deck (A/B/C/D) to audition it pre-fader. Route to a 2nd WASAPI headphone device in the Battle Mixer dropdown, OR enable SPLIT: ON for single-DAC monitoring (Left ear = Cue, Right ear = Master).");
+                            ui.label("- Lossless Mix Recorder: select WAV (16-bit PCM) or FLAC (via ffmpeg) and click REC MIX or Rec As... in the Battle Mixer. Recordings save to %USERPROFILE%\\Music\\DJCraft_Recordings\\.");
+                            ui.add_space(6.0);
+                            ui.strong("Crates & Gig Prep (Dedicated 2-Pane Workspace)");
+                            ui.label("- Click CRATES & GIG PREP in the top bar for the full-width 2-pane crate manager.");
+                            ui.label("- Left Pane: nested Crate/Subcrate tree with + Root, + Sub, Rename (recursive), Duplicate (preserves order), Delete, and drop-target support.");
+                            ui.label("- Right Pane: persistent Gig Order (#) with [::] drag-drop row reordering, ^/v nudge buttons, drag tracks onto crates, Windows Explorer file/folder drag-and-drop, Serato .crate & VirtualDJ .vdjfolder/.m3u8 import/export.");
+                            ui.add_space(6.0);
+                            ui.strong("Stems, Video, MIDI & Fleet AI");
+                            ui.label("- Transparent Sidecar Stems: Batch Stem Crate / Folder writes <parent>/.djcraft-stems/<track>/{vocals,drums,bass,other}.wav (hidden from scanners) and loads live into VOC/DRM/BAS/OTH rotary knobs.");
+                            ui.label("- Native FFmpeg Video Mixer + Detachable Projector + Mixxxxx OSC 1.0 (UDP 11119).");
+                            ui.label("- USB MIDI (midir): Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer DDJ-FLX4, Hercules DJControl + persistent MIDI Learn.");
+                            ui.label("- AI Booth Chat (Ollama :11434 / LM Studio :1234), Camelot harmonic setlists, SpeechCraft vocal drops, sfx-mcp, vfx-mcp, butterchurn-mcp.");
                         }
                         HelpTab::Usage => {
+                            ui.strong("Desktop Controls & Shortcuts");
+                            ui.label("- Space: Play/Pause Deck A | Shift+Space: Play/Pause Deck B | Esc: Stop All Decks");
+                            ui.label("- Double-click any rotary knob, channel fader, pitch fader, or crossfader to snap to neutral.");
+                            ui.label("- Drag platter left/right: live forward/reverse vinyl scratch.");
+                            ui.label("- Ctrl+K: Command Palette | F1: Shortcuts | Ctrl+Z / Ctrl+Y: Undo/Redo | Ctrl+Wheel: Zoom | Ctrl+0: Reset 100%.");
+                            ui.add_space(6.0);
+                            ui.strong("CLI & MCP Automation");
                             ui.monospace("djcraft.exe --smoke");
-                            ui.monospace("djcraft-cli crate-list | crate-import-serato | crate-import-vdj");
-                            ui.monospace("djcraft-cli mixxxxx-ping | analyze-dettato <file>");
+                            ui.monospace("djcraft-cli status | transition | camelot 8A 9A");
+                            ui.monospace("djcraft-cli crate-list | crate-import-serato <file> | crate-import-vdj <file>");
+                            ui.monospace("djcraft-cli mixxxxx-ping | analyze-dettato <audio_file> --device cuda");
+                            ui.label("MCP stdio server (djcraft-mcp.exe): 10 JSON-RPC 2.0 tools sharing the same L1 Command::dispatch bus.");
                         }
                         HelpTab::TipsAndTricks => {
-                            ui.label("- Switch to CRATES & GIG PREP in the top bar for drag-drop gig ordering and Windows Explorer file drop.");
-                            ui.label("- Use PFL A/B/C/D + Headphone WASAPI bus (or SPLIT mode on a single DAC) to pre-cue tracks pre-fader.");
-                            ui.label("- Double-click any rotary knob or vertical fader to snap to its neutral detent.");
+                            ui.label("- Fast Gig Prep: open CRATES & GIG PREP, drop folders from Windows Explorer straight into the window, drag rows by [::] to sequence your set, then click A/B/C/D to load.");
+                            ui.label("- Pre-Cue Without a 2nd Sound Card: click SPLIT: ON in the Battle Mixer and toggle PFL B to hear Deck B in your left ear and Master in your right ear.");
+                            ui.label("- Scratching on Beat 1: click CUE to park on Beat 1, then grab and drag the platter back-and-forth for classic baby scratches before hitting PLAY.");
+                            ui.label("- Keylock vs Vinyl Mode: switch KEYLOCK on for WSOLA pitch-locked tempo changes, or VINYL off for classic pitch-coupled varispeed.");
+                            ui.label("- Harmonic Mixing: check 'Harmonic (Deck A)' in Crates to filter only Camelot-compatible tracks.");
                         }
                         HelpTab::PitfallsAndSafety => {
-                            ui.label("- Run dettato offline during crate prep; keep live audio on WASAPI.");
-                            ui.label("- All workspace crates enforce #![forbid(unsafe_code)].");
+                            ui.label("- Deck B silent after loading? Verify PLAY is green, CH B fader is up, and crossfader is not slammed full left (-1.0).");
+                            ui.label("- FLAC recording and native MP4/MKV video require ffmpeg on PATH (FLAC falls back cleanly to lossless WAV if ffmpeg is missing).");
+                            ui.label("- Batch Stemming requires demucs (set DEMUCS_BIN or install in stems-mcp/.venv). Always run stemming & dettato during crate prep, off the audio thread.");
+                            ui.label("- All workspace crates enforce #![forbid(unsafe_code)] and strict L1 parameter clamping.");
                         }
                         HelpTab::PlannedExtensions => {
-                            ui.label("- All v0.1.0 core workstation capabilities are implemented (including Dual-Bus PFL & WAV/FLAC Mix Recording).");
-                            ui.label("- Future ideas: DVS timecode vinyl input, Ableton Link sync, VST3 FX rack.");
+                            ui.label("- All v0.1.0 core workstation capabilities are implemented (including Dual-Bus PFL, WAV/FLAC Mix Recording, 4-Deck Layout, Vinyl Scratching, 6 Skins + Sparkle Underlay, and i18n).");
+                            ui.label("- Future roadmap ideas: DVS timecode vinyl input, Ableton Link sync, VST3 FX rack.");
                         }
                         HelpTab::OtherCrafts => {
-                            ui.label("- mixxxxx (OSC video), reaper-mcp (shared dettato), soundcraft, speechcraft.");
+                            ui.label("- mixxxxx: Video-extended Mixxx fork (UDP OSC 11119 in / 11118 out).");
+                            ui.label("- speechcraft (:14132): Local TTS vocal drops routed onto Deck C.");
+                            ui.label("- sfx-mcp (:11120) | vfx-mcp (:11122) | butterchurn-mcp (:10878) | reaper-mcp (shared dettato).");
                         }
                         HelpTab::ProjectDocs => {
-                            ui.label("README.md | HELP.md | CHANGELOG.md | BUILD_LOG.md | docs/TIERED_PLAN.md");
+                            ui.label("See README.md, HELP.md, CHANGELOG.md, BUILD_LOG.md, and docs/TIERED_PLAN.md in the DJCraft repository.");
                         }
                     });
                 });
