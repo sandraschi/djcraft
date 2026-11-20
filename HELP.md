@@ -1,71 +1,71 @@
-# DJCraft Help & Reference
+# DJCraft Pro Help & Reference
 
-DJCraft is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck audio + video DJ workstation, stem mixer, and Camelot harmonic transition engine.
+DJCraft Pro is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck audio + video DJ workstation, stem mixer, MIDI controller host, and Camelot harmonic transition engine.
 
 ## 1. Get Started
 
-1. **Launch & Hear Audio**: Run `djcraft.exe` (or `cargo run -p djcraft-app`). Windows WASAPI audio starts automatically (check the green `WASAPI:` indicator and **Master Loudness** slider in the center mixer). Decks A, B, and C start pre-loaded with demo crate tracks (`8A`, `9A`, `8B`).
-2. **Load Your Own Audio & Video**: Click `LOAD FILE` (or `File -> Open Audio File...`) to load any MP3, WAV, FLAC, OGG, or M4A track. DJCraft decodes it via `symphonia`, auto-detects its BPM & downbeat beatgrid, renders its real waveform, and auto-loads any companion `.mp4`/`.mkv`/`.mov`/`.webm` with the same basename.
-3. **Tempo, Keylock & Phase Sync**: Drag the per-deck **Tempo** slider (`-16%..+16%`), switch between `VARISPEED` (vinyl pitch shift) and `KEYLOCK: ON` (WSOLA Master Tempo), nudge the beatgrid (`Grid -10ms`/`+10ms`), or click `Phase Sync` to lock Deck B onto Deck A's BPM and beat phase.
-4. **Mix Audio & Video**: Cut basslines with the **3-Band Kill EQ** (`Low`/`Mid`/`High` + `KILL` toggles), adjust the 4-stem sliders and **Master Crossfader**, and click **`Detach Projector`** in the Native Video Mixer card to open a secondary monitor / projector output window.
-5. **Run Headless / CLI / MCP**: Verify parity anytime with `djcraft.exe --smoke`, `djcraft-cli.exe status`, or connect `djcraft-mcp.exe` over MCP stdio.
+1. **Launch & Choose Your Skin**: Run `djcraft.exe`. Windows WASAPI audio starts live automatically (see the green `WASAPI:` indicator in the Battle Mixer). Pick any of the 5 skins in the top bar (`Rane Seventy-Two Battle`, `Pioneer Club Dark`, `Serato Midnight`, `VirtualDJ Carbon`, `Daylight Booth`).
+2. **Load Tracks or Import Crates**: Click `AUDIO` on a deck or open the **Crate Library** tab to scan a folder or import existing **Serato DJ `.crate`** / **VirtualDJ `.vdjfolder` & `.m3u8`** crates.
+3. **Mix Tactile Hardware Controls**: Drag rotary High/Mid/Low EQ knobs, rotary 4-stem knobs (`VOC`/`DRM`/`BAS`/`OTH`), vertical channel & pitch faders, the MAG FOUR crossfader, and the 8 RGB MPC pads (`CUE 1-4`, `LOOP 4`, `LOOP 8`, `KILL B`, `KILL V`). Double-click any knob or fader to snap to neutral.
+4. **Transparent Sidecar Stems & Video**: Click `Batch Stem Folder...` to generate `.djcraft-stems/<track>/{vocals,drums,bass,other}.wav` beside your music files — DJCraft loads them automatically for real-time 4-stem knob isolation. Open the **Video Mixer** tab and click `Detach Projector` for a secondary monitor video output.
+5. **Hardware MIDI, AI Booth & Fleet Hub**: Plug in a **Rane Twelve MKII**, **Rane Seventy-Two MKII**, Pioneer DDJ-FLX4, or Hercules DJControl in the **MIDI (Rane 12/72)** tab; run natural-language commands or harmonic setlists in **AI Chat & Workflows**; fire DJ vocal drops and Butterchurn/SFX/VFX triggers in **Fleet Hub**.
 
 ## 2. Functions
 
-- **4-Deck Audio Engine & Live WASAPI (`djcraft-audio`)**: Real-time `cpal` WASAPI 4-deck mixer, equal-power crossfader, soft-clip limiter, Master Loudness + Mute, `symphonia` file decoder, Catmull-Rom varispeed, WSOLA keylock time-stretcher, onset autocorrelation beatgrid detector, 3-band stereo kill EQ, 10 ms `WaveformSummary`, and Camelot wheel compatibility.
-- **Core Orchestrator & L1 Command Bus (`djcraft-core`)**: Universal `DjOrchestrator::dispatch(Command)` bus (22 commands) with 64-step Undo/Redo history, transition planner, demo crate library, offline `dettato` audio-to-MIDI sidecar adapter, and pure-Rust `mixxxxx` OSC 1.0 UDP client.
-- **Desktop Workstation & Native Video Mixer (`djcraft-app`)**: Immediate-mode `egui` 0.37 / `wgpu` UI with the 8-menu Bookend bar (`File`, `Edit`, `View`, `Insert`, `Modify`, `Commands`, `Window`, `Help`), `switch_on_hover`, `slate-950` dark + `slate-50` light themes, vector Sun/Moon toggle, `Ctrl+Wheel` zoom + `100%` pill, `%LOCALAPPDATA%\djcraft\ui.json` persistence, GPU-painted waveforms/platters/VU/Camelot wheel, Decks C & D strip, FFmpeg native video mixer + detachable projector viewport, Mixxxxx Video Dock, and Command Palette (`Ctrl+K`).
-- **Headless CLI & MCP Server (`djcraft-cli`, `djcraft-mcp`)**: JSON-formatted CLI and MCP `2024-11-05` stdio server (7 tools) sharing the exact same L1 dispatch bus.
+- **Audio & DSP (`djcraft-audio`)**: Live `cpal` WASAPI 4-deck mixer, `symphonia` decoder (MP3/WAV/FLAC/OGG/M4A), Catmull-Rom varispeed, WSOLA keylock, onset beatgrid detector, 3-band stereo kill EQ, 10 ms real-audio waveforms, and real-time 4-stem WAV mixing from `.djcraft-stems/`.
+- **Crates & Interop (`crates_db.rs`)**: Persistent SQLite `%LOCALAPPDATA%\djcraft\crates.db` with unlimited subcrates, Serato `.crate` (`%%` subcrates) & VirtualDJ `.vdjfolder`/`.m3u8` import/export, sorting, BPM/Camelot filtering, and per-track Symphonia/`dettato` analysis.
+- **MIDI Engine (`midi.rs`)**: Pure-Rust `midir` USB MIDI host with auto-detected profiles for Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer DDJ-FLX4, and Hercules DJControl, plus persistent in-app MIDI Learn (`midi_learn.json`).
+- **AI & Fleet Hub (`fleet_ai.rs`)**: Local Ollama/LM Studio `/v1/chat/completions` booth assistant, instant local NL command execution, Camelot setlist builder, DJ vocal drops (`speechcraft-cli` / Windows SAPI -> Deck C), and live connectors for `sfx-mcp` (`:11120`), `vfx-mcp` (`:11122`), and `butterchurn-mcp` (`:10878`).
 
 ## 3. Usage (GUI, CLI & MCP)
 
 ### Desktop GUI
-- Open any top menu and glide across the menu bar (`switch_on_hover` switches open menus without a second click).
-- Press `Ctrl+K` (or `Ctrl+Shift+P`) to open the fuzzy **Command Palette** and execute any engine command immediately.
-- Hold `Ctrl` and scroll the mouse wheel to zoom the interface (`75%` to `200%`), or click the top-right percentage pill (`Ctrl+0`) to reset to `100%`.
+- Use the top **Parallel Waveforms** banner to visually align Deck A and Deck B beatgrid bars.
+- Double-click any rotary knob or vertical fader to reset it; press `Ctrl+Z`/`Ctrl+Y` to undo/redo.
+- Press `Ctrl+K` for the Command Palette, `F1` for Shortcuts, and `Ctrl+Wheel` (`Ctrl+0` reset) to zoom.
 
 ### CLI (`djcraft-cli`)
 ```powershell
 djcraft-cli status
 djcraft-cli transition
 djcraft-cli camelot 8A 9A
-djcraft-cli commands
+djcraft-cli crate-list
+djcraft-cli crate-import-serato "D:\_Serato_\Subcrates\House%%Deep.crate"
+djcraft-cli crate-export-serato 1 "D:\export.crate"
+djcraft-cli crate-import-vdj "D:\VirtualDJ\Folders\Club.vdjfolder"
+djcraft-cli crate-export-vdj 1 "D:\export.vdjfolder"
 djcraft-cli analyze-dettato "D:\audio\track.mp3" --device cuda
 djcraft-cli mixxxxx-ping
-djcraft-cli mixxxxx-video --deck 1 --enabled true --fullscreen false --brightness 0.8
 ```
 
 ### MCP (`djcraft-mcp`)
-- Transport: stdio (line-delimited JSON-RPC 2.0, MCP `2024-11-05`).
-- Tools (7): `djcraft_status`, `djcraft_plan_transition`, `djcraft_camelot_check`, `djcraft_commands`, `djcraft_analyze_dettato`, `djcraft_mixxxxx_ping`, `djcraft_mixxxxx_video`.
+- Transport: stdio (JSON-RPC 2.0, MCP `2024-11-05`).
+- Tools (10): `djcraft_status`, `djcraft_plan_transition`, `djcraft_camelot_check`, `djcraft_commands`, `djcraft_analyze_dettato`, `djcraft_mixxxxx_ping`, `djcraft_mixxxxx_video`, `djcraft_crates_list`, `djcraft_crate_import`, `djcraft_crate_export`.
 
 ## 4. Tips & Tricks
 
-- **Undo Mistakes Mid-Set**: Every deck mutation, EQ kill, and slider drag release commits a snapshot onto the 64-step undo stack (`Ctrl+Z` / `Ctrl+Y`).
-- **Clean Bass Swaps**: Kill `Low` on the incoming track (`KILL`), bring up the crossfader, then swap `Low` kills on bar 16.
-- **Companion Video Autoload**: Place `song.mp4` beside `song.mp3` in the same folder; loading `song.mp3` automatically attaches `song.mp4` to that deck's native video player.
-- **Offline Dettato Analysis**: Install `kobimusic/dettato` into `D:\Dev\tools\dettato\.venv` (or set `DETTATO_BIN` and `DETTATO_WEIGHTS`) to extract A440 tuning drift (`tuning_cents`), instrument tracks, and drum hit counts during offline crate prep.
-- **Live Video Control with Mixxxxx**: Enable OSC in Mixxxxx Preferences (UDP `11119` in / `11118` out) to drive Mixxxxx deck video and VFX from the Mixxxxx Video Dock or MCP.
+- **Transparent Stems**: Stem WAVs in `.djcraft-stems/` are automatically ignored by folder scans so they never clutter your track list, and move portably with your music folders.
+- **Instant Vocal Drops**: In **Fleet Hub**, type any DJ tag and click `Speak -> Deck C` — works out of the box via `speechcraft-cli` or Windows SAPI.
+- **MIDI Learn**: In the **MIDI (Rane 12/72)** tab, click any target action and twist/press a hardware control to rebind and save immediately.
 
 ## 5. Common Pitfalls & Safety
 
-- **FFmpeg on PATH for Native Video**: Native video file decoding pipes raw RGB24 frames from `ffmpeg` on PATH; if no video file is loaded (or `ffmpeg` is absent), DJCraft falls back gracefully to its built-in audio-reactive procedural visuals.
-- **Never Run Dettato on the Live Audio Thread**: `dettato` is a batch offline PyTorch sidecar (8 s windows). Run it during crate preparation, never during live playback.
-- **Audio Rate for Drums**: `dettato` skips drum transcription for source audio below 40 kHz.
-- **Zero-Unsafe & Zero-Panic**: All workspace crates enforce `#![forbid(unsafe_code)]`; pitch bend (`-16%..+16%`), EQ (`0%..200%`), stem gains (`0%..100%`), Master Loudness (`0%..100%`), and crossfader (`-1.0..+1.0`) are strictly clamped at the L1 boundary.
+- **FFmpeg on PATH**: Required for native `.mp4`/`.mkv`/`.mov`/`.webm` video decoding (falls back to audio-reactive visuals if absent).
+- **Demucs for Batch Stemming**: Set `DEMUCS_BIN` or install `demucs` in `stems-mcp/.venv`; batch stemming runs off the audio thread and skips tracks that already have `.djcraft-stems/<stem>/`.
+- **Zero-Unsafe & Clamping**: All crates enforce `#![forbid(unsafe_code)]`; all gains, EQs, pitch bends, and crossfader values are strictly clamped at L1.
 
 ## 6. Planned Extensions
 
-- Dual-bus Master + Headphone PFL pre-cue audio routing and live WAV/FLAC mix recording.
-- Persistent crate indexing with SQLite / `databasecraft-store`.
-- USB MIDI hardware controller mapping (`midir`, Pioneer DDJ / Hercules DJControl).
+- Dual-bus Master + Headphone PFL pre-cue audio routing.
+- Live lossless WAV/FLAC mix recording.
 
-## 7. Other Crafts
+## 7. Other Crafts & Fleet Integrations
 
-| Craft / Repo | Role | Handoff |
+| Repo | Role | Integration |
 | :--- | :--- | :--- |
-| `mixxxxx` | Video-extended Mixxx fork (FFmpeg + NDI + OSC) | Controlled directly by DJCraft over UDP OSC `11119` (`/mixxxxx/ping`, `/deck/{1..4}/video_*`) |
-| `musiccraft` | Docs-only audio and music index | Links `djcraft`, `soundcraft`, and `speechcraft` |
-| `soundcraft` | Upstream DAW / audio production fork | Export stems or rendered mixes for `djcraft` crates (never modify upstream directly) |
-| `speechcraft` | Pure-Rust speech synthesis and TTS | Generate vocal drops / DJ tags as WAV clips |
-| `reaper-mcp` | REAPER DAW automation + `dettato` bridge | Shares the same local `D:\Dev\tools\dettato\.venv` sidecar for audio-to-MIDI workflows |
+| `mixxxxx` | Video-extended Mixxx fork | Pure-Rust UDP OSC (`11119` in / `11118` out) |
+| `speechcraft` | Pure-Rust TTS (`:14132`) | DJ vocal drops onto Deck C |
+| `sfx-mcp` | Sound effects (`:11120`) | One-shot risers, impacts, and sweeps |
+| `vfx-mcp` | FFmpeg video FX (`:11122`) | Video effect presets for deck clips |
+| `butterchurn-mcp` | MilkDrop visualizer (`:10878`) | Live BPM sync from DJCraft |
+| `reaper-mcp` | REAPER DAW automation | Shares local `D:\Dev\tools\dettato\.venv` sidecar |

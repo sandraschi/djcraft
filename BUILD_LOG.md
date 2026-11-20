@@ -46,3 +46,16 @@
   - `cargo test`: **34 passed, 0 failed** (33 core/audio/DSP/EQ/OSC + `tests::glyph_allowlist` scanning `main.rs`, `theme.rs`, `video.rs`, `widgets.rs`)
   - `makensis`: 0 warnings (`CHANGELOG.md` now bundled)
   - Rebuilt `dist/djcraft.exe` (16,624,640 bytes), `dist/djcraft-cli.exe` (1,112,576 bytes), `dist/djcraft-mcp.exe` (698,880 bytes), and `dist/djcraft-0.1.0-setup.exe` (4,812,249 bytes) + `SHA256SUMS.txt`.
+
+## 2026-11-20 - v0.1.0 Crates (Serato/VDJ), Pro Console + Skins, Rane 12/72 MIDI, Transparent Stems, AI & Fleet Hub
+
+- **Features (`dcebdde`, `4c3c046`, `a6d8519`):**
+  - Persistent SQLite crates/subcrates (`crates_db.rs`) + Serato `.crate` & VirtualDJ `.vdjfolder`/`.m3u8` import/export (10 MCP tools total).
+  - Pro DJ Console overhaul (`skins.rs`, `widgets.rs`, `main.rs`): 5 skins, stacked parallel waveforms, rotary knobs, vertical faders, MAG FOUR crossfader, 8 RGB MPC pads.
+  - Hardware MIDI host (`midir 0.10.4`, `midi.rs`) with Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer DDJ-FLX4, Hercules DJControl, and MIDI Learn.
+  - Transparent `.djcraft-stems/` batch stemming + real-time 4-stem WAV WASAPI mixing, AI Booth Chat/Workflows (`ureq 2.12.1`, `fleet_ai.rs`), and Fleet Hub (`SpeechCraft`, `sfx-mcp`, `vfx-mcp`, `butterchurn-mcp`).
+- **Gates:**
+  - `cargo clippy --all-targets -- -D warnings`: pass (0 warnings)
+  - `cargo test`: **41 passed, 0 failed** (40 core/audio/DSP/EQ/Crates/MIDI/Stems/AI + `tests::glyph_allowlist`)
+  - `makensis`: 0 warnings
+  - Rebuilt `dist/djcraft.exe` (20,634,112 bytes), `dist/djcraft-cli.exe` (3,266,560 bytes), `dist/djcraft-mcp.exe` (2,847,744 bytes), and `dist/djcraft-0.1.0-setup.exe` (7,239,756 bytes) + `SHA256SUMS.txt`.
