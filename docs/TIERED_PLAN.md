@@ -45,16 +45,12 @@ Tier 1: Core Engine ──> Tier 2: MCP / CLI ──> Tier 3: Desktop UI ──>
 - [x] Headless `--smoke` parity validation + L1 `Command::dispatch` bus (22 tests passing, clippy `-D warnings` clean, `#![forbid(unsafe_code)]`).
 - [x] Offline `kobimusic/dettato` CLI sidecar wired into L1 `Command::AnalyzeTrackDettato`, `djcraft-cli analyze-dettato`, and `djcraft-mcp` `djcraft_analyze_dettato`.
 - [x] Pure-Rust Mixxxxx video-extended Mixxx OSC 1.0 UDP bridge (UDP 11119 in / 11118 out) wired into L1 (`Command::MixxxxxPing`, `Command::MixxxxxVideo`), GUI `Commands` menu, `djcraft-cli`, and `djcraft-mcp` (7 MCP tools, 25 tests passing).
+- [x] Dedicated 2-pane `CRATES & GIG PREP` workspace (`crate_view.rs`) with full Crate/Subcrate CRUD, drag-drop gig ordering, drag-to-crate, OS Explorer file/folder drop, Serato `.crate` & VirtualDJ `.vdjfolder`/`.m3u8` interop, and transparent `.djcraft-stems/` batch stemming.
+- [x] Dual-Bus Headphone PFL Pre-Cue (independent 2nd WASAPI headphone device + single-device Split Mono Cue, `PFL A/B/C/D`, Cue/PGM blend) and non-blocking live lossless WAV/FLAC Mix Recording (`recorder.rs`, 44 tests passing, 24 L1 commands).
 - [x] Standalone release binary packaging and NSIS installer (`dist/djcraft-0.1.0-setup.exe`, audited & logged in `BUILD_LOG.md`).
 
 ---
 
-### Post-Phase-4 Backlog (Craft Consolidation Freeze)
+### Post-Phase-4 Completed Items
 
-Deferred until Craft Fleet Consolidation Plan Phase 4 exits:
-
-- [ ] **Offline track analysis via `kobimusic/dettato` CLI sidecar** (`D:\Dev\tools\dettato\.venv\Scripts\dettato.exe`, Apache-2.0, 28.1M params, CUDA <4 GB VRAM):
-  - Invoke headless `dettato <track> -o <cache_dir>` (with optional `DETTATO_WEIGHTS` for offline safetensors) during crate ingest/prep, never on the real-time deck audio thread.
-  - Consume `<stem>.json` (`tuning_cents`, `tracks`, `drums.hits`, `drums.model`) + `<stem>.mid` to surface A440 tuning-drift warnings, verify Camelot key from transcribed pitch content, and extract drum-hit transient markers.
-  - Smoke-tested on Goliath (RTX 4090, `torch 2.14.1+cu126`, `dettato 2.0.0`) on 2026-11-20 (`lofi_cafe.mp3`: 30 s -> electric piano 59 notes, harp 37 notes, Drums 144 hits, tuning +0.61 cents).
-  - Shared reference bridge already implemented in `reaper-mcp` (`reaper_mcp/dettato_bridge.py`).
+- [x] **Offline track analysis via `kobimusic/dettato` CLI sidecar** (`D:\Dev\tools\dettato\.venv\Scripts\dettato.exe`, Apache-2.0, 28.1M params, CUDA <4 GB VRAM) - wired into L1 `Command::AnalyzeTrackDettato`, Crate UI, CLI, and MCP.

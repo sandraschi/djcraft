@@ -29,29 +29,29 @@ Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH)
 | Transparent Sidecar Stemming (`.djcraft-stems/`) | **Implemented** | Co-located `<parent>/.djcraft-stems/<stem>/{vocals,drums,bass,other}.wav`, hidden from crate scanners, idempotent background `Batch Stem Folder...` (Demucs), real-time 4-stem WAV mixing via VOC/DRM/BAS/OTH rotary knobs |
 | Pro DJ Console UI & 5 Switchable Skins (`djcraft-app`) | **Implemented** | 5 skins (Rane Seventy-Two Battle, Pioneer Club Dark, Serato Midnight, VirtualDJ Carbon, Daylight Booth), stacked Parallel Waveforms banner, GPU-painted rotary knobs, vertical channel/pitch faders, MAG FOUR crossfader, 8 RGB MPC pads, stereo VU meters, 8-menu Bookend bar + `switch_on_hover`, `Ctrl+Wheel` zoom, `ui.json` prefs, `glyph_allowlist` Tofu Guard |
 | Hardware MIDI Controllers & MIDI Learn (`midir 0.10`) | **Implemented** | USB MIDI port scanner + auto-detect profiles for **Rane Twelve MKII**, **Rane Seventy-Two MKII**, **Pioneer DDJ-FLX4 / DDJ-400**, **Hercules DJControl**, plus in-app MIDI Learn persisted to `midi_learn.json` |
-| Persistent SQLite Crates & Serato / VirtualDJ Import-Export | **Implemented** | `%LOCALAPPDATA%\djcraft\crates.db`, unlimited nested subcrates, Serato `.crate` (UTF-16BE TLV + `%%` subcrates), VirtualDJ `.vdjfolder` / `.m3u8`, folder scan, multi-field sorting, BPM/Camelot harmonic filtering, per-track Symphonia & `dettato` analysis |
+| Persistent SQLite Crates, Dedicated 2-Pane Gig Prep UI & Serato/VDJ Interop | **Implemented** | Dedicated `CRATES & GIG PREP` mode (`crate_view.rs`): 2-pane file-oriented Crate/Subcrate tree (`+ Root`, `+ Sub`, `Rename`, `Duplicate`, `Delete`), persistent `Gig Order (#)` with `[::]` drag-drop reordering & `^`/`v` nudge, drag tracks onto crates, Windows Explorer file/folder drop, Serato `.crate` & VirtualDJ `.vdjfolder`/`.m3u8` import/export, BPM/Camelot filtering, Symphonia/`dettato` analysis |
 | Native Video Mixer & Detachable Projector (`video.rs`) | **Implemented** | Per-deck `.mp4`/`.mkv`/`.mov`/`.webm` via `ffmpeg` RGB24 pipe, companion video autoload, audio-reactive procedural fallback, crossfader blend + Brightness/Contrast/Saturation, detachable secondary projector window |
-| AI Booth Chat, Workflows & Fleet Hub (`fleet_ai.rs`) | **Implemented** | Local Ollama (`:11434`) / LM Studio (`:1234`) `/v1/chat/completions` chat, instant NL deck commands, Camelot harmonic setlist builder, DJ Vocal Drops (`speechcraft-cli` / Windows SAPI -> Deck C), live connectors for `sfx-mcp` (`:11120`), `vfx-mcp` (`:11122`), and `butterchurn-mcp` (`:10878`) |
+| AI Booth Chat, Workflows & Fleet Hub (`fleet_ai.rs`) | **Implemented** | Local Ollama (`:11434`) / LM Studio (`:1234`) `/v1/chat/completions` chat, instant NL deck commands, Warnsdorff Camelot harmonic setlist builder, DJ Vocal Drops (`speechcraft-cli` / Windows SAPI -> Deck C), live connectors for `sfx-mcp` (`:11120`), `vfx-mcp` (`:11122`), and `butterchurn-mcp` (`:10878`) |
 | Offline `kobimusic/dettato` & `mixxxxx` OSC 1.0 Bridges | **Implemented** | `dettato` CLI sidecar (`tuning_cents`, tracks, drums) + pure-Rust UDP OSC (`127.0.0.1:11119` in / `11118` out) for `mixxxxx` video decks |
 | MCP stdio Server (`djcraft-mcp`) | **Implemented** | MCP `2024-11-05` stdio, 10 tools (`djcraft_status`, `djcraft_plan_transition`, `djcraft_camelot_check`, `djcraft_commands`, `djcraft_analyze_dettato`, `djcraft_mixxxxx_ping`, `djcraft_mixxxxx_video`, `djcraft_crates_list`, `djcraft_crate_import`, `djcraft_crate_export`) |
 | Standalone Release & NSIS Installer | **Implemented** | Per-user NSIS (`%LOCALAPPDATA%\Programs\DjCraft`), `SHA256SUMS.txt`, [BUILD_LOG.md](BUILD_LOG.md) |
-| Dual-Bus Headphone PFL Pre-Cue & WAV/FLAC Mix Recording | **Planned** | Split Master + Headphone cue channel routing and live lossless mix recording |
+| Dual-Bus Headphone PFL Pre-Cue & WAV/FLAC Mix Recording | **Implemented** | Independent 2nd WASAPI headphone device stream + single-device Split Mono Cue (`L=Cue`, `R=Master`), per-deck pre-fader `PFL` toggles, `Vol` + `Cue/PGM` blend, and non-blocking live lossless 16-bit PCM WAV / FLAC (`ffmpeg`) master mix recording (`recorder.rs`) |
 
 ---
 
 ## Workspace Architecture
 
-1. `crates/djcraft-audio`: 4-deck state, `cpal` WASAPI output stream (full-mix + real 4-stem WAV mixing), `symphonia` decoder, Catmull-Rom varispeed, WSOLA keylock, onset beatgrid detector, 3-band kill EQ, 10 ms `WaveformSummary`, and Camelot wheel rules.
-2. `crates/djcraft-core`: `DjOrchestrator`, 64-step Undo/Redo, universal `Command::dispatch` bus (22 commands), SQLite `CrateStore` + Serato/VDJ codecs + transparent `.djcraft-stems/` batch stemmer, `midir` controller engine (`midi.rs`), `fleet_ai.rs` (Ollama/LM Studio, SpeechCraft, SFX, VFX, Butterchurn), `dettato` sidecar, `mixxxxx` OSC 1.0 UDP client, and fleet i18n.
+1. `crates/djcraft-audio`: 4-deck state, dual-bus `cpal` WASAPI output (Master + 2nd Headphone PFL Cue device + Split Mono Cue), non-blocking lossless WAV/FLAC `MixRecorder` (`recorder.rs`), `symphonia` decoder, Catmull-Rom varispeed, WSOLA keylock, onset beatgrid detector, 3-band kill EQ, 10 ms `WaveformSummary`, and Camelot wheel rules.
+2. `crates/djcraft-core`: `DjOrchestrator`, 64-step Undo/Redo, universal `Command::dispatch` bus (24 commands), SQLite `CrateStore` + full crate CRUD/manual gig ordering + Serato/VDJ codecs + transparent `.djcraft-stems/` batch stemmer, `midir` controller engine (`midi.rs`), `fleet_ai.rs` (Ollama/LM Studio, SpeechCraft, SFX, VFX, Butterchurn), `dettato` sidecar, `mixxxxx` OSC 1.0 UDP client, and fleet i18n.
 3. `crates/djcraft-mcp`: Line-delimited JSON-RPC 2.0 MCP stdio server (10 tools).
-4. `crates/djcraft-app`: Native `eframe`/`egui` 0.37 Pro DJ Console (`djcraft.exe`) with 5 skins, custom GPU hardware widgets, FFmpeg video mixer + detachable projector viewport, and JSON CLI (`djcraft-cli.exe`).
+4. `crates/djcraft-app`: Native `eframe`/`egui` 0.37 Pro DJ Console (`djcraft.exe`) with `LIVE CONSOLE` and dedicated 2-pane `CRATES & GIG PREP` workspace (`crate_view.rs`), 5 skins, custom GPU hardware widgets, FFmpeg video mixer + detachable projector viewport, and JSON CLI (`djcraft-cli.exe`).
 
 ---
 
 ## Verification & Usage
 
 ```powershell
-# Lint & test suite (41 tests: 40 core/audio/DSP/EQ/Crates/MIDI/Stems/AI + glyph_allowlist)
+# Lint & test suite (44 tests: 43 core/audio/DSP/EQ/Crates/MIDI/Stems/AI/PFL/Recorder + glyph_allowlist)
 cargo clippy --all-targets -- -D warnings
 cargo test
 

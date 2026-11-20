@@ -14,7 +14,13 @@ All notable changes to DJCraft are documented in this file.
 - **Native Video Mixer & Detachable Projector (`crates/djcraft-app/src/video.rs`)**:
   - External `ffmpeg` RGB24 frame-pipe decoder for `.mp4`/`.mkv`/`.mov`/`.webm` with companion video autoload and audio-reactive procedural visual fallback.
   - Crossfader alpha-blend preview + Brightness/Contrast/Saturation controls + detachable secondary projector viewport (`ctx.show_viewport_immediate`).
-- **Persistent SQLite Crate System & Serato / VirtualDJ Interop (`crates_db.rs`)**:
+- **Dual-Bus Headphone PFL Pre-Cue & Lossless WAV/FLAC Mix Recording (`output.rs`, `recorder.rs`)**:
+  - Added per-deck Pre-Fader Listen (`PFL A/B/C/D`), `Command::TogglePflCue`, and `Command::SetHeadphoneMix` (24-command L1 bus).
+  - Added independent secondary WASAPI Headphone output stream (`AudioOutput::list_output_devices`, `set_headphone_device`) fed via a lock-light ring buffer, plus single-device Split Mono Cue (`L=Cue`, `R=Master`), Cue Volume, and Cue/PGM blend.
+  - Added non-blocking live lossless 16-bit PCM WAV & FLAC (`ffmpeg`) master mix recording (`REC MIX` / `Rec As...`) saving to `%USERPROFILE%\Music\DJCraft_Recordings\`.
+- **Dedicated 2-Pane Crates & Gig Prep Workspace (`crate_view.rs`, `crates_db.rs`)**:
+  - Top bar workspace switch (`LIVE CONSOLE` | `CRATES & GIG PREP`) with full-width 2-pane file-oriented Crate/Subcrate tree (`+ Root`, `+ Sub`, `Rename`, `Duplicate`, `Delete`).
+  - Persistent `Gig Order (#)` (`CrateSortField::ManualOrder`), `[::]` drag-drop row reordering, `^`/`v` nudge buttons, drag tracks onto crates, and Windows Explorer audio file/folder drag-and-drop import.
   - Hierarchical crates & subcrates (`%LOCALAPPDATA%\djcraft\crates.db`), Serato DJ binary `.crate` (UTF-16BE TLV + `%%` subcrates) & VirtualDJ `.vdjfolder`/`.m3u8` import/export, folder scanner, multi-field sorting, BPM & Camelot harmonic filtering, and per-track Symphonia/`dettato` analysis.
   - Transparent co-located `.djcraft-stems/<track>/{vocals,drums,bass,other}.wav` batch stemming + automatic real-time 4-stem WAV WASAPI mixing.
 - **Pro DJ Console UI, 5 Skins & Hardware MIDI (`skins.rs`, `widgets.rs`, `midi.rs`)**:
@@ -32,6 +38,6 @@ All notable changes to DJCraft are documented in this file.
   - 10-item Help suite: fuzzy `Command Palette...` (`Ctrl+K`), `Keyboard Shortcuts...` (`F1`), 8-tab Help Center synced with `HELP.md`, `Licenses & Notices...`, and `About DJCraft`.
   - Fleet `slate-950` dark + `slate-50` light themes, bumped typography, vector-painted Sun/Moon toggle, `Ctrl+Wheel` zoom + clickable `100%` pill, and `%LOCALAPPDATA%\djcraft\ui.json` persistence.
   - GPU-painted CDJ platters, scrolling dual-frequency waveforms with beatgrid ticks / loop bands / hot-cue pins, vertical stereo VU meters, 12-hour Camelot harmonic wheel, and Decks C & D bottom strip.
-  - Mandatory `tests::glyph_allowlist` Tofu Guard test (26 tests total passing, `cargo clippy --all-targets -- -D warnings` clean).
+  - Mandatory `tests::glyph_allowlist` Tofu Guard test (44 tests total passing, `cargo clippy --all-targets -- -D warnings` clean).
 - **Packaging**:
   - Audited and built standalone release binaries (`djcraft.exe`, `djcraft-cli.exe`, `djcraft-mcp.exe`) and per-user NSIS installer (`dist/djcraft-0.1.0-setup.exe`) with `SHA256SUMS.txt` and `BUILD_LOG.md`.
