@@ -1,11 +1,10 @@
+#![forbid(unsafe_code)]
 //! DJCraft MCP Server (stdio, MCP 2024-11-05).
 //!
 //! Line-delimited JSON-RPC: stdout is 100% pure JSON-RPC, every diagnostic
-//! goes to stderr. Spawns cleanly per call (initialize -> request -> exit
-//! when stdin closes), so MCP clients can one-shot it.
+//! goes to stderr. All tools dispatch through `DjOrchestrator::dispatch`.
 
-use djcraft_audio::AudioEngine;
-use djcraft_core::DjOrchestrator;
+use djcraft_core::{Command, DjOrchestrator};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
@@ -15,6 +14,7 @@ fn main() {
     eprintln!("[djcraft-mcp] Starting MCP stdio loop");
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
+    let mut orch = DjOrchestrator::new();
 
     for line in stdin.lock().lines() {
         let raw = match line {
@@ -40,8 +40,6 @@ fn main() {
             }
         };
 
-        // JSON-RPC notifications (no "id", e.g. notifications/initialized)
-        // get NO response — replying desyncs the client's pending request.
         if parsed.get("id").is_none() {
             continue;
         }
@@ -67,7 +65,7 @@ fn main() {
                     "tools": [
                         {
                             "name": "djcraft_status",
-                            "description": "Inspect deck states, loaded tracks, and crossfader position.",
+                            "description": "Inspect 4-deck states, loaded tracks, crossfader, and dettato sidecar readiness.",
                             "inputSchema": { "type": "object", "properties": {} }
                         },
                         {
@@ -86,6 +84,24 @@ fn main() {
                                 },
                                 "required": ["key_a", "key_b"]
                             }
+                        },
+                        {
+                            "name": "djcraft_commands",
+                            "description": "List all commands registered on the DJCraft L1 Command::dispatch bus.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_analyze_dettato",
+                            "description": "Run local dettato audio-to-MIDI offline track analysis (tuning_cents, instrument tracks, drum hits).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "audio_path": { "type": "string" },
+                                    "output_dir": { "type": "string" },
+                                    "device": { "type": "string", "enum": ["auto", "cuda", "cpu"] }
+                                },
+                                "required": ["audio_path"]
+                            }
                         }
                     ]
                 }
@@ -93,17 +109,13 @@ fn main() {
             "tools/call" => {
                 let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-                let orch = DjOrchestrator::new();
                 let tool_output = match name {
-                    "djcraft_status" => json!({
-                        "deck_a": orch.deck_a,
-                        "deck_b": orch.deck_b,
-                        "crossfader": orch.crossfader,
-                    }),
-                    "djcraft_plan_transition" => match orch.plan_transition() {
-                        Ok(plan) => serde_json::to_value(plan).unwrap_or_else(|e| {
-                            json!({ "error": format!("cannot encode plan: {e}") })
-                        }),
+                    "djcraft_status" => match orch.dispatch(Command::Status) {
+                        Ok(out) => out.data,
+                        Err(e) => json!({ "error": e.to_string() }),
+                    },
+                    "djcraft_plan_transition" => match orch.dispatch(Command::PlanTransition) {
+                        Ok(out) => out.data,
                         Err(e) => json!({ "error": e.to_string() }),
                     },
                     "djcraft_camelot_check" => {
@@ -112,11 +124,39 @@ fn main() {
                         if key_a.trim().is_empty() || key_b.trim().is_empty() {
                             json!({ "error": "key_a and key_b are required" })
                         } else {
-                            json!({
-                                "key_a": key_a,
-                                "key_b": key_b,
-                                "compatible": AudioEngine::is_camelot_compatible(key_a, key_b),
-                            })
+                            match orch.dispatch(Command::CheckCamelot {
+                                key_a: key_a.to_string(),
+                                key_b: key_b.to_string(),
+                            }) {
+                                Ok(out) => out.data,
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                    }
+                    "djcraft_commands" => {
+                        serde_json::to_value(Command::catalog()).unwrap_or_else(|_| json!([]))
+                    }
+                    "djcraft_analyze_dettato" => {
+                        let audio_path = args.get("audio_path").and_then(|v| v.as_str()).unwrap_or("");
+                        if audio_path.trim().is_empty() {
+                            json!({ "error": "audio_path is required" })
+                        } else {
+                            let output_dir = args
+                                .get("output_dir")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string);
+                            let device = args
+                                .get("device")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string);
+                            match orch.dispatch(Command::AnalyzeTrackDettato {
+                                audio_path: audio_path.to_string(),
+                                output_dir,
+                                device,
+                            }) {
+                                Ok(out) => out.data,
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
                         }
                     }
                     _ => json!({ "error": format!("Unknown tool: {name}") }),

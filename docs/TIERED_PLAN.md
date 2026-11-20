@@ -38,11 +38,12 @@ Tier 1: Core Engine ──> Tier 2: MCP / CLI ──> Tier 3: Desktop UI ──>
 - [x] 4-channel mixer console, hot cue pads, and crossfader slider.
 
 ### Tier 4 — Craft Menu Bar Standard, Help Suite & Hardened Verification
-- [ ] Universal 8-menu bar (`File`, `Edit`, `View`, `Insert`, `Modify`, `Commands`, `Window`, `Help`) with `switch_on_hover`.
-- [ ] Mandatory 5-dialog Help suite (`Command Palette...`, `Keyboard Shortcuts...`, `Project Files & Docs...`, `Licenses & Notices...`, `About DJCraft`).
-- [ ] Fleet UI/UX Pattern 2 adherence: viewport-centric navigation, top button row mapped to View toggles, panel visibility managed via `View` / `Window`.
-- [ ] Tofu Guard verification (100% font glyph coverage, zero tofu placeholder boxes).
-- [ ] Headless `--smoke` parity validation.
+- [x] Universal 8-menu bar (`File`, `Edit`, `View`, `Insert`, `Modify`, `Commands`, `Window`, `Help`) with `switch_on_hover` and Ctrl+mouse wheel zoom.
+- [x] Mandatory 10-item Help suite (`Command Palette...`, `Keyboard Shortcuts...`, 8-tab Help Center + `HELP.md`, `Licenses & Notices...`, `About DJCraft`).
+- [x] Fleet UI/UX Pattern 2 adherence: viewport-centric navigation, top button row mapped to Command::dispatch, panel visibility managed via `View` / `Window`.
+- [x] Tofu Guard verification (zero emoji/non-BMP glyphs in UI, high-contrast Light/Dark themes).
+- [x] Headless `--smoke` parity validation + L1 `Command::dispatch` bus (22 tests passing, clippy `-D warnings` clean, `#![forbid(unsafe_code)]`).
+- [x] Offline `kobimusic/dettato` CLI sidecar wired into L1 `Command::AnalyzeTrackDettato`, `djcraft-cli analyze-dettato`, and `djcraft-mcp` `djcraft_analyze_dettato`.
 - [ ] Standalone release binary packaging and NSIS installer.
 
 ---
