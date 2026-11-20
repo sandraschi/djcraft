@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod dsp;
 pub mod output;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -45,6 +46,9 @@ pub struct DeckState {
     pub loaded_track: Option<TrackMeta>,
     pub position_seconds: f64,
     pub pitch_bend_pct: f64,
+    pub keylock: bool,
+    pub beatgrid_offset_sec: f64,
+    pub audio_path: Option<String>,
     pub volume_fader: f64,     // 0.0 to 1.0
     pub stem_vocals_gain: f64, // 0.0 to 1.0
     pub stem_drums_gain: f64,  // 0.0 to 1.0
@@ -65,6 +69,9 @@ impl AudioEngine {
             loaded_track: None,
             position_seconds: 0.0,
             pitch_bend_pct: 0.0,
+            keylock: false,
+            beatgrid_offset_sec: 0.0,
+            audio_path: None,
             volume_fader: 1.0,
             stem_vocals_gain: 1.0,
             stem_drums_gain: 1.0,

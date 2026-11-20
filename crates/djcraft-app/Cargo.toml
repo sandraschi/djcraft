@@ -24,3 +24,4 @@ serde_json.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
+rfd.workspace = true

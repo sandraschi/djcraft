@@ -82,6 +82,18 @@ pub enum Command {
         deck: DeckId,
         pct: f64,
     },
+    ToggleKeylock {
+        deck: DeckId,
+    },
+    NudgeBeatgrid {
+        deck: DeckId,
+        delta_ms: f64,
+    },
+    ScaleBpm {
+        deck: DeckId,
+        multiplier: f64,
+    },
+    PhaseSyncBeatgrid,
     SetStemGains {
         deck: DeckId,
         vocals: f64,
@@ -226,6 +238,18 @@ impl Command {
                 label: "Auto-Sync Beatgrid (Match Deck B to Deck A BPM)",
                 category: "Commands",
                 hotkey: "S",
+            },
+            CommandSpec {
+                id: "commands.phase_sync",
+                label: "Phase-Sync Deck B onto Deck A Beatgrid",
+                category: "Commands",
+                hotkey: "Shift+S",
+            },
+            CommandSpec {
+                id: "modify.keylock_a",
+                label: "Toggle Keylock (WSOLA Master Tempo) on Deck A",
+                category: "Modify",
+                hotkey: "",
             },
             CommandSpec {
                 id: "commands.plan_transition",
@@ -595,6 +619,100 @@ impl DjOrchestrator {
                     command: "set_pitch_bend".to_string(),
                     message: format!("{} pitch set to {:+.2}%", deck.label(), clamped),
                     data: json!({ "deck": deck, "pitch_bend_pct": clamped }),
+                })
+            }
+            Command::ToggleKeylock { deck } => {
+                self.push_undo();
+                let state = self.deck_mut(deck);
+                state.keylock = !state.keylock;
+                let kl = state.keylock;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "toggle_keylock".to_string(),
+                    message: format!(
+                        "{}: {}",
+                        deck.label(),
+                        if kl {
+                            "KEYLOCK ON (WSOLA Master Tempo)"
+                        } else {
+                            "KEYLOCK OFF (Vinyl Varispeed)"
+                        }
+                    ),
+                    data: json!({ "deck": deck, "keylock": kl }),
+                })
+            }
+            Command::NudgeBeatgrid { deck, delta_ms } => {
+                self.push_undo();
+                let state = self.deck_mut(deck);
+                state.beatgrid_offset_sec =
+                    (state.beatgrid_offset_sec + delta_ms / 1000.0).clamp(-2.0, 2.0);
+                let off = state.beatgrid_offset_sec;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "nudge_beatgrid".to_string(),
+                    message: format!("{} beatgrid offset {:+.1} ms", deck.label(), off * 1000.0),
+                    data: json!({ "deck": deck, "beatgrid_offset_sec": off }),
+                })
+            }
+            Command::ScaleBpm { deck, multiplier } => {
+                if !(0.25..=4.0).contains(&multiplier) {
+                    return Err(DjError::Deck(format!(
+                        "BPM multiplier {multiplier} out of range"
+                    )));
+                }
+                let state = self.deck_mut(deck);
+                let Some(track) = state.loaded_track.as_ref() else {
+                    return Err(DjError::Deck(format!("{} has no loaded track", deck.label())));
+                };
+                let new_bpm = (track.bpm * multiplier).clamp(40.0, 240.0);
+                self.push_undo();
+                if let Some(track_mut) = self.deck_mut(deck).loaded_track.as_mut() {
+                    track_mut.bpm = new_bpm;
+                }
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "scale_bpm".to_string(),
+                    message: format!("{} BPM scaled to {:.1}", deck.label(), new_bpm),
+                    data: json!({ "deck": deck, "bpm": new_bpm }),
+                })
+            }
+            Command::PhaseSyncBeatgrid => {
+                let Some(track_a) = self.deck_a.loaded_track.as_ref() else {
+                    return Err(DjError::Deck("Deck A has no loaded track".to_string()));
+                };
+                let Some(track_b) = self.deck_b.loaded_track.as_ref() else {
+                    return Err(DjError::Deck("Deck B has no loaded track".to_string()));
+                };
+                let eff_bpm_a = (track_a.bpm * (1.0 + self.deck_a.pitch_bend_pct / 100.0)).max(20.0);
+                let beat_sec_a = 60.0 / eff_bpm_a;
+                let phase_a = (self.deck_a.position_seconds - self.deck_a.beatgrid_offset_sec)
+                    .rem_euclid(beat_sec_a);
+
+                let needed_pct =
+                    (((eff_bpm_a / track_b.bpm.max(1.0)) - 1.0) * 100.0).clamp(-16.0, 16.0);
+                let current_beats_b =
+                    ((self.deck_b.position_seconds - self.deck_b.beatgrid_offset_sec) / beat_sec_a)
+                        .floor();
+                let aligned_pos_b = (self.deck_b.beatgrid_offset_sec
+                    + current_beats_b * beat_sec_a
+                    + phase_a)
+                    .max(0.0);
+
+                self.push_undo();
+                self.deck_b.pitch_bend_pct = needed_pct;
+                self.deck_b.position_seconds = aligned_pos_b;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "phase_sync_beatgrid".to_string(),
+                    message: format!(
+                        "Phase-synced Deck B to {:.2} BPM (pitch {:+.2}%, pos {:.2}s)",
+                        eff_bpm_a, needed_pct, aligned_pos_b
+                    ),
+                    data: json!({
+                        "target_bpm": eff_bpm_a,
+                        "deck_b_pitch_bend_pct": needed_pct,
+                        "deck_b_position_seconds": aligned_pos_b,
+                    }),
                 })
             }
             Command::SetStemGains {

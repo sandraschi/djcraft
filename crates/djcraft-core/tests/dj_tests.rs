@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
+use djcraft_audio::dsp::{detect_beatgrid, sample_varispeed, DecodedAudio, WsolaDeckState};
 use djcraft_core::{
     encode_osc_message, parse_dettato_json, send_deck_video_controls, Command, DjOrchestrator,
     MixxxxxConfig, MixxxxxVideoControls, OscArg,
@@ -433,4 +434,112 @@ fn test_mix_4deck_frame_respects_mute_loudness_and_crossfader() {
     // Deck A is playing, Deck B is paused -> full right crossfader (+1.0) should silence Deck A
     let right_only = AudioEngine::mix_4deck_frame(&decks, 1.0, 1.0, false, &times, 100);
     assert!(right_only.0.abs() < 1e-5);
+}
+
+#[test]
+fn test_detect_beatgrid_recovers_128_bpm_click_track() {
+    let sr = 44100usize;
+    let duration_sec = 10usize;
+    let total = sr * duration_sec;
+    let mut left = vec![0.0_f32; total];
+    let beat_samples = (sr as f64 * 60.0 / 128.0).round() as usize;
+    let offset = sr / 4; // 0.25s downbeat offset
+    let mut pos = offset;
+    while pos + 400 < total {
+        for k in 0..400 {
+            let env = 1.0 - (k as f32 / 400.0);
+            left[pos + k] = (2.0 * std::f32::consts::PI * 90.0 * k as f32 / sr as f32).sin() * env;
+        }
+        pos += beat_samples;
+    }
+    let audio = DecodedAudio {
+        sample_rate: sr as u32,
+        right: left.clone(),
+        left,
+        duration_seconds: duration_sec as f64,
+    };
+    let grid = detect_beatgrid(&audio);
+    assert!(
+        (grid.bpm - 128.0).abs() <= 2.5,
+        "Expected ~128 BPM, got {}",
+        grid.bpm
+    );
+    assert!(grid.confidence > 0.1);
+}
+
+#[test]
+fn test_varispeed_catmull_rom_interpolation_bounds_and_accuracy() {
+    let audio = DecodedAudio {
+        sample_rate: 44100,
+        left: vec![0.0, 0.5, 1.0, 0.5, 0.0],
+        right: vec![0.0, -0.5, -1.0, -0.5, 0.0],
+        duration_seconds: 5.0 / 44100.0,
+    };
+    let (l_mid, r_mid) = sample_varispeed(&audio, 2.0);
+    assert!((l_mid - 1.0).abs() < 1e-5);
+    assert!((r_mid + 1.0).abs() < 1e-5);
+    assert_eq!(sample_varispeed(&audio, -1.0), (0.0, 0.0));
+    assert_eq!(sample_varispeed(&audio, 100.0), (0.0, 0.0));
+}
+
+#[test]
+fn test_wsola_keylock_produces_finite_audio_across_tempos() {
+    let sr = 44100u32;
+    let n = sr as usize * 2;
+    let sine: Vec<f32> = (0..n)
+        .map(|i| (2.0 * std::f32::consts::PI * 220.0 * i as f32 / sr as f32).sin() * 0.6)
+        .collect();
+    let audio = DecodedAudio {
+        sample_rate: sr,
+        right: sine.clone(),
+        left: sine,
+        duration_seconds: 2.0,
+    };
+    for ratio in [0.85_f64, 1.15_f64] {
+        let mut wsola = WsolaDeckState::new(sr);
+        let mut max_amp = 0.0_f32;
+        for _ in 0..8000 {
+            let (l, r) = wsola.next_sample(&audio, ratio);
+            assert!(l.is_finite() && r.is_finite());
+            max_amp = max_amp.max(l.abs());
+        }
+        assert!(max_amp > 0.1, "WSOLA at ratio {ratio} must emit audio");
+    }
+}
+
+#[test]
+fn test_dispatch_keylock_nudge_scale_and_phase_sync() {
+    let mut orch = DjOrchestrator::new();
+    orch.dispatch(Command::ToggleKeylock {
+        deck: DeckId::DeckA,
+    })
+    .expect("keylock");
+    assert!(orch.deck_a.keylock);
+
+    orch.dispatch(Command::NudgeBeatgrid {
+        deck: DeckId::DeckA,
+        delta_ms: 25.0,
+    })
+    .expect("nudge");
+    assert!((orch.deck_a.beatgrid_offset_sec - 0.025).abs() < 1e-6);
+
+    orch.dispatch(Command::ScaleBpm {
+        deck: DeckId::DeckB,
+        multiplier: 0.5,
+    })
+    .expect("half bpm");
+    assert!((orch.deck_b.loaded_track.as_ref().expect("track").bpm - 64.0).abs() < 1e-6);
+
+    orch.dispatch(Command::ScaleBpm {
+        deck: DeckId::DeckB,
+        multiplier: 2.0,
+    })
+    .expect("double bpm");
+    orch.deck_a.position_seconds = 10.3;
+    let synced = orch
+        .dispatch(Command::PhaseSyncBeatgrid)
+        .expect("phase sync");
+    assert!(synced.ok);
+    let plan = orch.plan_transition().expect("plan");
+    assert!(plan.bpm_delta.abs() < 0.01);
 }

@@ -12,3 +12,4 @@ thiserror.workspace = true
 tokio.workspace = true
 chrono.workspace = true
 cpal.workspace = true
+symphonia.workspace = true

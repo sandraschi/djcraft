@@ -4,10 +4,12 @@ mod theme;
 mod widgets;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Parser;
+use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid};
 use djcraft_audio::output::AudioOutput;
-use djcraft_audio::{AudioEngine, DeckId};
+use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
 use djcraft_core::{
     resolve_dettato_binary, resolve_mixxxxx_binary, Command, DjOrchestrator, MixxxxxVideoControls,
 };
@@ -248,6 +250,54 @@ impl DjCraftApp {
         }
     }
 
+    fn load_audio_file_dialog(&mut self, deck: DeckId) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Audio Files", &["mp3", "wav", "flac", "ogg", "m4a", "aac"])
+            .pick_file()
+        else {
+            return;
+        };
+        match decode_audio_file(&path) {
+            Ok(decoded) => {
+                let grid = detect_beatgrid(&decoded);
+                let title = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Audio Track")
+                    .to_string();
+                let meta = TrackMeta {
+                    title: title.clone(),
+                    artist: "Local Audio".to_string(),
+                    bpm: grid.bpm,
+                    musical_key: "8A".to_string(),
+                    duration_seconds: decoded.duration_seconds,
+                };
+                let deck_idx = match deck {
+                    DeckId::DeckA => 0,
+                    DeckId::DeckB => 1,
+                    DeckId::DeckC => 2,
+                    DeckId::DeckD => 3,
+                };
+                self.audio_out.set_deck_audio(deck_idx, Some(Arc::new(decoded)));
+                self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
+                let state = self.orch.deck_mut(deck);
+                state.beatgrid_offset_sec = grid.first_beat_sec;
+                state.audio_path = Some(path.to_string_lossy().to_string());
+                self.status_msg = format!(
+                    "Loaded '{}' to {} ({:.1} BPM, beat 1 at {:.2}s, conf {:.0}%)",
+                    title,
+                    deck.label(),
+                    grid.bpm,
+                    grid.first_beat_sec,
+                    grid.confidence * 100.0
+                );
+            }
+            Err(err) => {
+                self.status_msg = format!("Audio decode failed: {err}");
+            }
+        }
+    }
+
     fn execute_catalog_id(&mut self, id: &str) {
         match id {
             "session.new" => self.dispatch_and_report(Command::NewSession),
@@ -301,6 +351,10 @@ impl DjCraftApp {
             }
             "modify.toggle_mute" => self.dispatch_and_report(Command::ToggleMasterMute),
             "commands.auto_sync" => self.dispatch_and_report(Command::AutoSyncBeatgrid),
+            "commands.phase_sync" => self.dispatch_and_report(Command::PhaseSyncBeatgrid),
+            "modify.keylock_a" => {
+                self.dispatch_and_report(Command::ToggleKeylock { deck: DeckId::DeckA })
+            }
             "commands.plan_transition" => self.dispatch_and_report(Command::PlanTransition),
             "commands.dettato_status" => {
                 self.status_msg = match resolve_dettato_binary() {
@@ -405,6 +459,71 @@ impl DjCraftApp {
                     bars: next,
                 });
             }
+            if ui.button("LOAD FILE").clicked() {
+                self.load_audio_file_dialog(deck_id);
+            }
+        });
+
+        ui.add_space(6.0);
+        theme::card_frame(ui, dark, |ui| {
+            ui.horizontal(|ui| {
+                ui.strong("Tempo / Keylock / Beatgrid");
+                let kl_lbl = if deck_snapshot.keylock {
+                    "KEYLOCK: ON"
+                } else {
+                    "VARISPEED"
+                };
+                if ui.button(kl_lbl).clicked() {
+                    self.dispatch_and_report(Command::ToggleKeylock { deck: deck_id });
+                }
+            });
+            let mut pitch = deck_snapshot.pitch_bend_pct;
+            let r_pitch = ui.add(
+                egui::Slider::new(&mut pitch, -16.0..=16.0)
+                    .custom_formatter(|v, _| format!("{v:+.1}%"))
+                    .text("Tempo"),
+            );
+            if r_pitch.changed() {
+                self.orch.deck_mut(deck_id).pitch_bend_pct = pitch;
+            }
+            if r_pitch.drag_stopped() {
+                self.dispatch_and_report(Command::SetPitchBend {
+                    deck: deck_id,
+                    pct: pitch,
+                });
+            }
+            ui.horizontal(|ui| {
+                if ui.small_button("0%").clicked() {
+                    self.dispatch_and_report(Command::SetPitchBend {
+                        deck: deck_id,
+                        pct: 0.0,
+                    });
+                }
+                if ui.small_button("/2 BPM").clicked() {
+                    self.dispatch_and_report(Command::ScaleBpm {
+                        deck: deck_id,
+                        multiplier: 0.5,
+                    });
+                }
+                if ui.small_button("x2 BPM").clicked() {
+                    self.dispatch_and_report(Command::ScaleBpm {
+                        deck: deck_id,
+                        multiplier: 2.0,
+                    });
+                }
+                if ui.small_button("Grid -10ms").clicked() {
+                    self.dispatch_and_report(Command::NudgeBeatgrid {
+                        deck: deck_id,
+                        delta_ms: -10.0,
+                    });
+                }
+                if ui.small_button("Grid +10ms").clicked() {
+                    self.dispatch_and_report(Command::NudgeBeatgrid {
+                        deck: deck_id,
+                        delta_ms: 10.0,
+                    });
+                }
+            });
         });
 
         ui.add_space(6.0);
@@ -583,6 +702,15 @@ impl eframe::App for DjCraftApp {
                         self.execute_catalog_id("session.new");
                         ui.close();
                     }
+                    if ui.button("Open Audio File -> Deck A...").clicked() {
+                        self.load_audio_file_dialog(DeckId::DeckA);
+                        ui.close();
+                    }
+                    if ui.button("Open Audio File -> Deck B...").clicked() {
+                        self.load_audio_file_dialog(DeckId::DeckB);
+                        ui.close();
+                    }
+                    ui.separator();
                     if ui.button("Load Next Crate Track -> Deck A").clicked() {
                         self.execute_catalog_id("insert.load_crate_a");
                         ui.close();
@@ -1037,6 +1165,9 @@ impl eframe::App for DjCraftApp {
                 ui.separator();
                 if ui.button("Auto-Sync").clicked() {
                     self.execute_catalog_id("commands.auto_sync");
+                }
+                if ui.button("Phase Sync").clicked() {
+                    self.execute_catalog_id("commands.phase_sync");
                 }
                 if ui.button("Plan Mix").clicked() {
                     self.execute_catalog_id("commands.plan_transition");

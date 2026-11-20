@@ -141,14 +141,14 @@ pub fn paint_scrolling_waveform(ui: &mut egui::Ui, deck: &DeckState, accent: Col
         );
     }
 
-    // Beatgrid tick marks
-    let first_beat = (start_t / beat_sec).ceil() as i64;
-    let last_beat = ((start_t + window_sec) / beat_sec).floor() as i64;
+    // Beatgrid tick marks (anchored to beatgrid_offset_sec)
+    let first_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
+    let last_beat = ((start_t + window_sec - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
     for b in first_beat..=last_beat {
         if b < 0 {
             continue;
         }
-        let t = b as f64 * beat_sec;
+        let t = deck.beatgrid_offset_sec + b as f64 * beat_sec;
         let x = rect.left() + ((t - start_t) / window_sec) as f32 * rect.width();
         let is_bar = b % 4 == 0;
         let tick_color = if is_bar {

@@ -10,10 +10,13 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream};
 
+use crate::dsp::{sample_varispeed, DecodedAudio, WsolaDeckState};
 use crate::{AudioEngine, DeckId, DeckState};
 
 struct LiveMixState {
     decks: [DeckState; 4],
+    decoded: [Option<Arc<DecodedAudio>>; 4],
+    wsola: [WsolaDeckState; 4],
     crossfader: f64,
     master_volume: f64,
     muted: bool,
@@ -22,13 +25,20 @@ struct LiveMixState {
 }
 
 impl LiveMixState {
-    fn new() -> Self {
+    fn new(sample_rate: u32) -> Self {
         Self {
             decks: [
                 AudioEngine::create_deck(DeckId::DeckA),
                 AudioEngine::create_deck(DeckId::DeckB),
                 AudioEngine::create_deck(DeckId::DeckC),
                 AudioEngine::create_deck(DeckId::DeckD),
+            ],
+            decoded: [None, None, None, None],
+            wsola: [
+                WsolaDeckState::new(sample_rate),
+                WsolaDeckState::new(sample_rate),
+                WsolaDeckState::new(sample_rate),
+                WsolaDeckState::new(sample_rate),
             ],
             crossfader: 0.0,
             master_volume: 0.75,
@@ -52,7 +62,7 @@ impl AudioOutput {
     /// Open the default OS audio output device (WASAPI on Windows) and start streaming.
     /// Never panics: if no audio device is present, returns an inactive handle with `error`.
     pub fn start_default() -> Self {
-        let state = Arc::new(Mutex::new(LiveMixState::new()));
+        let state = Arc::new(Mutex::new(LiveMixState::new(44100)));
         let host = cpal::default_host();
         let Some(device) = host.default_output_device() else {
             return Self {
@@ -172,6 +182,22 @@ impl AudioOutput {
         }
     }
 
+    /// Attach or clear a decoded real audio file buffer for a deck (0..4).
+    pub fn set_deck_audio(&self, deck_idx: usize, audio: Option<Arc<DecodedAudio>>) {
+        if deck_idx >= 4 {
+            return;
+        }
+        if let Ok(mut guard) = self.state.lock() {
+            if let Some(ref a) = audio {
+                guard.wsola[deck_idx] = WsolaDeckState::new(a.sample_rate);
+            } else {
+                guard.wsola[deck_idx].reset(0.0);
+            }
+            guard.decoded[deck_idx] = audio;
+            guard.play_times[deck_idx] = 0.0;
+        }
+    }
+
     /// Push the latest mixer and deck parameters into the live audio thread (non-blocking).
     pub fn sync_state(
         &self,
@@ -182,14 +208,30 @@ impl AudioOutput {
     ) {
         if let Ok(mut guard) = self.state.try_lock() {
             for (idx, new_deck) in decks.iter().enumerate() {
-                // If the deck was cued back to beat 1 or switched track, snap its audio phase
                 let track_changed = guard.decks[idx]
                     .loaded_track
                     .as_ref()
                     .map(|t| t.title.as_str())
                     != new_deck.loaded_track.as_ref().map(|t| t.title.as_str());
+                let keylock_changed = guard.decks[idx].keylock != new_deck.keylock;
                 if track_changed || new_deck.position_seconds < 0.02 {
                     guard.play_times[idx] = new_deck.position_seconds;
+                    let sr = guard.decoded[idx]
+                        .as_ref()
+                        .map(|a| a.sample_rate as f64)
+                        .unwrap_or(self.sample_rate as f64);
+                    guard.wsola[idx].reset(new_deck.position_seconds * sr);
+                } else if keylock_changed {
+                    let sr = guard.decoded[idx]
+                        .as_ref()
+                        .map(|a| a.sample_rate as f64)
+                        .unwrap_or(self.sample_rate as f64);
+                    if new_deck.keylock {
+                        let start_samp = guard.play_times[idx] * sr;
+                        guard.wsola[idx].reset(start_samp);
+                    } else {
+                        guard.play_times[idx] = guard.wsola[idx].current_input_sample() / sr;
+                    }
                 }
             }
             guard.decks = decks;
@@ -201,23 +243,50 @@ impl AudioOutput {
 }
 
 fn next_stereo_frame(guard: &mut LiveMixState, dt: f64) -> (f32, f32) {
-    let times = guard.play_times;
+    if guard.muted || guard.master_volume <= 0.0 {
+        return (0.0, 0.0);
+    }
+
+    let xf = ((guard.crossfader + 1.0) * 0.5).clamp(0.0, 1.0);
+    let gain_left = (xf * std::f64::consts::FRAC_PI_2).cos() as f32;
+    let gain_right = (xf * std::f64::consts::FRAC_PI_2).sin() as f32;
+    let out_sr = 1.0 / dt.max(1e-9);
     let idx = guard.sample_counter;
-    let out = AudioEngine::mix_4deck_frame(
-        &guard.decks,
-        guard.crossfader,
-        guard.master_volume,
-        guard.muted,
-        &times,
-        idx,
-    );
-    for (i, deck) in guard.decks.iter().enumerate() {
-        if deck.is_playing && deck.loaded_track.is_some() {
+
+    let mut deck_lr = [(0.0_f32, 0.0_f32); 4];
+    for (i, slot) in deck_lr.iter_mut().enumerate() {
+        let deck = &guard.decks[i];
+        if !deck.is_playing || deck.loaded_track.is_none() {
+            continue;
+        }
+        let rate = (1.0 + deck.pitch_bend_pct / 100.0).clamp(0.5, 2.0);
+        if let Some(audio) = guard.decoded[i].as_ref() {
+            let sr_ratio = audio.sample_rate as f64 / out_sr;
+            let (l, r) = if deck.keylock {
+                let (wl, wr) = guard.wsola[i].next_sample(audio, rate * sr_ratio);
+                guard.play_times[i] =
+                    guard.wsola[i].current_input_sample() / audio.sample_rate.max(1) as f64;
+                (wl, wr)
+            } else {
+                let sample_pos = guard.play_times[i] * audio.sample_rate as f64;
+                let lr = sample_varispeed(audio, sample_pos);
+                guard.play_times[i] += dt * rate;
+                lr
+            };
+            let vol = deck.volume_fader as f32;
+            *slot = (l * vol, r * vol);
+        } else {
+            let s = AudioEngine::sample_deck_frame(deck, guard.play_times[i], idx);
             guard.play_times[i] += dt;
+            *slot = (s, s);
         }
     }
+
     guard.sample_counter = guard.sample_counter.wrapping_add(1);
-    out
+    let sum_l = (deck_lr[0].0 + deck_lr[2].0) * gain_left + (deck_lr[1].0 + deck_lr[3].0) * gain_right;
+    let sum_r = (deck_lr[0].1 + deck_lr[2].1) * gain_left + (deck_lr[1].1 + deck_lr[3].1) * gain_right;
+    let mv = guard.master_volume.clamp(0.0, 1.0) as f32;
+    (sum_l.tanh() * mv, sum_r.tanh() * mv)
 }
 
 fn fill_buffer_f32(
