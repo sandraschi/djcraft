@@ -21,3 +21,16 @@
   - `SHA256SUMS.txt` generated
 - **Warnings / Notes:**
   - NSIS warning 7010 (`CHANGELOG.md` not present; `/nonfatal`, harmless).
+
+## 2026-11-20 - v0.1.0 egui SOTA Polish Pass & NSIS Rebuild
+
+- **UI Upgrades (`crates/djcraft-app/src/{theme,widgets,main}.rs`):**
+  - Fleet `slate-950` (`#0a0d12` / `#101a2e` / `#263452`) dark visuals + crisp `slate-50` light visuals + bumped typography (`20px` Heading, `14.5px` Body, `13px` Monospace).
+  - Vector-painted Sun/Moon theme toggle, clickable `100%` zoom reset pill, and `%LOCALAPPDATA%\djcraft\ui.json` preference persistence.
+  - GPU-painted CDJ platters with strobe dots + BPM readout, scrolling dual-frequency waveforms with beatgrid ticks / loop bands / hot-cue pins, vertical stereo segmented VU meters, and 12-hour Camelot harmonic wheel ring.
+  - Full 4-deck UI (bottom Decks C & D strip), inline Mixxxxx Video OSC dock, and slider-to-`Command::dispatch` undo on drag release.
+  - Added mandatory `glyph_allowlist` Tofu Guard unit test scanning `main.rs`, `theme.rs`, and `widgets.rs`.
+- **Gates:**
+  - `cargo clippy --all-targets -- -D warnings`: pass (0 warnings)
+  - `cargo test`: **26 passed, 0 failed** (25 core + `tests::glyph_allowlist`)
+  - Rebuilt `dist/djcraft.exe` (14,508,032 bytes) and `dist/djcraft-0.1.0-setup.exe` (4,188,716 bytes) + `SHA256SUMS.txt`.

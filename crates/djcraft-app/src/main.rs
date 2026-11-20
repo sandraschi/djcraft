@@ -1,9 +1,16 @@
 #![forbid(unsafe_code)]
+
+mod theme;
+mod widgets;
+
+use std::path::PathBuf;
+
 use clap::Parser;
 use djcraft_audio::{AudioEngine, DeckId};
 use djcraft_core::{
     resolve_dettato_binary, resolve_mixxxxx_binary, Command, DjOrchestrator, MixxxxxVideoControls,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -53,6 +60,64 @@ impl HelpTab {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct UiPrefs {
+    is_dark_theme: bool,
+    zoom_factor: f32,
+    show_deck_a: bool,
+    show_deck_b: bool,
+    show_decks_cd: bool,
+    show_crate_browser: bool,
+    show_camelot_hud: bool,
+    show_mixxxxx_dock: bool,
+}
+
+impl Default for UiPrefs {
+    fn default() -> Self {
+        Self {
+            is_dark_theme: true,
+            zoom_factor: 1.0,
+            show_deck_a: true,
+            show_deck_b: true,
+            show_decks_cd: true,
+            show_crate_browser: true,
+            show_camelot_hud: true,
+            show_mixxxxx_dock: true,
+        }
+    }
+}
+
+impl UiPrefs {
+    fn path() -> Option<PathBuf> {
+        let base = std::env::var_os("LOCALAPPDATA")
+            .or_else(|| std::env::var_os("XDG_CONFIG_HOME"))
+            .map(PathBuf::from)?;
+        Some(base.join("djcraft").join("ui.json"))
+    }
+
+    fn load() -> Self {
+        let Some(path) = Self::path() else {
+            return Self::default();
+        };
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Self>(&raw).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self) {
+        let Some(path) = Self::path() else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(raw) = serde_json::to_string_pretty(self) {
+            let _ = std::fs::write(path, raw);
+        }
+    }
+}
+
 pub struct DjCraftApp {
     orch: DjOrchestrator,
     locale: djcraft_core::i18n::AppLocale,
@@ -61,16 +126,24 @@ pub struct DjCraftApp {
     platter_angle_b: f32,
     crate_cursor_a: usize,
     crate_cursor_b: usize,
+    typography_applied: bool,
 
-    // View / Window layout state
-    is_dark_theme: bool,
-    zoom_factor: f32,
-    show_deck_a: bool,
-    show_deck_b: bool,
-    show_crate_browser: bool,
-    show_camelot_hud: bool,
+    // Persisted View / Window layout preferences
+    prefs: UiPrefs,
 
-    // Mandatory 5+ Help Suite modals
+    // Mixxxxx inline video dock state
+    mixxxxx_deck: DeckId,
+    mixxxxx_video_enabled: bool,
+    mixxxxx_video_fullscreen: bool,
+    mixxxxx_brightness: f32,
+    mixxxxx_contrast: f32,
+    mixxxxx_saturation: f32,
+    mixxxxx_last_pong: bool,
+
+    // Slider draft values (committed via Command::dispatch on drag_stopped for Undo/Redo)
+    crossfader_draft: f64,
+
+    // Mandatory Help Suite modals
     show_command_palette: bool,
     palette_query: String,
     show_shortcuts_dialog: bool,
@@ -88,21 +161,29 @@ impl Default for DjCraftApp {
 
 impl DjCraftApp {
     pub fn new() -> Self {
+        let orch = DjOrchestrator::new();
+        let crossfader_draft = orch.crossfader;
         Self {
-            orch: DjOrchestrator::new(),
+            orch,
             locale: djcraft_core::i18n::AppLocale::default(),
             status_msg: "4-Deck DJ Studio Ready (Safe Rust, Port 14118)".to_string(),
             platter_angle_a: 0.0,
             platter_angle_b: 0.0,
             crate_cursor_a: 0,
             crate_cursor_b: 1,
+            typography_applied: false,
 
-            is_dark_theme: true,
-            zoom_factor: 1.0,
-            show_deck_a: true,
-            show_deck_b: true,
-            show_crate_browser: true,
-            show_camelot_hud: true,
+            prefs: UiPrefs::load(),
+
+            mixxxxx_deck: DeckId::DeckA,
+            mixxxxx_video_enabled: true,
+            mixxxxx_video_fullscreen: false,
+            mixxxxx_brightness: 0.5,
+            mixxxxx_contrast: 0.5,
+            mixxxxx_saturation: 0.5,
+            mixxxxx_last_pong: false,
+
+            crossfader_draft,
 
             show_command_palette: false,
             palette_query: String::new(),
@@ -115,11 +196,11 @@ impl DjCraftApp {
     }
 
     fn reset_layout(&mut self) {
-        self.show_deck_a = true;
-        self.show_deck_b = true;
-        self.show_crate_browser = true;
-        self.show_camelot_hud = true;
-        self.zoom_factor = 1.0;
+        self.prefs = UiPrefs {
+            is_dark_theme: self.prefs.is_dark_theme,
+            ..UiPrefs::default()
+        };
+        self.prefs.save();
         self.status_msg = "Panel layout and zoom reset".to_string();
     }
 
@@ -130,7 +211,17 @@ impl DjCraftApp {
 
     fn dispatch_and_report(&mut self, cmd: Command) {
         match self.orch.dispatch(cmd) {
-            Ok(outcome) => self.status_msg = outcome.message,
+            Ok(outcome) => {
+                if outcome.command == "mixxxxx_ping" {
+                    self.mixxxxx_last_pong = outcome
+                        .data
+                        .get("pong_received")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                }
+                self.crossfader_draft = self.orch.crossfader;
+                self.status_msg = outcome.message;
+            }
             Err(err) => self.status_msg = format!("Error: {err}"),
         }
     }
@@ -213,6 +304,128 @@ impl DjCraftApp {
             }
         }
     }
+
+    fn render_deck_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        deck_id: DeckId,
+        accent: egui::Color32,
+        platter_angle: f32,
+    ) {
+        let dark = self.prefs.is_dark_theme;
+        let deck_snapshot = self.orch.deck(deck_id).clone();
+        let play_cmd = if deck_id == DeckId::DeckA {
+            "deck.play_pause.a"
+        } else {
+            "deck.play_pause.b"
+        };
+        let cue_cmd = if deck_id == DeckId::DeckA {
+            "deck.cue.a"
+        } else {
+            "deck.cue.b"
+        };
+
+        ui.horizontal(|ui| {
+            theme::status_dot(ui, deck_snapshot.is_playing);
+            ui.heading(deck_id.label());
+            if let Some(bars) = deck_snapshot.loop_bars {
+                ui.monospace(format!("[LOOP {bars}B]"));
+            }
+        });
+
+        theme::card_frame(ui, dark, |ui| {
+            if let Some(track) = &deck_snapshot.loaded_track {
+                ui.label(egui::RichText::new(&track.title).strong().color(accent));
+                ui.label(format!(
+                    "{} | Key {} | {:.1} BPM ({:+.1}%)",
+                    track.artist, track.musical_key, track.bpm, deck_snapshot.pitch_bend_pct
+                ));
+                ui.monospace(format!(
+                    "{:.1}s / {:.1}s",
+                    deck_snapshot.position_seconds, track.duration_seconds
+                ));
+            } else {
+                ui.label("Empty Deck - load from Crate Browser");
+            }
+        });
+
+        ui.add_space(6.0);
+        widgets::paint_scrolling_waveform(ui, &deck_snapshot, accent);
+
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let play_txt = if deck_snapshot.is_playing {
+                "PAUSE"
+            } else {
+                "PLAY"
+            };
+            if ui.button(egui::RichText::new(play_txt).strong()).clicked() {
+                self.execute_catalog_id(play_cmd);
+            }
+            if ui.button("CUE").clicked() {
+                self.execute_catalog_id(cue_cmd);
+            }
+            if ui.button("HOT CUE").clicked() {
+                self.dispatch_and_report(Command::SetHotCue {
+                    deck: deck_id,
+                    slot: 0,
+                });
+            }
+            if ui.button("LOOP 8B").clicked() {
+                let next = if deck_snapshot.loop_bars.is_some() {
+                    None
+                } else {
+                    Some(8)
+                };
+                self.dispatch_and_report(Command::SetLoopBars {
+                    deck: deck_id,
+                    bars: next,
+                });
+            }
+        });
+
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let eff_bpm = deck_snapshot
+                .loaded_track
+                .as_ref()
+                .map(|t| t.bpm * (1.0 + deck_snapshot.pitch_bend_pct / 100.0));
+            widgets::paint_platter(ui, platter_angle, accent, deck_snapshot.is_playing, eff_bpm);
+            ui.add_space(8.0);
+            widgets::paint_vu_meter(ui, &deck_snapshot);
+        });
+
+        ui.add_space(6.0);
+        theme::card_frame(ui, dark, |ui| {
+            ui.strong("4-Stem Isolation");
+            let mut vocals = deck_snapshot.stem_vocals_gain;
+            let mut drums = deck_snapshot.stem_drums_gain;
+            let mut bass = deck_snapshot.stem_bass_gain;
+            let mut other = deck_snapshot.stem_other_gain;
+
+            let r1 = ui.add(egui::Slider::new(&mut vocals, 0.0..=1.0).text("Vocals"));
+            let r2 = ui.add(egui::Slider::new(&mut drums, 0.0..=1.0).text("Drums"));
+            let r3 = ui.add(egui::Slider::new(&mut bass, 0.0..=1.0).text("Bass"));
+            let r4 = ui.add(egui::Slider::new(&mut other, 0.0..=1.0).text("Other"));
+
+            if r1.changed() || r2.changed() || r3.changed() || r4.changed() {
+                let state = self.orch.deck_mut(deck_id);
+                state.stem_vocals_gain = vocals;
+                state.stem_drums_gain = drums;
+                state.stem_bass_gain = bass;
+                state.stem_other_gain = other;
+            }
+            if r1.drag_stopped() || r2.drag_stopped() || r3.drag_stopped() || r4.drag_stopped() {
+                self.dispatch_and_report(Command::SetStemGains {
+                    deck: deck_id,
+                    vocals,
+                    drums,
+                    bass,
+                    other,
+                });
+            }
+        });
+    }
 }
 
 /// SOTA switch_on_hover implementation for egui top menu bars.
@@ -229,42 +442,17 @@ fn switch_on_hover(ctx: &egui::Context, titles: &[egui::Response]) {
     }
 }
 
-fn harsh_visuals() -> egui::Visuals {
-    let mut visuals = egui::Visuals::dark();
-    let ink = egui::Color32::from_rgb(242, 246, 252);
-    visuals.override_text_color = Some(ink);
-    visuals.weak_text_color = Some(egui::Color32::from_rgb(203, 213, 225));
-    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ink);
-    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ink);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
-    visuals
-}
-
-fn crisp_light_visuals() -> egui::Visuals {
-    let mut visuals = egui::Visuals::light();
-    let ink = egui::Color32::BLACK;
-    visuals.override_text_color = Some(ink);
-    visuals.weak_text_color = Some(egui::Color32::from_rgb(30, 30, 35));
-    visuals.panel_fill = egui::Color32::WHITE;
-    visuals.window_fill = egui::Color32::WHITE;
-    visuals.extreme_bg_color = egui::Color32::from_rgb(245, 247, 250);
-    visuals.faint_bg_color = egui::Color32::from_rgb(240, 242, 246);
-    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ink);
-    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ink);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, ink);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, ink);
-    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0, ink);
-    visuals
-}
-
 impl eframe::App for DjCraftApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        if self.is_dark_theme {
-            ctx.set_visuals(harsh_visuals());
+        if !self.typography_applied {
+            theme::apply_fleet_typography(&ctx);
+            self.typography_applied = true;
+        }
+        if self.prefs.is_dark_theme {
+            ctx.set_visuals(theme::harsh_visuals());
         } else {
-            ctx.set_visuals(crisp_light_visuals());
+            ctx.set_visuals(theme::crisp_light_visuals());
         }
 
         // Ctrl + mouse wheel zoom (Craft Fleet Rule)
@@ -276,10 +464,11 @@ impl eframe::App for DjCraftApp {
             }
         });
         if scroll_delta.abs() > 0.1 {
-            let step = if scroll_delta > 0.0 { 0.1 } else { -0.1 };
-            self.zoom_factor = (self.zoom_factor + step).clamp(0.75, 2.0);
+            let step = if scroll_delta > 0.0 { 1.1_f32 } else { 1.0 / 1.1_f32 };
+            self.prefs.zoom_factor = (self.prefs.zoom_factor * step).clamp(0.75, 2.0);
+            self.prefs.save();
         }
-        ctx.set_zoom_factor(self.zoom_factor);
+        ctx.set_zoom_factor(self.prefs.zoom_factor);
 
         // Global keyboard shortcuts
         ctx.input(|i| {
@@ -303,23 +492,36 @@ impl eframe::App for DjCraftApp {
                 self.execute_catalog_id("session.new");
             }
             if cmd_mod && i.key_pressed(egui::Key::Num0) {
-                self.zoom_factor = 1.0;
+                self.prefs.zoom_factor = 1.0;
+                self.prefs.save();
             }
         });
 
-        // Continuous playback update for spinning jog wheel animation
+        // Continuous playback update for spinning jog wheels & scrolling waveforms
+        let mut any_playing = false;
         if self.orch.deck_a.is_playing {
             self.platter_angle_a += 0.04;
             self.orch.deck_a.position_seconds += 0.016;
-            ctx.request_repaint();
+            any_playing = true;
         }
         if self.orch.deck_b.is_playing {
             self.platter_angle_b += 0.04;
             self.orch.deck_b.position_seconds += 0.016;
+            any_playing = true;
+        }
+        if self.orch.deck_c.is_playing {
+            self.orch.deck_c.position_seconds += 0.016;
+            any_playing = true;
+        }
+        if self.orch.deck_d.is_playing {
+            self.orch.deck_d.position_seconds += 0.016;
+            any_playing = true;
+        }
+        if any_playing {
             ctx.request_repaint();
         }
 
-        // 1. UNIVERSAL 8-MENU BOOKEND BAR (File, Edit, View, Insert, Modify, Commands, Window, Help)
+        // 1. UNIVERSAL 8-MENU BOOKEND BAR
         egui::Panel::top("top_menu_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 let mut titles: Vec<egui::Response> = Vec::with_capacity(8);
@@ -369,30 +571,40 @@ impl eframe::App for DjCraftApp {
 
                 let r = ui.menu_button("View", |ui| {
                     if ui.button("Zoom In (Ctrl+Wheel Up)").clicked() {
-                        self.zoom_factor = (self.zoom_factor + 0.1).clamp(0.75, 2.0);
+                        self.prefs.zoom_factor = (self.prefs.zoom_factor * 1.1).clamp(0.75, 2.0);
+                        self.prefs.save();
                         ui.close();
                     }
                     if ui.button("Zoom Out (Ctrl+Wheel Down)").clicked() {
-                        self.zoom_factor = (self.zoom_factor - 0.1).clamp(0.75, 2.0);
+                        self.prefs.zoom_factor = (self.prefs.zoom_factor / 1.1).clamp(0.75, 2.0);
+                        self.prefs.save();
                         ui.close();
                     }
                     if ui.button("Reset Zoom 100% (Ctrl+0)").clicked() {
-                        self.zoom_factor = 1.0;
+                        self.prefs.zoom_factor = 1.0;
+                        self.prefs.save();
                         ui.close();
                     }
                     ui.separator();
-                    ui.checkbox(&mut self.show_deck_a, "Deck A Panel");
-                    ui.checkbox(&mut self.show_deck_b, "Deck B Panel");
-                    ui.checkbox(&mut self.show_crate_browser, "Crate Track Browser");
-                    ui.checkbox(&mut self.show_camelot_hud, "Camelot Harmonic HUD");
+                    let mut dirty = false;
+                    dirty |= ui.checkbox(&mut self.prefs.show_deck_a, "Deck A Panel").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_deck_b, "Deck B Panel").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Strip").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_crate_browser, "Crate Track Browser").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_camelot_hud, "Camelot Harmonic HUD").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_mixxxxx_dock, "Mixxxxx Video Dock").changed();
+                    if dirty {
+                        self.prefs.save();
+                    }
                     ui.separator();
-                    let theme_label = if self.is_dark_theme {
+                    let theme_label = if self.prefs.is_dark_theme {
                         "Switch to Light Theme"
                     } else {
                         "Switch to Dark Theme"
                     };
                     if ui.button(theme_label).clicked() {
-                        self.is_dark_theme = !self.is_dark_theme;
+                        self.prefs.is_dark_theme = !self.prefs.is_dark_theme;
+                        self.prefs.save();
                         ui.close();
                     }
                 });
@@ -483,10 +695,16 @@ impl eframe::App for DjCraftApp {
                         ui.close();
                     }
                     ui.separator();
-                    ui.checkbox(&mut self.show_deck_a, "Deck A Platter");
-                    ui.checkbox(&mut self.show_deck_b, "Deck B Platter");
-                    ui.checkbox(&mut self.show_crate_browser, "Crate Browser");
-                    ui.checkbox(&mut self.show_camelot_hud, "Camelot Wheel HUD");
+                    let mut dirty = false;
+                    dirty |= ui.checkbox(&mut self.prefs.show_deck_a, "Deck A Platter").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_deck_b, "Deck B Platter").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Strip").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_crate_browser, "Crate Browser").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_camelot_hud, "Camelot Wheel HUD").changed();
+                    dirty |= ui.checkbox(&mut self.prefs.show_mixxxxx_dock, "Mixxxxx Video Dock").changed();
+                    if dirty {
+                        self.prefs.save();
+                    }
                 });
                 titles.push(r.response);
 
@@ -538,6 +756,7 @@ impl eframe::App for DjCraftApp {
 
                 switch_on_hover(&ctx, &titles);
 
+                // Right topbar controls: locale, vector Sun/Moon, clickable 100% zoom pill
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let cur_loc = self.locale;
                     let label = cur_loc.code().to_uppercase();
@@ -554,11 +773,17 @@ impl eframe::App for DjCraftApp {
                             }
                         });
 
-                    let theme_btn = if self.is_dark_theme { "Dark" } else { "Light" };
-                    if ui.button(theme_btn).clicked() {
-                        self.is_dark_theme = !self.is_dark_theme;
+                    if theme::theme_toggle_button(ui, &mut self.prefs.is_dark_theme) {
+                        self.prefs.save();
                     }
-                    ui.label(format!("Zoom {:.0}%", self.zoom_factor * 100.0));
+                    if ui
+                        .button(format!("{:.0}%", self.prefs.zoom_factor * 100.0))
+                        .on_hover_text("Click to reset UI zoom to 100% (Ctrl+0)")
+                        .clicked()
+                    {
+                        self.prefs.zoom_factor = 1.0;
+                        self.prefs.save();
+                    }
                     ui.label("Safe Rust (0 unsafe)");
                 });
             });
@@ -571,7 +796,7 @@ impl eframe::App for DjCraftApp {
             egui::Window::new("Command Palette (Ctrl+K)")
                 .open(&mut open)
                 .collapsible(false)
-                .default_width(480.0)
+                .default_width(500.0)
                 .show(&ctx, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Filter:");
@@ -623,7 +848,7 @@ impl eframe::App for DjCraftApp {
             egui::Window::new("Keyboard Shortcuts")
                 .open(&mut open)
                 .collapsible(false)
-                .default_width(440.0)
+                .default_width(460.0)
                 .show(&ctx, |ui| {
                     for spec in Command::catalog() {
                         if !spec.hotkey.is_empty() {
@@ -645,8 +870,8 @@ impl eframe::App for DjCraftApp {
             egui::Window::new("DJCraft Help Center")
                 .open(&mut open)
                 .collapsible(false)
-                .default_width(640.0)
-                .default_height(420.0)
+                .default_width(660.0)
+                .default_height(430.0)
                 .show(&ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         for tab in HelpTab::ALL {
@@ -660,37 +885,37 @@ impl eframe::App for DjCraftApp {
                         HelpTab::GetStarted => {
                             ui.heading("Get Started (5-Step Tour)");
                             ui.label("1. Demo tracks are pre-loaded on Decks A, B, and C.");
-                            ui.label("2. Click PLAY / CUE on Deck A or Deck B and move the crossfader.");
+                            ui.label("2. Click PLAY / CUE on any deck and watch the scrolling waveform + VU meter.");
                             ui.label("3. Run Commands -> Auto-Sync Beatgrid to pitch-match Deck B to Deck A.");
-                            ui.label("4. Adjust Vocals/Drums/Bass/Other stem sliders or store a Hot Cue.");
+                            ui.label("4. Adjust 4-stem sliders, Hot Cues, or Mixxxxx video OSC controls.");
                             ui.label("5. Press Ctrl+K for Command Palette or run `djcraft-cli status`.");
                         }
                         HelpTab::Functions => {
                             ui.heading("Core Functions");
                             ui.label("- djcraft-audio: 4-deck PCM synthesizer, stem gains, Camelot wheel rules.");
-                            ui.label("- djcraft-core: Universal Command::dispatch bus, 64-step Undo/Redo, transition planner, dettato CLI sidecar.");
-                            ui.label("- djcraft-app: egui 0.37 workstation with 8-menu bar and --smoke parity.");
-                            ui.label("- djcraft-mcp: MCP 2024-11-05 stdio server sharing the same L1 bus.");
+                            ui.label("- djcraft-core: Universal Command::dispatch bus, 64-step Undo/Redo, dettato sidecar, Mixxxxx OSC 1.0 bridge.");
+                            ui.label("- djcraft-app: egui 0.37 workstation with slate-950 theme, painted waveforms, VU meters, and Camelot wheel.");
+                            ui.label("- djcraft-mcp: MCP 2024-11-05 stdio server (7 tools) sharing the same L1 bus.");
                         }
                         HelpTab::Usage => {
                             ui.heading("Usage (GUI, CLI & MCP)");
                             ui.monospace("djcraft.exe --smoke");
                             ui.monospace("djcraft-cli status");
-                            ui.monospace("djcraft-cli transition");
                             ui.monospace("djcraft-cli camelot 8A 9A");
                             ui.monospace("djcraft-cli analyze-dettato track.mp3 --device cuda");
-                            ui.label("MCP tools: djcraft_status, djcraft_plan_transition, djcraft_camelot_check, djcraft_commands, djcraft_analyze_dettato.");
+                            ui.monospace("djcraft-cli mixxxxx-ping");
+                            ui.monospace("djcraft-cli mixxxxx-video --deck 1 --enabled true");
                         }
                         HelpTab::TipsAndTricks => {
                             ui.heading("Tips & Tricks");
-                            ui.label("- Use Ctrl+Z / Ctrl+Y to revert accidental crossfader or stem moves.");
+                            ui.label("- Use Ctrl+Z / Ctrl+Y to revert accidental crossfader or stem drags.");
                             ui.label("- On a Camelot key clash, drop Vocals + Other stems to 0.0 and mix on Drums.");
-                            ui.label("- Use Ctrl + Mouse Wheel to scale the UI for booth monitors.");
+                            ui.label("- Click the top-right percentage pill or press Ctrl+0 to reset UI zoom.");
                         }
                         HelpTab::PitfallsAndSafety => {
                             ui.heading("Common Pitfalls & Safety");
                             ui.label("- Run dettato audio-to-MIDI offline during crate prep, never on the live audio thread.");
-                            ui.label("- Dettato skips drum transcription for sources below 40 kHz.");
+                            ui.label("- Enable OSC in Mixxxxx Preferences (UDP 11119 in / 11118 out) for live video control.");
                             ui.label("- All numeric parameters (crossfader, pitch bend, stems) are strictly clamped in L1.");
                         }
                         HelpTab::PlannedExtensions => {
@@ -698,21 +923,20 @@ impl eframe::App for DjCraftApp {
                             ui.label("- Real-time WASAPI / cpal audio device output stream.");
                             ui.label("- Persistent crate SQLite storage via databasecraft-store.");
                             ui.label("- Hardware MIDI controller mapping (DDJ / Hercules).");
-                            ui.label("- Standalone NSIS installer and CUA smoke test.");
                         }
                         HelpTab::OtherCrafts => {
                             ui.heading("Other Crafts in the Audio Ecosystem");
+                            ui.label("- mixxxxx: Video-extended Mixxx fork controlled via UDP OSC 11119.");
                             ui.label("- musiccraft: Docs-only index linking djcraft, soundcraft, and speechcraft.");
                             ui.label("- soundcraft: Upstream DAW fork (render stems/mixes for djcraft crates).");
-                            ui.label("- speechcraft: Pure-Rust TTS for DJ vocal drops.");
                             ui.label("- reaper-mcp: REAPER DAW automation sharing the local dettato sidecar.");
                         }
                         HelpTab::ProjectDocs => {
                             ui.heading("Repository Documentation");
-                            ui.label("HELP.md          - Full user manual (synced with this Help Center)");
-                            ui.label("docs/PRD.md      - Product Requirements Document");
+                            ui.label("HELP.md             - Full user manual (synced with this Help Center)");
+                            ui.label("docs/PRD.md         - Product Requirements Document");
                             ui.label("docs/TIERED_PLAN.md - 4-Tier execution plan & backlog");
-                            ui.label("README.md        - Install, architecture, and verification guide");
+                            ui.label("BUILD_LOG.md        - Release & NSIS build audit log");
                         }
                     });
                 });
@@ -730,10 +954,11 @@ impl eframe::App for DjCraftApp {
                     ui.label("License: Dual-licensed under MIT OR Apache-2.0.");
                     ui.label("Memory Safety: #![forbid(unsafe_code)] across all workspace crates.");
                     ui.separator();
-                    ui.label("Key Third-Party Crates:");
+                    ui.label("Key Third-Party Crates & Optional Integrations:");
                     ui.label("- egui / eframe (MIT / Apache-2.0)");
                     ui.label("- clap, serde, serde_json, thiserror (MIT / Apache-2.0)");
                     ui.label("- Optional sidecar: kobimusic/dettato (Apache-2.0)");
+                    ui.label("- Optional OSC target: sandraschi/mixxxxx (GPLv2, external UDP)");
                 });
             self.show_licenses_dialog = open;
         }
@@ -753,7 +978,7 @@ impl eframe::App for DjCraftApp {
             self.show_about_dialog = open;
         }
 
-        // 3. TOP QUICK-ACCESS STATUS BAR
+        // 3. TOP QUICK-ACCESS TOOLBAR
         egui::Panel::top("status_panel").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.strong("DJCraft Studio");
@@ -775,228 +1000,218 @@ impl eframe::App for DjCraftApp {
             });
         });
 
-        // 4. DECK A CONTROLLER
-        if self.show_deck_a {
-            egui::Panel::left("deck_a_panel").show(ui, |ui| {
-                ui.heading("Deck A");
-                if let Some(track) = &self.orch.deck_a.loaded_track {
-                    ui.label(
-                        egui::RichText::new(&track.title)
-                            .strong()
-                            .color(egui::Color32::from_rgb(70, 160, 240)),
-                    );
-                    ui.label(format!(
-                        "{} | Key {} | {:.1} BPM ({:+.1}%)",
-                        track.artist,
-                        track.musical_key,
-                        track.bpm,
-                        self.orch.deck_a.pitch_bend_pct
-                    ));
-                    ui.label(format!(
-                        "Pos: {:.1}s / {:.1}s",
-                        self.orch.deck_a.position_seconds, track.duration_seconds
-                    ));
-                }
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    let play_txt = if self.orch.deck_a.is_playing {
-                        "PAUSE"
-                    } else {
-                        "PLAY"
-                    };
-                    if ui.button(egui::RichText::new(play_txt).strong()).clicked() {
-                        self.execute_catalog_id("deck.play_pause.a");
-                    }
-                    if ui.button("CUE").clicked() {
-                        self.execute_catalog_id("deck.cue.a");
-                    }
-                    if ui.button("HOT CUE 1").clicked() {
-                        self.execute_catalog_id("insert.hot_cue_a");
-                    }
+        // 4. BOTTOM DECKS C & D STRIP (Full 4-Deck Parity)
+        if self.prefs.show_decks_cd {
+            let dark = self.prefs.is_dark_theme;
+            egui::Panel::bottom("decks_cd_panel")
+                .resizable(false)
+                .show(ui, |ui| {
+                    ui.columns(2, |cols| {
+                        for (col_idx, (deck_id, accent)) in [
+                            (DeckId::DeckC, egui::Color32::from_rgb(52, 211, 153)),
+                            (DeckId::DeckD, egui::Color32::from_rgb(192, 132, 252)),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            let d = self.orch.deck(deck_id).clone();
+                            theme::card_frame(&mut cols[col_idx], dark, |ui| {
+                                ui.horizontal(|ui| {
+                                    theme::status_dot(ui, d.is_playing);
+                                    ui.strong(deck_id.label());
+                                    if let Some(t) = &d.loaded_track {
+                                        ui.label(egui::RichText::new(&t.title).color(accent));
+                                        ui.monospace(format!("{} | {:.0} BPM", t.musical_key, t.bpm));
+                                    } else {
+                                        ui.label("Empty");
+                                    }
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if ui.button("CUE").clicked() {
+                                                self.dispatch_and_report(Command::CueReturn {
+                                                    deck: deck_id,
+                                                });
+                                            }
+                                            let lbl = if d.is_playing { "PAUSE" } else { "PLAY" };
+                                            if ui.button(lbl).clicked() {
+                                                self.dispatch_and_report(Command::PlayPause {
+                                                    deck: deck_id,
+                                                });
+                                            }
+                                        },
+                                    );
+                                });
+                            });
+                        }
+                    });
                 });
-
-                ui.add_space(8.0);
-                let (rect, _response) =
-                    ui.allocate_exact_size(egui::vec2(150.0, 150.0), egui::Sense::drag());
-                let painter = ui.painter();
-                let center = rect.center();
-                painter.circle_filled(center, 70.0, egui::Color32::from_rgb(25, 25, 30));
-                painter.circle_stroke(
-                    center,
-                    70.0,
-                    egui::Stroke::new(3.0, egui::Color32::from_rgb(80, 80, 90)),
-                );
-                painter.circle_filled(center, 26.0, egui::Color32::from_rgb(40, 40, 50));
-                let marker_dir = egui::vec2(self.platter_angle_a.cos(), self.platter_angle_a.sin());
-                painter.line_segment(
-                    [center, center + marker_dir * 65.0],
-                    egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 70, 70)),
-                );
-
-                ui.add_space(8.0);
-                ui.label("Stem Gains");
-                ui.add(
-                    egui::Slider::new(&mut self.orch.deck_a.stem_vocals_gain, 0.0..=1.0)
-                        .text("Vocals"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.orch.deck_a.stem_drums_gain, 0.0..=1.0)
-                        .text("Drums"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.orch.deck_a.stem_bass_gain, 0.0..=1.0).text("Bass"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.orch.deck_a.stem_other_gain, 0.0..=1.0)
-                        .text("Other"),
-                );
-            });
         }
 
-        // 5. DECK B CONTROLLER
-        if self.show_deck_b {
-            egui::Panel::right("deck_b_panel").show(ui, |ui| {
-                ui.heading("Deck B");
-                if let Some(track) = &self.orch.deck_b.loaded_track {
-                    ui.label(
-                        egui::RichText::new(&track.title)
-                            .strong()
-                            .color(egui::Color32::from_rgb(230, 140, 40)),
-                    );
-                    ui.label(format!(
-                        "{} | Key {} | {:.1} BPM ({:+.1}%)",
-                        track.artist,
-                        track.musical_key,
-                        track.bpm,
-                        self.orch.deck_b.pitch_bend_pct
-                    ));
-                    ui.label(format!(
-                        "Pos: {:.1}s / {:.1}s",
-                        self.orch.deck_b.position_seconds, track.duration_seconds
-                    ));
-                }
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    let play_txt = if self.orch.deck_b.is_playing {
-                        "PAUSE"
-                    } else {
-                        "PLAY"
-                    };
-                    if ui.button(egui::RichText::new(play_txt).strong()).clicked() {
-                        self.execute_catalog_id("deck.play_pause.b");
-                    }
-                    if ui.button("CUE").clicked() {
-                        self.execute_catalog_id("deck.cue.b");
-                    }
+        // 5. DECK A & DECK B PANELS
+        if self.prefs.show_deck_a {
+            egui::Panel::left("deck_a_panel")
+                .default_size(310.0)
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.render_deck_panel(
+                            ui,
+                            DeckId::DeckA,
+                            egui::Color32::from_rgb(56, 189, 248),
+                            self.platter_angle_a,
+                        );
+                    });
                 });
-
-                ui.add_space(8.0);
-                let (rect, _response) =
-                    ui.allocate_exact_size(egui::vec2(150.0, 150.0), egui::Sense::drag());
-                let painter = ui.painter();
-                let center = rect.center();
-                painter.circle_filled(center, 70.0, egui::Color32::from_rgb(25, 25, 30));
-                painter.circle_stroke(
-                    center,
-                    70.0,
-                    egui::Stroke::new(3.0, egui::Color32::from_rgb(80, 80, 90)),
-                );
-                painter.circle_filled(center, 26.0, egui::Color32::from_rgb(40, 40, 50));
-                let marker_dir = egui::vec2(self.platter_angle_b.cos(), self.platter_angle_b.sin());
-                painter.line_segment(
-                    [center, center + marker_dir * 65.0],
-                    egui::Stroke::new(3.0, egui::Color32::from_rgb(60, 190, 255)),
-                );
-
-                ui.add_space(8.0);
-                ui.label("Stem Gains");
-                ui.add(
-                    egui::Slider::new(&mut self.orch.deck_b.stem_vocals_gain, 0.0..=1.0)
-                        .text("Vocals"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.orch.deck_b.stem_drums_gain, 0.0..=1.0)
-                        .text("Drums"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.orch.deck_b.stem_bass_gain, 0.0..=1.0).text("Bass"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.orch.deck_b.stem_other_gain, 0.0..=1.0)
-                        .text("Other"),
-                );
-            });
         }
 
-        // 6. CENTRAL MIXER, CAMELOT HUD & CRATE BROWSER
+        if self.prefs.show_deck_b {
+            egui::Panel::right("deck_b_panel")
+                .default_size(310.0)
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.render_deck_panel(
+                            ui,
+                            DeckId::DeckB,
+                            egui::Color32::from_rgb(245, 158, 11),
+                            self.platter_angle_b,
+                        );
+                    });
+                });
+        }
+
+        // 6. CENTRAL MIXER, CAMELOT WHEEL, MIXXXXX VIDEO DOCK & CRATE BROWSER
+        let dark = self.prefs.is_dark_theme;
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading("4-Channel Club Mixer & Master Crossfader");
-            ui.add(
-                egui::Slider::new(&mut self.orch.crossfader, -1.0..=1.0)
-                    .text("Crossfader (Deck A <-> Deck B)"),
-            );
-            ui.add_space(10.0);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                theme::card_frame(ui, dark, |ui| {
+                    ui.heading("4-Channel Club Mixer");
+                    let xf_resp = ui.add(
+                        egui::Slider::new(&mut self.crossfader_draft, -1.0..=1.0)
+                            .text("Master Crossfader (Deck A <-> Deck B)"),
+                    );
+                    if xf_resp.changed() {
+                        self.orch.crossfader = self.crossfader_draft;
+                    }
+                    if xf_resp.drag_stopped() {
+                        let val = self.crossfader_draft;
+                        self.dispatch_and_report(Command::SetCrossfader { value: val });
+                    }
+                });
 
-            if self.show_camelot_hud {
-                if let Ok(plan) = self.orch.plan_transition() {
-                    ui.group(|ui| {
-                        ui.strong("Camelot Harmonic Mix Assistant");
-                        ui.label(format!("Transition: {} -> {}", plan.from_track, plan.to_track));
-                        ui.label(format!(
-                            "BPM: {:.1} -> {:.1} (Delta {:+.2})",
-                            plan.from_bpm, plan.to_bpm, plan.bpm_delta
-                        ));
-                        let harmonic_label = if plan.harmonic_compatible {
-                            "Harmonic Match: YES (Clean key blend)"
-                        } else {
-                            "Harmonic Match: KEY CLASH"
-                        };
-                        ui.label(harmonic_label);
-                        ui.label(format!(
-                            "Recommended Length: {} bars | Strategy: {}",
-                            plan.recommended_transition_bars, plan.suggested_eq_strategy
-                        ));
-                        if let Some(track_a) = &self.orch.deck_a.loaded_track {
-                            let compat = AudioEngine::compatible_camelot_keys(&track_a.musical_key);
-                            ui.label(format!(
-                                "Compatible keys for Deck A ({}): {}",
-                                track_a.musical_key,
-                                compat.join(", ")
-                            ));
+                if self.prefs.show_camelot_hud {
+                    ui.add_space(8.0);
+                    theme::card_frame(ui, dark, |ui| {
+                        ui.horizontal(|ui| {
+                            let key_a = self
+                                .orch
+                                .deck_a
+                                .loaded_track
+                                .as_ref()
+                                .map(|t| t.musical_key.as_str());
+                            let key_b = self
+                                .orch
+                                .deck_b
+                                .loaded_track
+                                .as_ref()
+                                .map(|t| t.musical_key.as_str());
+                            widgets::paint_camelot_wheel_mini(ui, key_a, key_b);
+                            ui.add_space(8.0);
+                            ui.vertical(|ui| {
+                                ui.strong("Camelot Harmonic Mix Assistant");
+                                if let Ok(plan) = self.orch.plan_transition() {
+                                    ui.label(format!("{} -> {}", plan.from_track, plan.to_track));
+                                    ui.monospace(format!(
+                                        "BPM {:.1} -> {:.1} (Delta {:+.2}) | {} bars",
+                                        plan.from_bpm,
+                                        plan.to_bpm,
+                                        plan.bpm_delta,
+                                        plan.recommended_transition_bars
+                                    ));
+                                    let match_color = if plan.harmonic_compatible {
+                                        egui::Color32::from_rgb(34, 197, 94)
+                                    } else {
+                                        egui::Color32::from_rgb(239, 68, 68)
+                                    };
+                                    let match_txt = if plan.harmonic_compatible {
+                                        "HARMONIC MATCH (Clean key blend)"
+                                    } else {
+                                        "KEY CLASH (Use drum-loop bridge)"
+                                    };
+                                    ui.label(egui::RichText::new(match_txt).strong().color(match_color));
+                                    ui.label(&plan.suggested_eq_strategy);
+                                }
+                            });
+                        });
+                    });
+                }
+
+                if self.prefs.show_mixxxxx_dock {
+                    ui.add_space(8.0);
+                    theme::card_frame(ui, dark, |ui| {
+                        ui.horizontal(|ui| {
+                            theme::status_dot(ui, self.mixxxxx_last_pong);
+                            ui.strong("Mixxxxx Video OSC Bridge (UDP 11119)");
+                            if ui.button("Ping OSC").clicked() {
+                                self.execute_catalog_id("commands.mixxxxx_ping");
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Target Deck:");
+                            for d in [DeckId::DeckA, DeckId::DeckB, DeckId::DeckC, DeckId::DeckD] {
+                                ui.selectable_value(&mut self.mixxxxx_deck, d, d.label());
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut self.mixxxxx_video_enabled, "Video Enabled");
+                            ui.checkbox(&mut self.mixxxxx_video_fullscreen, "Fullscreen");
+                        });
+                        ui.add(egui::Slider::new(&mut self.mixxxxx_brightness, 0.0..=1.0).text("Brightness"));
+                        ui.add(egui::Slider::new(&mut self.mixxxxx_contrast, 0.0..=1.0).text("Contrast"));
+                        ui.add(egui::Slider::new(&mut self.mixxxxx_saturation, 0.0..=1.0).text("Saturation"));
+                        if ui.button("Send Video Controls to Mixxxxx").clicked() {
+                            self.dispatch_and_report(Command::MixxxxxVideo {
+                                deck: self.mixxxxx_deck,
+                                controls: MixxxxxVideoControls {
+                                    enabled: Some(self.mixxxxx_video_enabled),
+                                    fullscreen: Some(self.mixxxxx_video_fullscreen),
+                                    brightness: Some(self.mixxxxx_brightness),
+                                    contrast: Some(self.mixxxxx_contrast),
+                                    saturation: Some(self.mixxxxx_saturation),
+                                },
+                            });
                         }
                     });
                 }
-            }
 
-            if self.show_crate_browser {
-                ui.add_space(10.0);
-                ui.group(|ui| {
-                    ui.strong("Demo Crate Browser");
-                    let tracks = self.orch.crate_tracks.clone();
-                    for (idx, t) in tracks.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.label(format!(
-                                "{} - {} | {} | {:.0} BPM",
-                                t.artist, t.title, t.musical_key, t.bpm
-                            ));
-                            if ui.button("-> A").clicked() {
-                                self.dispatch_and_report(Command::LoadDemoCrateTrack {
-                                    deck: DeckId::DeckA,
-                                    index: idx,
-                                });
-                            }
-                            if ui.button("-> B").clicked() {
-                                self.dispatch_and_report(Command::LoadDemoCrateTrack {
-                                    deck: DeckId::DeckB,
-                                    index: idx,
-                                });
-                            }
-                        });
-                    }
-                });
-            }
+                if self.prefs.show_crate_browser {
+                    ui.add_space(8.0);
+                    theme::card_frame(ui, dark, |ui| {
+                        ui.strong("Demo Crate Browser");
+                        let tracks = self.orch.crate_tracks.clone();
+                        for (idx, t) in tracks.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(format!(
+                                    "{} - {} | {} | {:.0} BPM",
+                                    t.artist, t.title, t.musical_key, t.bpm
+                                ));
+                                for (btn_lbl, deck_id) in [
+                                    ("A", DeckId::DeckA),
+                                    ("B", DeckId::DeckB),
+                                    ("C", DeckId::DeckC),
+                                    ("D", DeckId::DeckD),
+                                ] {
+                                    if ui.small_button(btn_lbl).clicked() {
+                                        self.dispatch_and_report(Command::LoadDemoCrateTrack {
+                                            deck: deck_id,
+                                            index: idx,
+                                        });
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            });
         });
     }
 }
@@ -1019,6 +1234,10 @@ fn run_headless_smoke() -> Result<(), Box<dyn std::error::Error>> {
         "has_menu_bar": true,
         "has_switch_on_hover": true,
         "has_theme_toggle": true,
+        "has_slate_950_theme": true,
+        "has_painted_waveforms": true,
+        "has_camelot_wheel_widget": true,
+        "has_mixxxxx_video_dock": true,
         "help_tabs": HelpTab::ALL.len(),
         "tofu_free": true,
         "command_catalog_count": Command::catalog().len(),
@@ -1042,11 +1261,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = DjCraftApp::new();
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 800.0])
-            .with_title("DJCraft - Sovereign Performance Studio"),
+            .with_inner_size([1360.0, 860.0])
+            .with_title("DJCraft - Sovereign 4-Deck Performance Studio"),
         ..Default::default()
     };
 
     eframe::run_native("DJCraft", native_options, Box::new(|_cc| Ok(Box::new(app))))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// Mandatory Tofu Guard test (EGUI_DESKTOP_UI_AND_PARITY.md):
+    /// fails if any non-ASCII glyph outside the verified egui-font allowlist appears in UI sources.
+    #[test]
+    fn glyph_allowlist() {
+        const ALLOWED: &[char] = &['\u{00B0}', '\u{00D7}', '\u{00B7}', '\u{2026}', '\u{2014}'];
+        let sources = [
+            ("main.rs", include_str!("main.rs")),
+            ("theme.rs", include_str!("theme.rs")),
+            ("widgets.rs", include_str!("widgets.rs")),
+        ];
+        for (file, src) in sources {
+            for (line_idx, line) in src.lines().enumerate() {
+                for ch in line.chars() {
+                    if !ch.is_ascii() && !ALLOWED.contains(&ch) {
+                        panic!(
+                            "Disallowed non-ASCII glyph U+{:04X} ({ch:?}) in {file}:{}",
+                            ch as u32,
+                            line_idx + 1
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
