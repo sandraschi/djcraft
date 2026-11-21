@@ -18,6 +18,7 @@ use cpal::{SampleFormat, Stream};
 use crate::dsp::{sample_varispeed, DecodedAudio, DecodedStems, ThreeBandEq, WsolaDeckState};
 use crate::fx::{BipolarFilter, FxStemScope, FxTarget, FxUnitDsp, FxUnitParams};
 use crate::recorder::{ActiveRecording, RecordingFormat, RecordingStopReport, RecordingTap};
+use crate::sampler::{SamplePlayMode, SamplerEngine, SAMPLER_SLOTS};
 use crate::{AudioEngine, DeckId, DeckState};
 
 const CUE_RING_CAPACITY: usize = 8192;
@@ -31,6 +32,7 @@ struct LiveMixState {
     filters: [BipolarFilter; 4],
     fx_units: [FxUnitDsp; 2],
     fx_params: [FxUnitParams; 2],
+    sampler: SamplerEngine,
     crossfader: f64,
     master_volume: f64,
     muted: bool,
@@ -74,6 +76,7 @@ impl LiveMixState {
             ],
             fx_units: [FxUnitDsp::new(sample_rate), FxUnitDsp::new(sample_rate)],
             fx_params: [FxUnitParams::default_unit(0), FxUnitParams::default_unit(1)],
+            sampler: SamplerEngine::new(sample_rate),
             crossfader: 0.0,
             master_volume: 0.75,
             muted: false,
@@ -425,6 +428,70 @@ impl AudioOutput {
         }
     }
 
+    pub fn trigger_sample(&self, bank: usize, slot: usize) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.sampler.trigger(bank, slot);
+        }
+    }
+
+    pub fn stop_sample(&self, bank: usize, slot: usize) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.sampler.stop_slot(bank, slot);
+        }
+    }
+
+    pub fn stop_all_samples(&self) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.sampler.stop_all();
+        }
+    }
+
+    pub fn set_sample_slot_audio(
+        &self,
+        bank: usize,
+        slot: usize,
+        name: String,
+        audio: Arc<DecodedAudio>,
+    ) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.sampler.set_slot_audio(bank, slot, name, audio);
+        }
+    }
+
+    pub fn set_sample_slot_config(
+        &self,
+        bank: usize,
+        slot: usize,
+        mode: SamplePlayMode,
+        volume: f32,
+    ) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.sampler.set_slot_config(bank, slot, mode, volume);
+        }
+    }
+
+    pub fn set_sampler_master_volume(&self, volume: f32) {
+        if let Ok(mut guard) = self.state.try_lock() {
+            guard.sampler.master_volume = volume.clamp(0.0, 1.0);
+        }
+    }
+
+    pub fn sampler_active_mask(&self, bank: usize) -> [bool; SAMPLER_SLOTS] {
+        if let Ok(guard) = self.state.try_lock() {
+            guard.sampler.active_mask(bank)
+        } else {
+            [false; SAMPLER_SLOTS]
+        }
+    }
+
+    pub fn sampler_slot_names(&self, bank: usize) -> [String; SAMPLER_SLOTS] {
+        if let Ok(guard) = self.state.lock() {
+            guard.sampler.slot_names(bank)
+        } else {
+            std::array::from_fn(|i| format!("Slot {}", i + 1))
+        }
+    }
+
     /// Push the latest mixer and deck parameters into the live audio thread (non-blocking).
     pub fn sync_state(
         &self,
@@ -610,13 +677,17 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
 
     guard.sample_counter = guard.sample_counter.wrapping_add(1);
 
+    let (samp_l, samp_r) = guard.sampler.next_stereo_frame(out_sr);
+
     let (mut master_l, mut master_r) = if guard.muted || guard.master_volume <= 0.0 {
         (0.0, 0.0)
     } else {
         let sum_l = (deck_post[0].0 + deck_post[2].0) * gain_left
-            + (deck_post[1].0 + deck_post[3].0) * gain_right;
+            + (deck_post[1].0 + deck_post[3].0) * gain_right
+            + samp_l;
         let sum_r = (deck_post[0].1 + deck_post[2].1) * gain_left
-            + (deck_post[1].1 + deck_post[3].1) * gain_right;
+            + (deck_post[1].1 + deck_post[3].1) * gain_right
+            + samp_r;
         let mv = guard.master_volume.clamp(0.0, 1.0) as f32;
         (sum_l.tanh() * mv, sum_r.tanh() * mv)
     };

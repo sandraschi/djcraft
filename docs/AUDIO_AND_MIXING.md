@@ -67,3 +67,13 @@ All FX run zero-allocation in 100% Safe Rust on the live WASAPI audio thread (ze
   - **Modulation Pack**: `Flanger`, `Phaser`, `Stereo Chorus`, `Auto-Gate / Tremolo`
   - **Battle & Lo-Fi Pack**: `Bitcrusher`, `Tape Overdrive`, `Vinyl Brake`, `Beat Stutter`
 - **Custom FX Packs**: Save your own 3-slot chains as JSON presets in `%LOCALAPPDATA%\djcraft\fx_packs\`.
+
+---
+
+## 7. Collapsible 4-Bank x 8-Slot Live Sampler (`sampler.rs`)
+
+Toggle open/collapsed anytime via **`SAMPLER: ON` / `SAMPLER`** in the top bar (right next to `VIDEO: ON`, persisted in `ui.json`):
+- **32 Total Slots (`Bank A` / `B` / `C` / `D` x 8 Pads)**: Mixes lock-free directly into the WASAPI Master bus (captured in live WAV/FLAC mix recordings too).
+- **8 Instant Built-In Club One-Shots on Bank A**: `Air Horn`, `Laser Zap`, `Sub Drop`, `Riser Sweep`, `Club Clap`, `Rim Shot`, `Dub Siren`, `Vinyl Chirp` — ready immediately with zero external files.
+- **Custom Audio Loading**: Click **`Load`** on any of the 32 pads to drop any `.wav`, `.mp3`, `.flac`, `.ogg`, or `.m4a` file via `symphonia`.
+- **Per-Pad Trigger / Loop Mode + Global Volume + `STOP ALL`**: Toggle `Trig` (one-shot) vs `Loop` per pad, control global sampler volume, or silence all pads instantly with `STOP ALL`.

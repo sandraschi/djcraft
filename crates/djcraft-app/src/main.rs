@@ -18,7 +18,7 @@ use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{
     builtin_fx_presets, fx_packs_dir, load_user_fx_presets_from_dir, save_fx_preset_to_dir,
     AudioEngine, DeckId, FxKind, FxPackId, FxPackPreset, FxStemScope, FxTarget, RecordingFormat,
-    TrackMeta,
+    SamplePlayMode, TrackMeta, SAMPLER_BANKS, SAMPLER_SLOTS,
 };
 use djcraft_core::i18n::{t, AppLocale, I18nKey};
 use djcraft_core::{
@@ -132,6 +132,8 @@ struct UiPrefs {
     show_parallel_waveforms: bool,
     #[serde(default = "default_true")]
     show_live_video_strip: bool,
+    #[serde(default = "default_true")]
+    show_live_sampler_strip: bool,
 }
 
 fn default_true() -> bool {
@@ -156,6 +158,7 @@ impl Default for UiPrefs {
             show_decks_cd: true,
             show_parallel_waveforms: true,
             show_live_video_strip: true,
+            show_live_sampler_strip: true,
         }
     }
 }
@@ -215,6 +218,11 @@ pub struct DjCraftApp {
     recording_format: RecordingFormat,
     fx_user_presets: Vec<FxPackPreset>,
     fx_save_name: String,
+    sampler_bank: usize,
+    sampler_master_vol: f32,
+    sampler_modes: [[SamplePlayMode; SAMPLER_SLOTS]; SAMPLER_BANKS],
+    sampler_vols: [[f32; SAMPLER_SLOTS]; SAMPLER_BANKS],
+    sampler_names: [[String; SAMPLER_SLOTS]; SAMPLER_BANKS],
     deck_waveforms: [Option<WaveformSummary>; 4],
 
     // Hardware MIDI Controller Engine (Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer, Hercules)
@@ -318,6 +326,8 @@ impl DjCraftApp {
         };
         let prefs = UiPrefs::load();
         let locale = prefs.locale;
+        let sampler_names: [[String; SAMPLER_SLOTS]; SAMPLER_BANKS] =
+            std::array::from_fn(|b| audio_out.sampler_slot_names(b));
         Self {
             orch,
             locale,
@@ -341,6 +351,11 @@ impl DjCraftApp {
             recording_format: RecordingFormat::Wav,
             fx_user_presets: load_user_fx_presets_from_dir(&fx_packs_dir()),
             fx_save_name: "My Club Chain".to_string(),
+            sampler_bank: 0,
+            sampler_master_vol: 0.85,
+            sampler_modes: [[SamplePlayMode::Trigger; SAMPLER_SLOTS]; SAMPLER_BANKS],
+            sampler_vols: [[0.85; SAMPLER_SLOTS]; SAMPLER_BANKS],
+            sampler_names,
             deck_waveforms: [None, None, None, None],
 
             midi: MidiControllerManager::new(),
@@ -1949,6 +1964,19 @@ impl eframe::App for DjCraftApp {
                     self.prefs.show_live_video_strip = !self.prefs.show_live_video_strip;
                     self.prefs.save();
                 }
+                let smp_lbl = if self.prefs.show_live_sampler_strip {
+                    "SAMPLER: ON"
+                } else {
+                    "SAMPLER"
+                };
+                if ui
+                    .selectable_label(self.prefs.show_live_sampler_strip, smp_lbl)
+                    .on_hover_text("Collapse / expand live 8-slot Multi-Bank Sampler (4 Banks x 8 Pads)")
+                    .clicked()
+                {
+                    self.prefs.show_live_sampler_strip = !self.prefs.show_live_sampler_strip;
+                    self.prefs.save();
+                }
                 ui.separator();
                 if ui.small_button("Auto-Sync").clicked() {
                     self.execute_catalog_id("commands.auto_sync");
@@ -1979,6 +2007,10 @@ impl eframe::App for DjCraftApp {
             if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_video_strip {
                 ui.add_space(4.0);
                 self.render_collapsible_live_video_strip(ui, &palette);
+            }
+            if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_sampler_strip {
+                ui.add_space(4.0);
+                self.render_collapsible_sampler_strip(ui, &palette);
             }
         });
 
@@ -2540,6 +2572,139 @@ impl DjCraftApp {
                             }
                         }
                     }
+                }
+            });
+        });
+    }
+
+    fn render_collapsible_sampler_strip(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+        let bank = self.sampler_bank;
+        let active_mask = self.audio_out.sampler_active_mask(bank);
+        theme::card_frame(ui, palette, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Sampler (4 Banks x 8 Pads)");
+                ui.separator();
+                for (b_idx, lbl) in ["Bank A", "Bank B", "Bank C", "Bank D"].into_iter().enumerate() {
+                    ui.selectable_value(&mut self.sampler_bank, b_idx, lbl);
+                }
+                ui.separator();
+                ui.label("Sampler Vol");
+                if ui
+                    .add(
+                        egui::Slider::new(&mut self.sampler_master_vol, 0.0..=1.0)
+                            .show_value(false)
+                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                    )
+                    .changed()
+                {
+                    self.audio_out
+                        .set_sampler_master_volume(self.sampler_master_vol);
+                }
+                let stop_btn = egui::Button::new("STOP ALL")
+                    .small()
+                    .fill(egui::Color32::from_rgb(185, 28, 28));
+                if ui.add(stop_btn).clicked() {
+                    self.audio_out.stop_all_samples();
+                    self.status_msg = "Sampler: stopped all active slots".to_string();
+                }
+            });
+            ui.add_space(4.0);
+
+            ui.columns(SAMPLER_SLOTS, |cols| {
+                for (slot_idx, col) in cols.iter_mut().enumerate().take(SAMPLER_SLOTS) {
+                    let is_playing = active_mask[slot_idx];
+                    let pad_col = palette.pad_colors[slot_idx % palette.pad_colors.len()];
+                    let slot_name = self.sampler_names[bank][slot_idx].clone();
+                    let mode = self.sampler_modes[bank][slot_idx];
+
+                    col.vertical_centered(|ui| {
+                        let fill = if is_playing {
+                            pad_col
+                        } else {
+                            egui::Color32::from_rgba_unmultiplied(
+                                pad_col.r(),
+                                pad_col.g(),
+                                pad_col.b(),
+                                if palette.is_light { 55 } else { 70 },
+                            )
+                        };
+                        let fg = if is_playing {
+                            egui::Color32::BLACK
+                        } else {
+                            palette.text_primary
+                        };
+                        let btn = egui::Button::new(
+                            egui::RichText::new(format!("{}. {}", slot_idx + 1, slot_name))
+                                .strong()
+                                .size(11.5)
+                                .color(fg),
+                        )
+                        .min_size(egui::vec2(ui.available_width(), 28.0))
+                        .fill(fill);
+                        if ui.add(btn).clicked() {
+                            self.audio_out.trigger_sample(bank, slot_idx);
+                            self.status_msg = format!(
+                                "Sampler Bank {} Slot {}: {}",
+                                ['A', 'B', 'C', 'D'][bank],
+                                slot_idx + 1,
+                                slot_name
+                            );
+                        }
+                        ui.horizontal(|ui| {
+                            if ui
+                                .small_button(mode.label())
+                                .on_hover_text("Toggle Trigger (one-shot) vs Loop")
+                                .clicked()
+                            {
+                                let next = mode.toggle();
+                                self.sampler_modes[bank][slot_idx] = next;
+                                self.audio_out.set_sample_slot_config(
+                                    bank,
+                                    slot_idx,
+                                    next,
+                                    self.sampler_vols[bank][slot_idx],
+                                );
+                            }
+                            if ui
+                                .small_button("Load")
+                                .on_hover_text("Load WAV/MP3/FLAC/OGG into this sampler pad")
+                                .clicked()
+                            {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("Audio Samples", &["wav", "mp3", "flac", "ogg", "m4a"])
+                                    .pick_file()
+                                {
+                                    match decode_audio_file(&path) {
+                                        Ok(decoded) => {
+                                            let name = path
+                                                .file_stem()
+                                                .and_then(|s| s.to_str())
+                                                .unwrap_or("Sample")
+                                                .chars()
+                                                .take(14)
+                                                .collect::<String>();
+                                            self.audio_out.set_sample_slot_audio(
+                                                bank,
+                                                slot_idx,
+                                                name.clone(),
+                                                Arc::new(decoded),
+                                            );
+                                            self.sampler_names[bank][slot_idx] = name.clone();
+                                            self.status_msg = format!(
+                                                "Loaded sample '{}' into Bank {} Slot {}",
+                                                name,
+                                                ['A', 'B', 'C', 'D'][bank],
+                                                slot_idx + 1
+                                            );
+                                        }
+                                        Err(e) => {
+                                            self.status_msg = format!("Sample decode error: {e}");
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    });
                 }
             });
         });

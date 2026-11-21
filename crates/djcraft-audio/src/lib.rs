@@ -11,6 +11,7 @@ pub mod dsp;
 pub mod fx;
 pub mod output;
 pub mod recorder;
+pub mod sampler;
 
 pub use fx::{
     builtin_fx_presets, fx_packs_dir, load_user_fx_presets_from_dir, save_fx_preset_to_dir,
@@ -18,6 +19,7 @@ pub use fx::{
     FxUnitParams,
 };
 pub use recorder::{RecordingFormat, RecordingStopReport};
+pub use sampler::{SamplePlayMode, SamplerEngine, SAMPLER_BANKS, SAMPLER_SLOTS};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum DeckId {
