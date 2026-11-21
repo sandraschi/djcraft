@@ -46,5 +46,8 @@ Open the **MIDI (Rane 12/72)** dock tab to scan USB MIDI ports and connect contr
 
 ## 4. Native FFmpeg Video Mixer & Mixxxxx OSC 1.0
 
-- **Native Video Mixer (`video.rs`)**: Load `.mp4`/`.mkv`/`.mov`/`.webm` via `VIDEO` (or autoload companion videos matching the audio filename), blend Deck A/B video with the crossfader, adjust Brightness/Contrast/Saturation, and click **`Detach Projector`** for a secondary display viewport. Falls back to audio-reactive visuals if `ffmpeg` is absent.
+- **Collapsible 3-Monitor Live Video Strip (`VIDEO` toggle in top bar, `video.rs`)**:
+  - **Left Box (Deck A Video)** & **Right Box (Deck B Video)**: Live 16:9 previews with `Load A`/`Load B`, per-deck **Individual Video FX dropdown** (`None`, `RGB Split`, `Invert`, `Posterize`, `CRT Scanlines`, `Mirror Kaleido`, `Club Strobe`, `Neon Edge`), and depth slider.
+  - **Center Box (Mixed Master Output)**: Live 16:9 composite with **Transition FX dropdown** (`Crossfade`, `Additive Glow`, `Wipe L -> R`, `Iris Circle`, `Luma Key`, `Zoom Cut`, `Glitch Slice`), `Link XF` toggle (or independent Video Crossfader), and **`Projector`** detachable secondary monitor viewport.
+  - Loads `.mp4`/`.mkv`/`.mov`/`.webm` via external `ffmpeg` RGB24 pipe (or autoloads companion videos matching the audio filename) and falls back to audio-reactive visuals if `ffmpeg` is absent.
 - **Mixxxxx Video OSC Bridge (`mixxxxx_osc.rs`)**: Zero-dependency pure-Rust UDP OSC 1.0 client (`127.0.0.1:11119` in / `11118` out) supporting `/mixxxxx/ping` and `/deck/{1..4}/video_{enabled,fullscreen,brightness,contrast,saturation}`.

@@ -15,10 +15,88 @@ use std::thread;
 use std::time::Duration;
 
 use egui::ColorImage;
+use serde::{Deserialize, Serialize};
 
 pub const VIDEO_W: usize = 320;
 pub const VIDEO_H: usize = 180;
 const FRAME_BYTES: usize = VIDEO_W * VIDEO_H * 3;
+
+/// Per-deck individual real-time video effects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DeckVideoFx {
+    #[default]
+    None,
+    RgbSplit,
+    Invert,
+    Posterize,
+    Scanlines,
+    Mirror,
+    Strobe,
+    NeonEdge,
+}
+
+impl DeckVideoFx {
+    pub const ALL: [Self; 8] = [
+        Self::None,
+        Self::RgbSplit,
+        Self::Invert,
+        Self::Posterize,
+        Self::Scanlines,
+        Self::Mirror,
+        Self::Strobe,
+        Self::NeonEdge,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::RgbSplit => "RGB Split",
+            Self::Invert => "Invert",
+            Self::Posterize => "Posterize",
+            Self::Scanlines => "CRT Scanlines",
+            Self::Mirror => "Mirror Kaleido",
+            Self::Strobe => "Club Strobe",
+            Self::NeonEdge => "Neon Edge",
+        }
+    }
+}
+
+/// Video transition effects between Deck A and Deck B driven by the video crossfader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum VideoTransitionFx {
+    #[default]
+    Crossfade,
+    AdditiveGlow,
+    WipeLeftRight,
+    IrisCircle,
+    LumaKey,
+    ZoomCut,
+    GlitchSlice,
+}
+
+impl VideoTransitionFx {
+    pub const ALL: [Self; 7] = [
+        Self::Crossfade,
+        Self::AdditiveGlow,
+        Self::WipeLeftRight,
+        Self::IrisCircle,
+        Self::LumaKey,
+        Self::ZoomCut,
+        Self::GlitchSlice,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Crossfade => "Crossfade",
+            Self::AdditiveGlow => "Additive Glow",
+            Self::WipeLeftRight => "Wipe L -> R",
+            Self::IrisCircle => "Iris Circle",
+            Self::LumaKey => "Luma Key",
+            Self::ZoomCut => "Zoom Cut",
+            Self::GlitchSlice => "Glitch Slice",
+        }
+    }
+}
 
 pub struct VideoDeckPlayer {
     latest_rgb: Arc<Mutex<Vec<u8>>>,
@@ -169,44 +247,270 @@ fn render_procedural_rgb(phase: f32, accent: [f32; 3]) -> Vec<u8> {
     rgb
 }
 
-/// Crossfader-blend Deck A and Deck B RGB24 frames with Brightness, Contrast, and Saturation.
+/// Convert an RGB24 frame (`VIDEO_W * VIDEO_H * 3`) directly into an egui `ColorImage`.
+pub fn rgb_to_color_image(rgb: &[u8]) -> ColorImage {
+    let mut rgba = vec![255u8; VIDEO_W * VIDEO_H * 4];
+    for px in 0..(VIDEO_W * VIDEO_H) {
+        let i3 = px * 3;
+        let i4 = px * 4;
+        rgba[i4] = rgb[i3];
+        rgba[i4 + 1] = rgb[i3 + 1];
+        rgba[i4 + 2] = rgb[i3 + 2];
+    }
+    ColorImage::from_rgba_unmultiplied([VIDEO_W, VIDEO_H], &rgba)
+}
+
+/// Apply an individual per-deck video effect to an RGB24 frame.
+pub fn apply_deck_video_fx(rgb: &[u8], fx: DeckVideoFx, intensity: f32, phase: f32) -> Vec<u8> {
+    let amt = intensity.clamp(0.0, 1.0);
+    if fx == DeckVideoFx::None || amt <= 0.001 || rgb.len() < FRAME_BYTES {
+        return rgb.to_vec();
+    }
+    let mut out = vec![0u8; FRAME_BYTES];
+    match fx {
+        DeckVideoFx::None => out.copy_from_slice(&rgb[..FRAME_BYTES]),
+        DeckVideoFx::RgbSplit => {
+            let shift = (amt * 14.0).round() as isize;
+            for y in 0..VIDEO_H {
+                for x in 0..VIDEO_W {
+                    let xr = (x as isize + shift).clamp(0, VIDEO_W as isize - 1) as usize;
+                    let xb = (x as isize - shift).clamp(0, VIDEO_W as isize - 1) as usize;
+                    let dst = (y * VIDEO_W + x) * 3;
+                    out[dst] = rgb[(y * VIDEO_W + xr) * 3];
+                    out[dst + 1] = rgb[dst + 1];
+                    out[dst + 2] = rgb[(y * VIDEO_W + xb) * 3 + 2];
+                }
+            }
+        }
+        DeckVideoFx::Invert => {
+            for i in 0..FRAME_BYTES {
+                let v = rgb[i] as f32;
+                let inv = 255.0 - v;
+                out[i] = (v * (1.0 - amt) + inv * amt).clamp(0.0, 255.0) as u8;
+            }
+        }
+        DeckVideoFx::Posterize => {
+            let levels = (10.0 - amt * 7.0).clamp(2.0, 10.0);
+            let step = 255.0 / levels;
+            for i in 0..FRAME_BYTES {
+                let q = ((rgb[i] as f32 / step).floor() * step).clamp(0.0, 255.0);
+                out[i] = q as u8;
+            }
+        }
+        DeckVideoFx::Scanlines => {
+            let dim = 1.0 - amt * 0.72;
+            for y in 0..VIDEO_H {
+                let mult = if y % 3 == 0 { dim } else { 1.0 };
+                let row = y * VIDEO_W * 3;
+                for x in 0..(VIDEO_W * 3) {
+                    out[row + x] = (rgb[row + x] as f32 * mult).clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+        DeckVideoFx::Mirror => {
+            let half = VIDEO_W / 2;
+            for y in 0..VIDEO_H {
+                for x in 0..VIDEO_W {
+                    let src_x = if x < half { x } else { VIDEO_W - 1 - x };
+                    let dst = (y * VIDEO_W + x) * 3;
+                    let src = (y * VIDEO_W + src_x) * 3;
+                    out[dst] = (rgb[dst] as f32 * (1.0 - amt) + rgb[src] as f32 * amt) as u8;
+                    out[dst + 1] =
+                        (rgb[dst + 1] as f32 * (1.0 - amt) + rgb[src + 1] as f32 * amt) as u8;
+                    out[dst + 2] =
+                        (rgb[dst + 2] as f32 * (1.0 - amt) + rgb[src + 2] as f32 * amt) as u8;
+                }
+            }
+        }
+        DeckVideoFx::Strobe => {
+            let flash = if (phase * 6.0).sin() > 0.35 {
+                amt * 0.85
+            } else {
+                0.0
+            };
+            for i in 0..FRAME_BYTES {
+                let v = rgb[i] as f32;
+                out[i] = (v + (255.0 - v) * flash).clamp(0.0, 255.0) as u8;
+            }
+        }
+        DeckVideoFx::NeonEdge => {
+            for y in 0..VIDEO_H {
+                for x in 0..VIDEO_W {
+                    let cur = (y * VIDEO_W + x) * 3;
+                    let rx = (x + 1).min(VIDEO_W - 1);
+                    let by = (y + 1).min(VIDEO_H - 1);
+                    let right = (y * VIDEO_W + rx) * 3;
+                    let down = (by * VIDEO_W + x) * 3;
+                    for c in 0..3 {
+                        let gx = (rgb[cur + c] as i32 - rgb[right + c] as i32).abs();
+                        let gy = (rgb[cur + c] as i32 - rgb[down + c] as i32).abs();
+                        let edge = ((gx + gy) as f32 * 2.4).min(255.0);
+                        let orig = rgb[cur + c] as f32;
+                        out[cur + c] = (orig * (1.0 - amt) + edge * amt).clamp(0.0, 255.0) as u8;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Crossfader-blend Deck A and Deck B RGB24 frames with Transition FX, Brightness, Contrast, and Saturation.
+#[allow(clippy::too_many_arguments)]
 pub fn composite_video_frame(
     rgb_a: &[u8],
     rgb_b: &[u8],
     crossfader: f64,
+    transition: VideoTransitionFx,
+    phase: f32,
     brightness: f32,
     contrast: f32,
     saturation: f32,
 ) -> ColorImage {
     let t = ((crossfader + 1.0) * 0.5).clamp(0.0, 1.0) as f32;
-    let inv_t = 1.0 - t;
     let b_shift = (brightness - 0.5) * 0.9; // 0.5 = neutral
     let c_scale = 0.5 + contrast; // 0.5 = 1.0 neutral
     let s_scale = saturation * 2.0; // 0.5 = 1.0 neutral
 
+    let cx = VIDEO_W as f32 * 0.5;
+    let cy = VIDEO_H as f32 * 0.5;
+    let max_r = (cx * cx + cy * cy).sqrt();
+
     let mut rgba = vec![255u8; VIDEO_W * VIDEO_H * 4];
-    for px in 0..(VIDEO_W * VIDEO_H) {
-        let i3 = px * 3;
-        let i4 = px * 4;
-        let mut r = (rgb_a[i3] as f32 * inv_t + rgb_b[i3] as f32 * t) / 255.0;
-        let mut g = (rgb_a[i3 + 1] as f32 * inv_t + rgb_b[i3 + 1] as f32 * t) / 255.0;
-        let mut b = (rgb_a[i3 + 2] as f32 * inv_t + rgb_b[i3 + 2] as f32 * t) / 255.0;
+    for y in 0..VIDEO_H {
+        let fy = y as f32;
+        for x in 0..VIDEO_W {
+            let fx = x as f32;
+            let px = y * VIDEO_W + x;
+            let i3 = px * 3;
+            let i4 = px * 4;
 
-        // Contrast around 0.5 + Brightness
-        r = ((r - 0.5) * c_scale + 0.5 + b_shift).clamp(0.0, 1.0);
-        g = ((g - 0.5) * c_scale + 0.5 + b_shift).clamp(0.0, 1.0);
-        b = ((b - 0.5) * c_scale + 0.5 + b_shift).clamp(0.0, 1.0);
+            let (ar, ag, ab) = (
+                rgb_a[i3] as f32 / 255.0,
+                rgb_a[i3 + 1] as f32 / 255.0,
+                rgb_a[i3 + 2] as f32 / 255.0,
+            );
+            let (br, bg, bb) = (
+                rgb_b[i3] as f32 / 255.0,
+                rgb_b[i3 + 1] as f32 / 255.0,
+                rgb_b[i3 + 2] as f32 / 255.0,
+            );
 
-        // Saturation around Rec.709 luma
-        let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        r = (luma + (r - luma) * s_scale).clamp(0.0, 1.0);
-        g = (luma + (g - luma) * s_scale).clamp(0.0, 1.0);
-        b = (luma + (b - luma) * s_scale).clamp(0.0, 1.0);
+            let (mut r, mut g, mut b) = match transition {
+                VideoTransitionFx::Crossfade => {
+                    let inv = 1.0 - t;
+                    (ar * inv + br * t, ag * inv + bg * t, ab * inv + bb * t)
+                }
+                VideoTransitionFx::AdditiveGlow => {
+                    let ga = (1.0 - t * 0.85).clamp(0.0, 1.0);
+                    let gb = (t * 1.15).clamp(0.0, 1.0);
+                    (
+                        (ar * ga + br * gb).min(1.0),
+                        (ag * ga + bg * gb).min(1.0),
+                        (ab * ga + bb * gb).min(1.0),
+                    )
+                }
+                VideoTransitionFx::WipeLeftRight => {
+                    let edge = t * VIDEO_W as f32;
+                    let mix = ((edge - fx) / 14.0 + 0.5).clamp(0.0, 1.0);
+                    (
+                        ar * (1.0 - mix) + br * mix,
+                        ag * (1.0 - mix) + bg * mix,
+                        ab * (1.0 - mix) + bb * mix,
+                    )
+                }
+                VideoTransitionFx::IrisCircle => {
+                    let dist = ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt();
+                    let rad = t * max_r;
+                    let mix = ((rad - dist) / 14.0 + 0.5).clamp(0.0, 1.0);
+                    (
+                        ar * (1.0 - mix) + br * mix,
+                        ag * (1.0 - mix) + bg * mix,
+                        ab * (1.0 - mix) + bb * mix,
+                    )
+                }
+                VideoTransitionFx::LumaKey => {
+                    let luma_b = 0.2126 * br + 0.7152 * bg + 0.0722 * bb;
+                    let mix = ((luma_b + t - 0.5) * 2.0).clamp(0.0, 1.0);
+                    (
+                        ar * (1.0 - mix) + br * mix,
+                        ag * (1.0 - mix) + bg * mix,
+                        ab * (1.0 - mix) + bb * mix,
+                    )
+                }
+                VideoTransitionFx::ZoomCut => {
+                    let zoom = 1.0 + (t * (1.0 - t) * 4.0) * 0.65;
+                    let sx = ((fx - cx) / zoom + cx).clamp(0.0, (VIDEO_W - 1) as f32) as usize;
+                    let sy = ((fy - cy) / zoom + cy).clamp(0.0, (VIDEO_H - 1) as f32) as usize;
+                    let si = (sy * VIDEO_W + sx) * 3;
+                    if t < 0.5 {
+                        (
+                            rgb_a[si] as f32 / 255.0,
+                            rgb_a[si + 1] as f32 / 255.0,
+                            rgb_a[si + 2] as f32 / 255.0,
+                        )
+                    } else {
+                        (
+                            rgb_b[si] as f32 / 255.0,
+                            rgb_b[si + 1] as f32 / 255.0,
+                            rgb_b[si + 2] as f32 / 255.0,
+                        )
+                    }
+                }
+                VideoTransitionFx::GlitchSlice => {
+                    let band = (y / 12) as f32;
+                    let hash = ((band * 12.9898 + (phase * 4.0).floor() * 78.233).sin() * 43_758.547)
+                        .fract()
+                        .abs();
+                    if hash < t {
+                        (br, bg, bb)
+                    } else {
+                        (ar, ag, ab)
+                    }
+                }
+            };
 
-        rgba[i4] = (r * 255.0) as u8;
-        rgba[i4 + 1] = (g * 255.0) as u8;
-        rgba[i4 + 2] = (b * 255.0) as u8;
+            // Contrast around 0.5 + Brightness
+            r = ((r - 0.5) * c_scale + 0.5 + b_shift).clamp(0.0, 1.0);
+            g = ((g - 0.5) * c_scale + 0.5 + b_shift).clamp(0.0, 1.0);
+            b = ((b - 0.5) * c_scale + 0.5 + b_shift).clamp(0.0, 1.0);
+
+            // Saturation around Rec.709 luma
+            let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            r = (luma + (r - luma) * s_scale).clamp(0.0, 1.0);
+            g = (luma + (g - luma) * s_scale).clamp(0.0, 1.0);
+            b = (luma + (b - luma) * s_scale).clamp(0.0, 1.0);
+
+            rgba[i4] = (r * 255.0) as u8;
+            rgba[i4 + 1] = (g * 255.0) as u8;
+            rgba[i4 + 2] = (b * 255.0) as u8;
+        }
     }
 
     ColorImage::from_rgba_unmultiplied([VIDEO_W, VIDEO_H], &rgba)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_deck_video_fx_preserve_frame_dimensions() {
+        let src = render_procedural_rgb(1.2, [0.2, 0.7, 0.95]);
+        assert_eq!(src.len(), FRAME_BYTES);
+        for fx in DeckVideoFx::ALL {
+            let out = apply_deck_video_fx(&src, fx, 0.75, 1.2);
+            assert_eq!(out.len(), FRAME_BYTES, "FX {fx:?} changed frame size");
+        }
+    }
+
+    #[test]
+    fn test_all_video_transitions_produce_valid_rgba_image() {
+        let a = render_procedural_rgb(0.5, [0.2, 0.8, 1.0]);
+        let b = render_procedural_rgb(1.5, [1.0, 0.2, 0.4]);
+        for tr in VideoTransitionFx::ALL {
+            let img = composite_video_frame(&a, &b, 0.0, tr, 0.8, 0.5, 0.5, 0.5);
+            assert_eq!(img.size, [VIDEO_W, VIDEO_H], "Transition {tr:?} bad size");
+        }
+    }
 }

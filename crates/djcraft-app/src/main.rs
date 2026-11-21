@@ -32,7 +32,10 @@ use djcraft_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use skins::{paint_backdrop, BackdropStyle, SkinId, SkinPalette};
-use video::{composite_video_frame, find_companion_video, VideoDeckPlayer, VIDEO_H, VIDEO_W};
+use video::{
+    apply_deck_video_fx, composite_video_frame, find_companion_video, rgb_to_color_image,
+    DeckVideoFx, VideoDeckPlayer, VideoTransitionFx, VIDEO_H, VIDEO_W,
+};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -127,6 +130,12 @@ struct UiPrefs {
     show_deck_b: bool,
     show_decks_cd: bool,
     show_parallel_waveforms: bool,
+    #[serde(default = "default_true")]
+    show_live_video_strip: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_last_dark() -> SkinId {
@@ -146,6 +155,7 @@ impl Default for UiPrefs {
             show_deck_b: true,
             show_decks_cd: true,
             show_parallel_waveforms: true,
+            show_live_video_strip: true,
         }
     }
 }
@@ -222,10 +232,19 @@ pub struct DjCraftApp {
     crate_harmonic_deck_a: bool,
     crate_dirty: bool,
 
-    // Native Video Mixer
+    // Native Video Mixer (3-Monitor Live Strip: Left A, Center Mixed, Right B + Individual & Transition FX)
     video_deck_a: VideoDeckPlayer,
     video_deck_b: VideoDeckPlayer,
+    video_tex_a: Option<egui::TextureHandle>,
+    video_tex_b: Option<egui::TextureHandle>,
     video_texture: Option<egui::TextureHandle>,
+    video_fx_a: DeckVideoFx,
+    video_fx_a_amt: f32,
+    video_fx_b: DeckVideoFx,
+    video_fx_b_amt: f32,
+    video_transition: VideoTransitionFx,
+    video_link_xfader: bool,
+    video_crossfader: f64,
     video_projector_open: bool,
     video_brightness: f32,
     video_contrast: f32,
@@ -339,7 +358,16 @@ impl DjCraftApp {
 
             video_deck_a: VideoDeckPlayer::new(),
             video_deck_b: VideoDeckPlayer::new(),
+            video_tex_a: None,
+            video_tex_b: None,
             video_texture: None,
+            video_fx_a: DeckVideoFx::None,
+            video_fx_a_amt: 0.7,
+            video_fx_b: DeckVideoFx::None,
+            video_fx_b_amt: 0.7,
+            video_transition: VideoTransitionFx::Crossfade,
+            video_link_xfader: true,
+            video_crossfader: 0.0,
             video_projector_open: false,
             video_brightness: 0.5,
             video_contrast: 0.5,
@@ -1524,21 +1552,56 @@ impl eframe::App for DjCraftApp {
             }
         }
 
-        // Update native video mixer texture
+        // Update native video mixer textures (Left A, Center Mixed, Right B)
         self.video_deck_a.set_playing(self.orch.deck_a.is_playing);
         self.video_deck_b.set_playing(self.orch.deck_b.is_playing);
-        if self.lower_tab == LowerDockTab::VideoMixer || self.video_projector_open {
+        let need_video = (self.workspace_mode == WorkspaceMode::LiveConsole
+            && self.prefs.show_live_video_strip)
+            || self.lower_tab == LowerDockTab::VideoMixer
+            || self.video_projector_open;
+        if need_video {
             if any_playing {
                 self.video_phase += 0.03;
             }
-            let rgb_a = self.video_deck_a.snapshot_rgb(self.video_phase, [0.22, 0.74, 0.97]);
-            let rgb_b = self
+            let raw_a = self.video_deck_a.snapshot_rgb(self.video_phase, [0.22, 0.74, 0.97]);
+            let raw_b = self
                 .video_deck_b
                 .snapshot_rgb(self.video_phase * 1.15 + 1.5, [0.94, 0.27, 0.27]);
+            let rgb_a = apply_deck_video_fx(&raw_a, self.video_fx_a, self.video_fx_a_amt, self.video_phase);
+            let rgb_b = apply_deck_video_fx(&raw_b, self.video_fx_b, self.video_fx_b_amt, self.video_phase);
+
+            let img_a = rgb_to_color_image(&rgb_a);
+            if let Some(tex) = self.video_tex_a.as_mut() {
+                tex.set(img_a, egui::TextureOptions::LINEAR);
+            } else {
+                self.video_tex_a = Some(ctx.load_texture(
+                    "djcraft_video_deck_a",
+                    img_a,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+            let img_b = rgb_to_color_image(&rgb_b);
+            if let Some(tex) = self.video_tex_b.as_mut() {
+                tex.set(img_b, egui::TextureOptions::LINEAR);
+            } else {
+                self.video_tex_b = Some(ctx.load_texture(
+                    "djcraft_video_deck_b",
+                    img_b,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+
+            let eff_xf = if self.video_link_xfader {
+                self.orch.crossfader
+            } else {
+                self.video_crossfader
+            };
             let image = composite_video_frame(
                 &rgb_a,
                 &rgb_b,
-                self.orch.crossfader,
+                eff_xf,
+                self.video_transition,
+                self.video_phase,
                 self.video_brightness,
                 self.video_contrast,
                 self.video_saturation,
@@ -1873,6 +1936,20 @@ impl eframe::App for DjCraftApp {
                     self.prefs.save();
                 }
                 ui.separator();
+                let vid_lbl = if self.prefs.show_live_video_strip {
+                    "VIDEO: ON"
+                } else {
+                    "VIDEO"
+                };
+                if ui
+                    .selectable_label(self.prefs.show_live_video_strip, vid_lbl)
+                    .on_hover_text("Collapse / expand live 3-monitor Video Mix strip (Left A, Mixed, Right B)")
+                    .clicked()
+                {
+                    self.prefs.show_live_video_strip = !self.prefs.show_live_video_strip;
+                    self.prefs.save();
+                }
+                ui.separator();
                 if ui.small_button("Auto-Sync").clicked() {
                     self.execute_catalog_id("commands.auto_sync");
                 }
@@ -1898,6 +1975,10 @@ impl eframe::App for DjCraftApp {
                     self.deck_waveforms[1].as_ref(),
                     &palette,
                 );
+            }
+            if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_video_strip {
+                ui.add_space(4.0);
+                self.render_collapsible_live_video_strip(ui, &palette);
             }
         });
 
@@ -2460,6 +2541,109 @@ impl DjCraftApp {
                         }
                     }
                 }
+            });
+        });
+    }
+
+    fn render_collapsible_live_video_strip(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+        theme::card_frame(ui, palette, |ui| {
+            ui.columns(3, |cols| {
+                // LEFT: Deck A Video Box + Individual FX Dropdown
+                cols[0].vertical_centered(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.strong(egui::RichText::new("Deck A Video").color(palette.deck_a));
+                        if ui.small_button("Load A").clicked() {
+                            self.load_video_file_dialog(DeckId::DeckA);
+                        }
+                        egui::ComboBox::from_id_salt("live_vfx_a")
+                            .selected_text(self.video_fx_a.label())
+                            .width(96.0)
+                            .show_ui(ui, |ui| {
+                                for fx in DeckVideoFx::ALL {
+                                    ui.selectable_value(&mut self.video_fx_a, fx, fx.label());
+                                }
+                            });
+                        if self.video_fx_a != DeckVideoFx::None {
+                            ui.add(
+                                egui::Slider::new(&mut self.video_fx_a_amt, 0.0..=1.0)
+                                    .show_value(false),
+                            );
+                        }
+                    });
+                    if let Some(tex) = &self.video_tex_a {
+                        ui.add(
+                            egui::Image::new((tex.id(), egui::vec2(192.0, 108.0)))
+                                .corner_radius(4.0),
+                        );
+                    }
+                });
+
+                // CENTER: Mixed Master Video Output + Transition FX Dropdown + Link XF
+                cols[1].vertical_centered(|ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong("Mixed Output");
+                        egui::ComboBox::from_id_salt("live_vfx_transition")
+                            .selected_text(self.video_transition.label())
+                            .width(108.0)
+                            .show_ui(ui, |ui| {
+                                for tr in VideoTransitionFx::ALL {
+                                    ui.selectable_value(&mut self.video_transition, tr, tr.label());
+                                }
+                            });
+                        ui.checkbox(&mut self.video_link_xfader, "Link XF")
+                            .on_hover_text("Link video crossfader to audio crossfader");
+                        let proj_lbl = if self.video_projector_open {
+                            "Close Proj"
+                        } else {
+                            "Projector"
+                        };
+                        if ui.small_button(proj_lbl).clicked() {
+                            self.video_projector_open = !self.video_projector_open;
+                        }
+                    });
+                    if let Some(tex) = &self.video_texture {
+                        ui.add(
+                            egui::Image::new((tex.id(), egui::vec2(224.0, 126.0)))
+                                .corner_radius(4.0),
+                        );
+                    }
+                    if !self.video_link_xfader {
+                        ui.add(
+                            egui::Slider::new(&mut self.video_crossfader, -1.0..=1.0)
+                                .text("Video XF"),
+                        );
+                    }
+                });
+
+                // RIGHT: Deck B Video Box + Individual FX Dropdown
+                cols[2].vertical_centered(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.strong(egui::RichText::new("Deck B Video").color(palette.deck_b));
+                        if ui.small_button("Load B").clicked() {
+                            self.load_video_file_dialog(DeckId::DeckB);
+                        }
+                        egui::ComboBox::from_id_salt("live_vfx_b")
+                            .selected_text(self.video_fx_b.label())
+                            .width(96.0)
+                            .show_ui(ui, |ui| {
+                                for fx in DeckVideoFx::ALL {
+                                    ui.selectable_value(&mut self.video_fx_b, fx, fx.label());
+                                }
+                            });
+                        if self.video_fx_b != DeckVideoFx::None {
+                            ui.add(
+                                egui::Slider::new(&mut self.video_fx_b_amt, 0.0..=1.0)
+                                    .show_value(false),
+                            );
+                        }
+                    });
+                    if let Some(tex) = &self.video_tex_b {
+                        ui.add(
+                            egui::Image::new((tex.id(), egui::vec2(192.0, 108.0)))
+                                .corner_radius(4.0),
+                        );
+                    }
+                });
             });
         });
     }
