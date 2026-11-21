@@ -1,10 +1,11 @@
 #![forbid(unsafe_code)]
 //! Real-time 4-Bank x 8-Slot DJ Sampler Engine (`SamplerEngine`).
 //!
-//! Ships with 8 instant synthesized club one-shots pre-loaded in Bank A (Air Horn,
-//! Laser Zap, Sub Drop, Riser Sweep, Clap Hit, Rim Shot, Dub Siren, Scratch Chirp)
-//! and supports loading arbitrary MP3/WAV/FLAC/OGG/M4A files via `symphonia` into
-//! any of the 32 slots. Mixes lock-free into the live WASAPI Master bus.
+//! Ships with 8 synthesized one-shots pre-loaded in Bank A (Air Horn, Laser Zap,
+//! Sub Drop, Riser Sweep, Clap Hit, Rim Shot, Dub Siren, Scratch Chirp). They are
+//! oscillator hits, not recorded club samples. Any of the 32 slots can load
+//! MP3/WAV/FLAC/OGG/M4A via `symphonia`. Pad commands are queued onto the audio
+//! thread; the mix itself sums into the master bus and the headphone cue side.
 
 use std::sync::Arc;
 
@@ -14,6 +15,8 @@ use crate::dsp::DecodedAudio;
 
 pub const SAMPLER_BANKS: usize = 4;
 pub const SAMPLER_SLOTS: usize = 8;
+/// Click-softener applied when a pad starts. Loop wraps do not re-trigger it.
+const SAMPLER_ATTACK_SAMPLES: u32 = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SamplePlayMode {
@@ -46,6 +49,7 @@ pub struct SampleSlot {
     pub volume: f32,
     pub playing: bool,
     pub play_pos: f64,
+    pub attack_left: u32,
 }
 
 impl SampleSlot {
@@ -57,6 +61,7 @@ impl SampleSlot {
             volume: 0.85,
             playing: false,
             play_pos: 0.0,
+            attack_left: 0,
         }
     }
 }
@@ -71,11 +76,10 @@ pub struct SamplerEngine {
 impl SamplerEngine {
     pub fn new(sample_rate: u32) -> Self {
         let sr = sample_rate.max(8000);
-        let mut banks: [[SampleSlot; SAMPLER_SLOTS]; SAMPLER_BANKS] = std::array::from_fn(|_| {
-            std::array::from_fn(SampleSlot::empty)
-        });
+        let mut banks: [[SampleSlot; SAMPLER_SLOTS]; SAMPLER_BANKS] =
+            std::array::from_fn(|_| std::array::from_fn(SampleSlot::empty));
 
-        // Pre-populate Bank A with 8 instant club one-shots
+        // Bank A: eight synthesized one-shots (oscillators, not recorded samples).
         let builtins: [(&str, Arc<DecodedAudio>); SAMPLER_SLOTS] = [
             ("Air Horn", Arc::new(synth_air_horn(sr))),
             ("Laser Zap", Arc::new(synth_laser_zap(sr))),
@@ -109,9 +113,11 @@ impl SamplerEngine {
         if s.mode == SamplePlayMode::Loop && s.playing {
             s.playing = false;
             s.play_pos = 0.0;
+            s.attack_left = 0;
         } else {
             s.playing = true;
             s.play_pos = 0.0;
+            s.attack_left = SAMPLER_ATTACK_SAMPLES;
         }
     }
 
@@ -122,6 +128,7 @@ impl SamplerEngine {
         let s = &mut self.banks[bank][slot];
         s.playing = false;
         s.play_pos = 0.0;
+        s.attack_left = 0;
     }
 
     pub fn stop_all(&mut self) {
@@ -129,11 +136,18 @@ impl SamplerEngine {
             for s in bank {
                 s.playing = false;
                 s.play_pos = 0.0;
+                s.attack_left = 0;
             }
         }
     }
 
-    pub fn set_slot_audio(&mut self, bank: usize, slot: usize, name: String, audio: Arc<DecodedAudio>) {
+    pub fn set_slot_audio(
+        &mut self,
+        bank: usize,
+        slot: usize,
+        name: String,
+        audio: Arc<DecodedAudio>,
+    ) {
         if bank >= SAMPLER_BANKS || slot >= SAMPLER_SLOTS {
             return;
         }
@@ -142,6 +156,7 @@ impl SamplerEngine {
         s.audio = Some(audio);
         s.playing = false;
         s.play_pos = 0.0;
+        s.attack_left = 0;
     }
 
     pub fn set_slot_config(&mut self, bank: usize, slot: usize, mode: SamplePlayMode, volume: f32) {
@@ -207,7 +222,12 @@ impl SamplerEngine {
                     }
                 }
                 let i = (slot.play_pos as usize).min(len - 1);
-                let g = slot.volume;
+                let mut g = slot.volume;
+                if slot.attack_left > 0 {
+                    let done = SAMPLER_ATTACK_SAMPLES - slot.attack_left;
+                    g *= done as f32 / SAMPLER_ATTACK_SAMPLES as f32;
+                    slot.attack_left -= 1;
+                }
                 sum_l += audio.left[i] * g;
                 sum_r += audio.right[i] * g;
                 let step = audio.sample_rate as f64 / safe_sr;
@@ -251,8 +271,9 @@ fn synth_air_horn(sr: u32) -> DecodedAudio {
         let f2 = 493.88 * pitch_bend;
         let f3 = 587.33 * pitch_bend;
         let saw = |f: f32| -> f32 { ((t * f).fract() * 2.0 - 1.0) * 0.35 };
-        let raw = (saw(f1) + saw(f2) + saw(f3) + (std::f32::consts::TAU * f1 * 2.0 * t).sin() * 0.25)
-            .tanh();
+        let raw =
+            (saw(f1) + saw(f2) + saw(f3) + (std::f32::consts::TAU * f1 * 2.0 * t).sin() * 0.25)
+                .tanh();
         l.push(raw * env * 0.72);
         r.push(raw * env * 0.72);
     }
@@ -420,5 +441,58 @@ mod tests {
         eng.trigger(0, 2);
         eng.stop_all();
         assert_eq!(eng.active_mask(0), [false; SAMPLER_SLOTS]);
+        let (l, r) = eng.next_stereo_frame(44100.0);
+        assert_eq!(l, 0.0);
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_sampler_oneshot_ends_loop_wraps_and_empty_bank_stays_silent() {
+        use crate::dsp::DecodedAudio;
+
+        let mut eng = SamplerEngine::new(44100);
+        let n = 48;
+        let audio = Arc::new(DecodedAudio {
+            sample_rate: 44100,
+            left: vec![0.6; n],
+            right: vec![-0.4; n],
+            duration_seconds: n as f64 / 44100.0,
+        });
+        eng.set_slot_audio(1, 0, "pip".to_string(), Arc::clone(&audio));
+        eng.set_slot_config(1, 0, SamplePlayMode::Trigger, 1.0);
+        eng.trigger(1, 0);
+        let (first_l, _) = eng.next_stereo_frame(44100.0);
+        assert!(first_l.abs() < 1e-6, "pad attack must start at silence");
+        for _ in 0..(n + SAMPLER_ATTACK_SAMPLES as usize + 4) {
+            let _ = eng.next_stereo_frame(44100.0);
+        }
+        assert!(
+            !eng.active_mask(1)[0],
+            "one-shot must stop after the buffer"
+        );
+
+        eng.set_slot_config(1, 0, SamplePlayMode::Loop, 1.0);
+        eng.trigger(1, 0);
+        let mut energy = 0.0_f32;
+        for _ in 0..400 {
+            let (l, r) = eng.next_stereo_frame(44100.0);
+            assert!(l.is_finite() && r.is_finite());
+            energy += l.abs() + r.abs();
+        }
+        assert!(
+            eng.active_mask(1)[0],
+            "loop must stay playing past the buffer"
+        );
+        assert!(
+            energy > 1.0,
+            "loop must keep producing audio, energy={energy}"
+        );
+
+        eng.stop_all();
+        eng.trigger(2, 3);
+        assert!(!eng.active_mask(2)[3], "empty bank must not start");
+        let (l, r) = eng.next_stereo_frame(44100.0);
+        assert_eq!(l, 0.0);
+        assert_eq!(r, 0.0);
     }
 }

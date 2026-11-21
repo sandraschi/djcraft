@@ -57,11 +57,11 @@ Use `Vol` (headphone gain) and `Cue/PGM` (`0%` = 100% PFL Cue, `100%` = 100% Mas
 
 ## 6. Per-Deck Color Filter & Dual 3-Slot BPM-Synced FX Rack (`fx.rs`)
 
-All FX run zero-allocation in 100% Safe Rust on the live WASAPI audio thread (zero payola, all 3 packs included free):
+All FX run preallocated in 100% Safe Rust on the live WASAPI audio thread (zero payola, all 3 packs included free). Each of the 3 slots keeps its own delay, modulation, reverb, and brake memory, so delay effects can be chained:
 
 - **Per-Deck Bipolar Color Filter (`A FLT` / `B FLT`)**: Chamberlin state-variable filter in the Battle Mixer (`-1.0` deep LPF <-> `0.0` transparent flat <-> `+1.0` sharp HPF, double-click snaps to `0.0`).
 - **Dual FX Banks (`FX 1` & `FX 2`)**: Assignable to `Deck A`, `Deck B`, `Deck C`, `Deck D`, or `Master`, with 3 chained Multi-FX slots, BPM beat divisions (`1/8`, `1/4`, `1/2`, `1`, `2`, `4`), and Wet/Dry mix.
-- **Stem-Targeted FX Routing**: Route any FX bank to **`Full Deck`**, **`Vocals Only`** (e.g. Vocal Dub Wash / Echo Out while drums stay completely dry), or **`Drums Only`** when `.djcraft-stems/` are loaded.
+- **Stem-Targeted FX Routing**: Route any FX bank to **`Full Deck`**, **`Vocals Only`** (e.g. Vocal Dub Wash / Echo Out while drums stay completely dry), or **`Drums Only`**. Vocals and Drums apply only when that deck has a `.djcraft-stems/` sidecar. With no sidecar those scopes stay dry.
 - **3 Free Built-In FX Packs (12 Real-Time DSP Effects)**:
   - **Club Core Pack**: `BPM Echo`, `Echo Out (Freeze)`, `Hall Reverb`, `Dub Tape Delay`
   - **Modulation Pack**: `Flanger`, `Phaser`, `Stereo Chorus`, `Auto-Gate / Tremolo`
@@ -73,7 +73,7 @@ All FX run zero-allocation in 100% Safe Rust on the live WASAPI audio thread (ze
 ## 7. Collapsible 4-Bank x 8-Slot Live Sampler (`sampler.rs`)
 
 Toggle open/collapsed anytime via **`SAMPLER: ON` / `SAMPLER`** in the top bar (right next to `VIDEO: ON`, persisted in `ui.json`):
-- **32 Total Slots (`Bank A` / `B` / `C` / `D` x 8 Pads)**: Mixes lock-free directly into the WASAPI Master bus (captured in live WAV/FLAC mix recordings too).
-- **8 Instant Built-In Club One-Shots on Bank A**: `Air Horn`, `Laser Zap`, `Sub Drop`, `Riser Sweep`, `Club Clap`, `Rim Shot`, `Dub Siren`, `Vinyl Chirp` — ready immediately with zero external files.
+- **32 Total Slots (`Bank A` / `B` / `C` / `D` x 8 Pads)**: Pad hits are queued to the audio thread (they do not take the mix mutex). The sampler sums into the WASAPI master bus, into live WAV/FLAC recordings, and into the headphone cue side, so a full-CUE mix still hears the pads.
+- **8 Synthesized One-Shots on Bank A**: `Air Horn`, `Laser Zap`, `Sub Drop`, `Riser Sweep`, `Club Clap`, `Rim Shot`, `Dub Siren`, `Vinyl Chirp`. These are oscillator hits generated in-process, not recorded club samples, and they are ready with zero external files. A short attack fades the start of every pad hit.
 - **Custom Audio Loading**: Click **`Load`** on any of the 32 pads to drop any `.wav`, `.mp3`, `.flac`, `.ogg`, or `.m4a` file via `symphonia`.
 - **Per-Pad Trigger / Loop Mode + Global Volume + `STOP ALL`**: Toggle `Trig` (one-shot) vs `Loop` per pad, control global sampler volume, or silence all pads instantly with `STOP ALL`.

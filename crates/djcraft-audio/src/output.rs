@@ -10,6 +10,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -23,6 +24,31 @@ use crate::{AudioEngine, DeckId, DeckState};
 
 const CUE_RING_CAPACITY: usize = 8192;
 
+enum SamplerCmd {
+    Trigger {
+        bank: usize,
+        slot: usize,
+    },
+    Stop {
+        bank: usize,
+        slot: usize,
+    },
+    StopAll,
+    SetAudio {
+        bank: usize,
+        slot: usize,
+        name: String,
+        audio: Arc<DecodedAudio>,
+    },
+    SetConfig {
+        bank: usize,
+        slot: usize,
+        mode: SamplePlayMode,
+        volume: f32,
+    },
+    SetMasterVolume(f32),
+}
+
 struct LiveMixState {
     decks: [DeckState; 4],
     decoded: [Option<Arc<DecodedAudio>>; 4],
@@ -33,6 +59,7 @@ struct LiveMixState {
     fx_units: [FxUnitDsp; 2],
     fx_params: [FxUnitParams; 2],
     sampler: SamplerEngine,
+    sampler_rx: Option<Receiver<SamplerCmd>>,
     crossfader: f64,
     master_volume: f64,
     muted: bool,
@@ -77,6 +104,7 @@ impl LiveMixState {
             fx_units: [FxUnitDsp::new(sample_rate), FxUnitDsp::new(sample_rate)],
             fx_params: [FxUnitParams::default_unit(0), FxUnitParams::default_unit(1)],
             sampler: SamplerEngine::new(sample_rate),
+            sampler_rx: None,
             crossfader: 0.0,
             master_volume: 0.75,
             muted: false,
@@ -96,12 +124,36 @@ pub struct AudioOutput {
     headphone_stream: Option<Stream>,
     state: Arc<Mutex<LiveMixState>>,
     cue_ring: Arc<Mutex<VecDeque<(f32, f32)>>>,
+    sampler_tx: Sender<SamplerCmd>,
     active_recording: Option<ActiveRecording>,
     pub device_name: String,
     pub headphone_device_name: Option<String>,
     pub sample_rate: u32,
     pub active: bool,
     pub error: Option<String>,
+}
+
+fn offline_output(
+    state: Arc<Mutex<LiveMixState>>,
+    cue_ring: Arc<Mutex<VecDeque<(f32, f32)>>>,
+    sampler_tx: Sender<SamplerCmd>,
+    device_name: String,
+    sample_rate: u32,
+    error: Option<String>,
+) -> AudioOutput {
+    AudioOutput {
+        _stream: None,
+        headphone_stream: None,
+        state,
+        cue_ring,
+        sampler_tx,
+        active_recording: None,
+        device_name,
+        headphone_device_name: None,
+        sample_rate,
+        active: false,
+        error,
+    }
 }
 
 impl AudioOutput {
@@ -117,22 +169,21 @@ impl AudioOutput {
     /// Open the default OS audio output device (WASAPI on Windows) and start streaming.
     /// Never panics: if no audio device is present, returns an inactive handle with `error`.
     pub fn start_default() -> Self {
-        let state = Arc::new(Mutex::new(LiveMixState::new(44100)));
+        let (sampler_tx, sampler_rx) = mpsc::channel();
+        let mut mix = LiveMixState::new(44100);
+        mix.sampler_rx = Some(sampler_rx);
+        let state = Arc::new(Mutex::new(mix));
         let cue_ring = Arc::new(Mutex::new(VecDeque::with_capacity(CUE_RING_CAPACITY)));
         let host = cpal::default_host();
         let Some(device) = host.default_output_device() else {
-            return Self {
-                _stream: None,
-                headphone_stream: None,
+            return offline_output(
                 state,
                 cue_ring,
-                active_recording: None,
-                device_name: "None".to_string(),
-                headphone_device_name: None,
-                sample_rate: 44100,
-                active: false,
-                error: Some("No default audio output device found".to_string()),
-            };
+                sampler_tx,
+                "None".to_string(),
+                44100,
+                Some("No default audio output device found".to_string()),
+            );
         };
 
         let device_name = device
@@ -141,18 +192,14 @@ impl AudioOutput {
         let supported = match device.default_output_config() {
             Ok(cfg) => cfg,
             Err(err) => {
-                return Self {
-                    _stream: None,
-                    headphone_stream: None,
+                return offline_output(
                     state,
                     cue_ring,
-                    active_recording: None,
+                    sampler_tx,
                     device_name,
-                    headphone_device_name: None,
-                    sample_rate: 44100,
-                    active: false,
-                    error: Some(format!("Audio config error: {err}")),
-                };
+                    44100,
+                    Some(format!("Audio config error: {err}")),
+                );
             }
         };
 
@@ -203,52 +250,40 @@ impl AudioOutput {
                 )
             }
             other => {
-                return Self {
-                    _stream: None,
-                    headphone_stream: None,
+                return offline_output(
                     state,
                     cue_ring,
-                    active_recording: None,
+                    sampler_tx,
                     device_name,
-                    headphone_device_name: None,
                     sample_rate,
-                    active: false,
-                    error: Some(format!("Unsupported sample format: {other:?}")),
-                };
+                    Some(format!("Unsupported sample format: {other:?}")),
+                );
             }
         };
 
         let stream = match stream_res {
             Ok(s) => s,
             Err(err) => {
-                return Self {
-                    _stream: None,
-                    headphone_stream: None,
+                return offline_output(
                     state,
                     cue_ring,
-                    active_recording: None,
+                    sampler_tx,
                     device_name,
-                    headphone_device_name: None,
                     sample_rate,
-                    active: false,
-                    error: Some(format!("Failed to build audio stream: {err}")),
-                };
+                    Some(format!("Failed to build audio stream: {err}")),
+                );
             }
         };
 
         if let Err(err) = stream.play() {
-            return Self {
-                _stream: None,
-                headphone_stream: None,
+            return offline_output(
                 state,
                 cue_ring,
-                active_recording: None,
+                sampler_tx,
                 device_name,
-                headphone_device_name: None,
                 sample_rate,
-                active: false,
-                error: Some(format!("Failed to start audio stream: {err}")),
-            };
+                Some(format!("Failed to start audio stream: {err}")),
+            );
         }
 
         Self {
@@ -256,6 +291,7 @@ impl AudioOutput {
             headphone_stream: None,
             state,
             cue_ring,
+            sampler_tx,
             active_recording: None,
             device_name,
             headphone_device_name: None,
@@ -277,8 +313,9 @@ impl AudioOutput {
         }
 
         let Some(target_name) = device_name.filter(|s| !s.trim().is_empty()) else {
-            return Ok("Headphone bus disabled (use Split Cue for single-device monitoring)"
-                .to_string());
+            return Ok(
+                "Headphone bus disabled (use Split Cue for single-device monitoring)".to_string(),
+            );
         };
 
         let host = cpal::default_host();
@@ -428,22 +465,29 @@ impl AudioOutput {
         }
     }
 
-    pub fn trigger_sample(&self, bank: usize, slot: usize) {
-        if let Ok(mut guard) = self.state.lock() {
-            guard.sampler.trigger(bank, slot);
+    fn enqueue_sampler(&self, cmd: SamplerCmd) {
+        if self.sampler_tx.send(cmd).is_err() {
+            return;
         }
+        // The live callback drains the queue. Offline (no stream) applies it here
+        // so a pad hit still updates the engine without taking the mix lock on the callback.
+        if !self.active {
+            if let Ok(mut guard) = self.state.try_lock() {
+                drain_sampler_queue(&mut guard);
+            }
+        }
+    }
+
+    pub fn trigger_sample(&self, bank: usize, slot: usize) {
+        self.enqueue_sampler(SamplerCmd::Trigger { bank, slot });
     }
 
     pub fn stop_sample(&self, bank: usize, slot: usize) {
-        if let Ok(mut guard) = self.state.lock() {
-            guard.sampler.stop_slot(bank, slot);
-        }
+        self.enqueue_sampler(SamplerCmd::Stop { bank, slot });
     }
 
     pub fn stop_all_samples(&self) {
-        if let Ok(mut guard) = self.state.lock() {
-            guard.sampler.stop_all();
-        }
+        self.enqueue_sampler(SamplerCmd::StopAll);
     }
 
     pub fn set_sample_slot_audio(
@@ -453,9 +497,12 @@ impl AudioOutput {
         name: String,
         audio: Arc<DecodedAudio>,
     ) {
-        if let Ok(mut guard) = self.state.lock() {
-            guard.sampler.set_slot_audio(bank, slot, name, audio);
-        }
+        self.enqueue_sampler(SamplerCmd::SetAudio {
+            bank,
+            slot,
+            name,
+            audio,
+        });
     }
 
     pub fn set_sample_slot_config(
@@ -465,15 +512,16 @@ impl AudioOutput {
         mode: SamplePlayMode,
         volume: f32,
     ) {
-        if let Ok(mut guard) = self.state.lock() {
-            guard.sampler.set_slot_config(bank, slot, mode, volume);
-        }
+        self.enqueue_sampler(SamplerCmd::SetConfig {
+            bank,
+            slot,
+            mode,
+            volume,
+        });
     }
 
     pub fn set_sampler_master_volume(&self, volume: f32) {
-        if let Ok(mut guard) = self.state.try_lock() {
-            guard.sampler.master_volume = volume.clamp(0.0, 1.0);
-        }
+        self.enqueue_sampler(SamplerCmd::SetMasterVolume(volume));
     }
 
     pub fn sampler_active_mask(&self, bank: usize) -> [bool; SAMPLER_SLOTS] {
@@ -485,11 +533,13 @@ impl AudioOutput {
     }
 
     pub fn sampler_slot_names(&self, bank: usize) -> [String; SAMPLER_SLOTS] {
-        if let Ok(guard) = self.state.lock() {
-            guard.sampler.slot_names(bank)
-        } else {
-            std::array::from_fn(|i| format!("Slot {}", i + 1))
+        for _ in 0..200 {
+            if let Ok(guard) = self.state.try_lock() {
+                return guard.sampler.slot_names(bank);
+            }
+            std::thread::yield_now();
         }
+        std::array::from_fn(|i| format!("Slot {}", i + 1))
     }
 
     /// Push the latest mixer and deck parameters into the live audio thread (non-blocking).
@@ -538,8 +588,38 @@ impl AudioOutput {
     }
 }
 
+fn drain_sampler_queue(guard: &mut LiveMixState) {
+    let Some(rx) = guard.sampler_rx.take() else {
+        return;
+    };
+    while let Ok(cmd) = rx.try_recv() {
+        match cmd {
+            SamplerCmd::Trigger { bank, slot } => guard.sampler.trigger(bank, slot),
+            SamplerCmd::Stop { bank, slot } => guard.sampler.stop_slot(bank, slot),
+            SamplerCmd::StopAll => guard.sampler.stop_all(),
+            SamplerCmd::SetAudio {
+                bank,
+                slot,
+                name,
+                audio,
+            } => guard.sampler.set_slot_audio(bank, slot, name, audio),
+            SamplerCmd::SetConfig {
+                bank,
+                slot,
+                mode,
+                volume,
+            } => guard.sampler.set_slot_config(bank, slot, mode, volume),
+            SamplerCmd::SetMasterVolume(volume) => {
+                guard.sampler.master_volume = volume.clamp(0.0, 1.0);
+            }
+        }
+    }
+    guard.sampler_rx = Some(rx);
+}
+
 /// Compute one dual-bus frame: `((master_out_l, master_out_r), (cue_l, cue_r))`.
 fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, f32)) {
+    drain_sampler_queue(guard);
     let xf = ((guard.crossfader + 1.0) * 0.5).clamp(0.0, 1.0);
     let gain_left = (xf * std::f64::consts::FRAC_PI_2).cos() as f32;
     let gain_right = (xf * std::f64::consts::FRAC_PI_2).sin() as f32;
@@ -651,16 +731,16 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
 
         // Per-deck bipolar Color Filter (LPF <-> Flat <-> HPF)
         let color_flt = deck.color_filter;
-        let has_stems = guard.decoded_stems[i].is_some();
         let (fl, fr) = guard.filters[i].process_stereo(pre_l, pre_r, color_flt);
         pre_l = fl;
         pre_r = fr;
 
-        // Per-deck FX 1 / FX 2 (FullDeck scope, or fallback when deck has no sidecar stems)
+        // Full-deck FX only. Vocals/Drums scopes run in the stem branch and stay dry
+        // when this deck has no sidecar stems.
         for (u_idx, fp) in fx_params_snap.iter().enumerate() {
             if fp.enabled
                 && fp.target.matches_deck(deck_ids[i])
-                && (fp.stem_scope == FxStemScope::FullDeck || !has_stems)
+                && fp.stem_scope == FxStemScope::FullDeck
             {
                 let (wl, wr) = guard.fx_units[u_idx].process_stereo(pre_l, pre_r, fp, deck_bpm);
                 pre_l = wl;
@@ -711,9 +791,10 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
         tap.push_frame(master_l, master_r);
     }
 
-    // Headphone PFL Cue bus: blend PFL sum with Master PGM
-    let pfl_l = (deck_pfl[0].0 + deck_pfl[1].0 + deck_pfl[2].0 + deck_pfl[3].0).tanh();
-    let pfl_r = (deck_pfl[0].1 + deck_pfl[1].1 + deck_pfl[2].1 + deck_pfl[3].1).tanh();
+    // Headphone cue side always includes the sampler, so a full-CUE mix still hears pads.
+    // At full PGM the cue bus is the master, which already contains the sampler once.
+    let pfl_l = (deck_pfl[0].0 + deck_pfl[1].0 + deck_pfl[2].0 + deck_pfl[3].0 + samp_l).tanh();
+    let pfl_r = (deck_pfl[0].1 + deck_pfl[1].1 + deck_pfl[2].1 + deck_pfl[3].1 + samp_r).tanh();
     let mix_t = guard.cue_mix.clamp(0.0, 1.0) as f32;
     let cv = guard.cue_volume.clamp(0.0, 1.0) as f32;
     let cue_l = (pfl_l * (1.0 - mix_t) + master_l * mix_t).tanh() * cv;
@@ -729,10 +810,7 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
     (master_out, (cue_l, cue_r))
 }
 
-fn push_cue_frames(
-    ring: &Arc<Mutex<VecDeque<(f32, f32)>>>,
-    frames: &[(f32, f32)],
-) {
+fn push_cue_frames(ring: &Arc<Mutex<VecDeque<(f32, f32)>>>, frames: &[(f32, f32)]) {
     if frames.is_empty() {
         return;
     }
@@ -873,11 +951,7 @@ fn fill_buffer_u16(
     }
 }
 
-fn fill_cue_f32(
-    data: &mut [f32],
-    channels: usize,
-    cue_ring: &Arc<Mutex<VecDeque<(f32, f32)>>>,
-) {
+fn fill_cue_f32(data: &mut [f32], channels: usize, cue_ring: &Arc<Mutex<VecDeque<(f32, f32)>>>) {
     let Ok(mut q) = cue_ring.try_lock() else {
         data.fill(0.0);
         return;
@@ -897,11 +971,7 @@ fn fill_cue_f32(
     }
 }
 
-fn fill_cue_i16(
-    data: &mut [i16],
-    channels: usize,
-    cue_ring: &Arc<Mutex<VecDeque<(f32, f32)>>>,
-) {
+fn fill_cue_i16(data: &mut [i16], channels: usize, cue_ring: &Arc<Mutex<VecDeque<(f32, f32)>>>) {
     let Ok(mut q) = cue_ring.try_lock() else {
         data.fill(0);
         return;
@@ -923,11 +993,7 @@ fn fill_cue_i16(
     }
 }
 
-fn fill_cue_u16(
-    data: &mut [u16],
-    channels: usize,
-    cue_ring: &Arc<Mutex<VecDeque<(f32, f32)>>>,
-) {
+fn fill_cue_u16(data: &mut [u16], channels: usize, cue_ring: &Arc<Mutex<VecDeque<(f32, f32)>>>) {
     let Ok(mut q) = cue_ring.try_lock() else {
         data.fill(u16::MAX / 2);
         return;
@@ -946,5 +1012,129 @@ fn fill_cue_u16(
                 *extra = u16::MAX / 2;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod mix_fix_tests {
+    use super::*;
+    use crate::dsp::DecodedAudio;
+    use crate::fx::{FxKind, FxSlotParams, FxStemScope, FxTarget, FxUnitParams};
+    use crate::TrackMeta;
+
+    fn sine_deck(scope: FxStemScope, enabled: bool) -> LiveMixState {
+        let mut guard = LiveMixState::new(44100);
+        let n = 4096;
+        let left: Vec<f32> = (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 44100.0).sin() * 0.4)
+            .collect();
+        let right = left.clone();
+        guard.decoded[0] = Some(Arc::new(DecodedAudio {
+            sample_rate: 44100,
+            left,
+            right,
+            duration_seconds: n as f64 / 44100.0,
+        }));
+        guard.decks[0].is_playing = true;
+        guard.decks[0].volume_fader = 1.0;
+        guard.decks[0].loaded_track = Some(TrackMeta {
+            title: "sine".to_string(),
+            artist: "test".to_string(),
+            bpm: 120.0,
+            musical_key: "8A".to_string(),
+            duration_seconds: 1.0,
+        });
+        guard.master_volume = 1.0;
+        guard.fx_params[0] = FxUnitParams {
+            enabled,
+            target: FxTarget::DeckA,
+            stem_scope: scope,
+            beats: 0.5,
+            wet_dry: 1.0,
+            slots: [
+                FxSlotParams {
+                    kind: FxKind::Bitcrusher,
+                    enabled: true,
+                    depth: 1.0,
+                },
+                FxSlotParams::default(),
+                FxSlotParams::default(),
+            ],
+        };
+        guard
+    }
+
+    fn master_frames(guard: &mut LiveMixState, n: usize) -> Vec<f32> {
+        let mut out = Vec::with_capacity(n);
+        for _ in 0..n {
+            let ((l, _), _) = next_dual_bus_frame(guard, 1.0 / 44100.0);
+            out.push(l);
+        }
+        out
+    }
+
+    #[test]
+    fn vocals_scope_without_stems_stays_dry() {
+        let dry = master_frames(&mut sine_deck(FxStemScope::FullDeck, false), 300);
+        let vocals = master_frames(&mut sine_deck(FxStemScope::VocalsOnly, true), 300);
+        let full = master_frames(&mut sine_deck(FxStemScope::FullDeck, true), 300);
+        let max_abs = |a: &[f32], b: &[f32]| -> f32 {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (x - y).abs())
+                .fold(0.0, f32::max)
+        };
+        let dry_vs_vocals = max_abs(&dry, &vocals);
+        let dry_vs_full = max_abs(&dry, &full);
+        assert!(
+            dry_vs_vocals < 1e-5,
+            "Vocals scope without stems must match the dry deck, diff={dry_vs_vocals}"
+        );
+        assert!(
+            dry_vs_full > 0.02,
+            "Full-deck bitcrusher must change the mix, diff={dry_vs_full}"
+        );
+    }
+
+    #[test]
+    fn sampler_reaches_cue_bus_when_master_is_down() {
+        let mut guard = LiveMixState::new(44100);
+        guard.master_volume = 0.0;
+        guard.cue_volume = 1.0;
+        guard.cue_mix = 0.0;
+        guard.sampler.trigger(0, 0);
+        let mut master = 0.0_f32;
+        let mut cue = 0.0_f32;
+        for _ in 0..3000 {
+            let ((ml, mr), (cl, cr)) = next_dual_bus_frame(&mut guard, 1.0 / 44100.0);
+            master += ml.abs() + mr.abs();
+            cue += cl.abs() + cr.abs();
+        }
+        assert!(
+            master < 1e-4,
+            "master fader down must silence the house, e={master}"
+        );
+        assert!(
+            cue > 1.0,
+            "full-CUE headphones must still hear the sampler, e={cue}"
+        );
+    }
+
+    #[test]
+    fn sampler_command_queue_applies_on_the_audio_side() {
+        let (tx, rx) = mpsc::channel();
+        let mut guard = LiveMixState::new(44100);
+        guard.sampler_rx = Some(rx);
+        guard.master_volume = 1.0;
+        guard.cue_volume = 1.0;
+        guard.cue_mix = 0.0;
+        tx.send(SamplerCmd::Trigger { bank: 0, slot: 2 }).unwrap();
+        let mut cue = 0.0_f32;
+        for _ in 0..3000 {
+            let (_, (cl, cr)) = next_dual_bus_frame(&mut guard, 1.0 / 44100.0);
+            cue += cl.abs() + cr.abs();
+        }
+        assert!(cue > 1.0, "queued pad hit must reach the cue bus, e={cue}");
+        assert!(guard.sampler.active_mask(0)[2]);
     }
 }
