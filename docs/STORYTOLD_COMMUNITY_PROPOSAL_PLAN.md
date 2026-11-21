@@ -11,7 +11,7 @@
 
 - **Do NOT open a new-app RFC PR in `storytold/craft-contrib`.** On 2026-11-20, Storytold org member `benandez` commented on community app RFC PRs (`#64` NetLabCraft through `#68` ModelCraft):
   > *"RFC-0000 has been superceded for new app additions to the suite, these now enter via the Beta program - https://getartcraft.com/beta. This RFC should be closed."*
-- New community Craft apps now enter through the 5-field Beta intake form at **`https://getartcraft.com/beta`** (`App name`, `Email`, `Repo`, `Description`, `Website`; contact `hello@storyteller.ai`).
+- New community Craft apps now enter through the 4-field Beta intake form at **`https://getartcraft.com/beta`** (`App name`, `Email`, `Repo`, `Description` - no separate website required; contact `hello@storyteller.ai`).
 - **Technical evaluation still uses `storytold/craft-contrib/standards/`** as the quality bar before an app is listed in `craft-launcher` or transferred into `storytold/*`.
 
 ---
@@ -59,9 +59,8 @@
 ### Phase 4: Visual Proof & Beta Submission (`https://getartcraft.com/beta`)
 1. Run `scripts\capture-screenshots.ps1` on desktop to generate real dark + light screenshots in `docs/images/` (`djcraft-dark.png`, `djcraft-light.png`, `djcraft-4deck.png`, `djcraft-crates.png`) and embed them in `README.md`.
 2. Cut a full (non-prerelease) `v0.3.0` release once tests >= 60 and Phase 1-2 gates pass.
-3. Submit at **`https://getartcraft.com/beta`**:
+3. Submit at **`https://getartcraft.com/beta`** (4 fields, no website required):
    - **App name**: `DJCraft`
    - **Email**: *(Sandra's contact email)*
    - **Repo**: `https://github.com/sandraschi/djcraft`
    - **Description**: `Local-first, 100% Safe Rust 4-deck DJ workstation (egui/wgpu + cpal + symphonia) with live vinyl platter scratching, WSOLA keylock, 3-band kill EQ, dual-bus Headphone PFL pre-cue, lossless WAV/FLAC mix recording, 2-pane drag-drop crate prep with Serato/VirtualDJ interop, transparent 4-stem mixing, USB MIDI controllers, native video mixer, and unified GUI/CLI/MCP command bus.`
-   - **Website**: `https://github.com/sandraschi/djcraft`
