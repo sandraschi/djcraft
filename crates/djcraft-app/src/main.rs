@@ -14,7 +14,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use clap::Parser;
-use crate_view::{render_gig_prep_workspace, CrateAction, CrateUiState};
+use crate_view::{
+    render_crate_two_pane_browser, render_gig_prep_workspace, CrateAction, CrateUiState,
+};
 use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid, load_sidecar_stems, WaveformSummary};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{
@@ -55,6 +57,9 @@ struct Args {
     /// Start in the dedicated 2-pane Crates & Gig Prep workspace.
     #[arg(long)]
     crates: bool,
+    /// Start in Booth + Crate split workspace (center vertical waveforms, small platters, hideable FX/Sampler/Video strip, lower crate browser).
+    #[arg(long)]
+    booth_crate: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,7 +103,17 @@ impl HelpTab {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorkspaceMode {
     LiveConsole,
+    BoothAndCrate,
     CratesGigPrep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+enum BoothStripTab {
+    #[default]
+    None,
+    Fx,
+    Sampler,
+    Video,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +174,8 @@ struct UiPrefs {
     show_live_sampler_strip: bool,
     #[serde(default)]
     vertical_waveforms: bool,
+    #[serde(default)]
+    booth_strip: BoothStripTab,
 }
 
 fn default_last_dark() -> SkinId {
@@ -181,6 +198,7 @@ impl Default for UiPrefs {
             show_live_video_strip: false,
             show_live_sampler_strip: false,
             vertical_waveforms: false,
+            booth_strip: BoothStripTab::None,
         }
     }
 }
@@ -232,6 +250,7 @@ pub struct DjCraftApp {
     workspace_mode: WorkspaceMode,
     lower_tab: LowerDockTab,
     crate_ui: CrateUiState,
+    crate_auto_selected_gig: bool,
 
     // Live WASAPI / cpal audio output & decoded real-audio waveform summaries
     audio_out: AudioOutput,
@@ -366,6 +385,7 @@ impl DjCraftApp {
             workspace_mode: WorkspaceMode::LiveConsole,
             lower_tab: LowerDockTab::FxRack,
             crate_ui: CrateUiState::default(),
+            crate_auto_selected_gig: false,
 
             audio_out,
             audio_output_devices,
@@ -645,6 +665,19 @@ impl DjCraftApp {
         };
         if let Ok(nodes) = store.list_crates() {
             self.crate_nodes = nodes;
+        }
+        if !self.crate_auto_selected_gig && self.crate_query.crate_id.is_none() {
+            if let Some(gig_id) = self
+                .crate_nodes
+                .iter()
+                .find(|n| n.track_count > 0 && n.name.to_lowercase().contains("gig"))
+                .or_else(|| self.crate_nodes.iter().find(|n| n.track_count > 0))
+                .or_else(|| self.crate_nodes.first())
+                .map(|n| n.id)
+            {
+                self.crate_query.crate_id = Some(gig_id);
+            }
+            self.crate_auto_selected_gig = true;
         }
         if let Ok(tracks) = store.query_tracks(&self.crate_query) {
             self.crate_results = tracks;
@@ -1195,6 +1228,362 @@ impl DjCraftApp {
         }
     }
 
+    fn render_compact_booth_deck(
+        &mut self,
+        ui: &mut egui::Ui,
+        deck_id: DeckId,
+        accent: egui::Color32,
+        palette: &SkinPalette,
+    ) {
+        let d = self.orch.deck(deck_id).clone();
+        let idx = deck_index(deck_id);
+        let deck_title = self.deck_localized_label(deck_id);
+
+        ui.push_id(("compact_booth", deck_id), |ui| {
+            theme::card_frame(ui, palette, |ui| {
+                // Header: Deck label + layer flip + truncated title + key/BPM
+                ui.horizontal(|ui| {
+                    theme::status_dot(ui, d.is_playing);
+                    ui.strong(egui::RichText::new(deck_title).color(accent));
+                    match deck_id {
+                        DeckId::DeckA | DeckId::DeckC => {
+                            let sw_lbl = if self.left_layer_c { "-> A" } else { "-> C" };
+                            if ui.small_button(sw_lbl).clicked() {
+                                self.left_layer_c = !self.left_layer_c;
+                            }
+                        }
+                        DeckId::DeckB | DeckId::DeckD => {
+                            let sw_lbl = if self.right_layer_d { "-> B" } else { "-> D" };
+                            if ui.small_button(sw_lbl).clicked() {
+                                self.right_layer_d = !self.right_layer_d;
+                            }
+                        }
+                    }
+                    if let Some(track) = &d.loaded_track {
+                        let key_bpm = format!("{} | {:.1}", track.musical_key, track.bpm);
+                        let avail = (ui.available_width() - 82.0).max(32.0);
+                        ui.add_sized(
+                            [avail, 16.0],
+                            egui::Label::new(
+                                egui::RichText::new(&track.title)
+                                    .strong()
+                                    .color(palette.text_primary),
+                            )
+                            .truncate(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.monospace(key_bpm);
+                        });
+                    } else {
+                        ui.label(egui::RichText::new("Empty").color(palette.text_secondary));
+                    }
+                });
+
+                ui.add_space(3.0);
+
+                // Middle row: Small Platter (78px) + Pitch Fader + Transport + 4 Hot Cues
+                ui.horizontal_top(|ui| {
+                    let eff_bpm = d
+                        .loaded_track
+                        .as_ref()
+                        .map(|t| t.bpm * (1.0 + d.pitch_bend_pct / 100.0));
+                    let pr = widgets::paint_platter_sized(
+                        ui,
+                        self.platter_angles[idx],
+                        accent,
+                        d.is_playing,
+                        eff_bpm,
+                        78.0,
+                    );
+                    self.orch.deck_mut(deck_id).scratch_velocity = pr.scratch_velocity;
+                    if let Some(vel) = pr.scratch_velocity {
+                        self.platter_angles[idx] += pr.angle_delta;
+                        let st = self.orch.deck_mut(deck_id);
+                        st.position_seconds = (st.position_seconds + vel * 0.016).max(0.0);
+                    }
+
+                    let mut pitch = d.pitch_bend_pct;
+                    let pf = widgets::vertical_fader(
+                        ui,
+                        &format!("{pitch:+.1}%"),
+                        &mut pitch,
+                        -16.0,
+                        16.0,
+                        0.0,
+                        78.0,
+                        accent,
+                        palette,
+                    );
+                    if pf.changed {
+                        self.orch.deck_mut(deck_id).pitch_bend_pct = pitch;
+                    }
+                    if pf.committed {
+                        self.dispatch_and_report(Command::SetPitchBend {
+                            deck: deck_id,
+                            pct: pitch,
+                        });
+                    }
+
+                    ui.vertical(|ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            let play_lbl = if d.is_playing {
+                                t(I18nKey::Pause, self.locale)
+                            } else {
+                                t(I18nKey::Play, self.locale)
+                            };
+                            let play_fill = if d.is_playing {
+                                egui::Color32::from_rgb(22, 163, 74)
+                            } else {
+                                accent
+                            };
+                            let play_fg = if palette.is_light || d.is_playing {
+                                egui::Color32::WHITE
+                            } else {
+                                egui::Color32::BLACK
+                            };
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new(play_lbl).strong().color(play_fg),
+                                    )
+                                    .small()
+                                    .fill(play_fill),
+                                )
+                                .clicked()
+                            {
+                                self.dispatch_and_report(Command::PlayPause { deck: deck_id });
+                            }
+                            if ui.small_button("CUE").clicked() {
+                                self.dispatch_and_report(Command::CueReturn { deck: deck_id });
+                            }
+                            let pfl_btn = egui::Button::new("PFL").small().fill(if d.pfl_cue {
+                                egui::Color32::from_rgb(245, 158, 11)
+                            } else {
+                                palette.card_fill
+                            });
+                            if ui.add(pfl_btn).clicked() {
+                                self.dispatch_and_report(Command::TogglePflCue { deck: deck_id });
+                            }
+                            let kl = if d.keylock { "KEYLOCK" } else { "VINYL" };
+                            if ui.small_button(kl).clicked() {
+                                self.dispatch_and_report(Command::ToggleKeylock { deck: deck_id });
+                            }
+                            if ui.small_button("LOAD").clicked() {
+                                self.load_audio_file_dialog(deck_id);
+                            }
+                        });
+
+                        ui.add_space(4.0);
+                        ui.horizontal_wrapped(|ui| {
+                            for pad in 0..4 {
+                                let has_cue = d.hot_cue_seconds[pad].is_some();
+                                let col = palette.pad_colors[pad];
+                                let lbl = if has_cue {
+                                    format!("C{}", pad + 1)
+                                } else {
+                                    format!("+{}", pad + 1)
+                                };
+                                let btn = egui::Button::new(
+                                    egui::RichText::new(lbl).small().color(if has_cue {
+                                        egui::Color32::WHITE
+                                    } else {
+                                        palette.text_primary
+                                    }),
+                                )
+                                .small()
+                                .fill(if has_cue {
+                                    col
+                                } else {
+                                    palette.card_fill
+                                });
+                                if ui.add(btn).clicked() {
+                                    self.handle_pad_click(deck_id, pad);
+                                }
+                            }
+                            if ui.small_button("L4").clicked() {
+                                self.handle_pad_click(deck_id, 4);
+                            }
+                            if ui.small_button("L8").clicked() {
+                                self.handle_pad_click(deck_id, 5);
+                            }
+                        });
+                    });
+                });
+            });
+        });
+    }
+
+    fn render_booth_and_crate_workspace(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+        let left_deck = if self.left_layer_c {
+            (DeckId::DeckC, palette.deck_c)
+        } else {
+            (DeckId::DeckA, palette.deck_a)
+        };
+        let right_deck = if self.right_layer_d {
+            (DeckId::DeckD, palette.deck_d)
+        } else {
+            (DeckId::DeckB, palette.deck_b)
+        };
+
+        // UPPER HALF: Left Compact Deck | Center Vertical Waveforms + Crossfader | Right Compact Deck + Hideable FX/Sampler/Video Strip
+        egui::Panel::top("booth_upper_panel")
+            .resizable(true)
+            .default_size(282.0)
+            .min_size(240.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let total_w = ui.available_width();
+                    let center_w = (total_w * 0.30).clamp(270.0, 380.0);
+                    let side_w = ((total_w - center_w - 28.0) * 0.5).max(250.0);
+
+                    ui.horizontal_top(|ui| {
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(side_w, 165.0),
+                            egui::Layout::top_down(egui::Align::LEFT),
+                            |ui| {
+                                self.render_compact_booth_deck(
+                                    ui,
+                                    left_deck.0,
+                                    left_deck.1,
+                                    palette,
+                                );
+                            },
+                        );
+
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(center_w, 165.0),
+                            egui::Layout::top_down(egui::Align::Center),
+                            |ui| {
+                                widgets::paint_vertical_waveforms(
+                                    ui,
+                                    self.orch.deck(left_deck.0),
+                                    self.deck_waveforms[deck_index(left_deck.0)].as_ref(),
+                                    self.orch.deck(right_deck.0),
+                                    self.deck_waveforms[deck_index(right_deck.0)].as_ref(),
+                                    palette,
+                                    130.0,
+                                );
+                                ui.add_space(3.0);
+                                ui.horizontal(|ui| {
+                                    let mut xf = self.orch.crossfader;
+                                    let rxf = widgets::club_crossfader(ui, &mut xf, palette);
+                                    if rxf.changed {
+                                        self.orch.crossfader = xf;
+                                    }
+                                    if rxf.committed {
+                                        self.dispatch_and_report(Command::SetCrossfader {
+                                            value: xf,
+                                        });
+                                    }
+                                    let split_lbl = if self.orch.headphone_split_cue {
+                                        "SPLIT"
+                                    } else {
+                                        "PFL"
+                                    };
+                                    if ui
+                                        .small_button(split_lbl)
+                                        .on_hover_text("Toggle Headphone Split Cue")
+                                        .clicked()
+                                    {
+                                        self.orch.headphone_split_cue =
+                                            !self.orch.headphone_split_cue;
+                                    }
+                                    let mute_lbl = if self.orch.master_muted {
+                                        "UNMUTE"
+                                    } else {
+                                        "MUTE"
+                                    };
+                                    if ui.small_button(mute_lbl).clicked() {
+                                        self.execute_catalog_id("modify.toggle_mute");
+                                    }
+                                });
+                            },
+                        );
+
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(side_w, 165.0),
+                            egui::Layout::top_down(egui::Align::LEFT),
+                            |ui| {
+                                self.render_compact_booth_deck(
+                                    ui,
+                                    right_deck.0,
+                                    right_deck.1,
+                                    palette,
+                                );
+                            },
+                        );
+                    });
+
+                    ui.add_space(4.0);
+                    // Hideable FX / Sampler / Video Strip Selector
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Booth Strip:")
+                                .small()
+                                .strong()
+                                .color(palette.text_secondary),
+                        );
+                        let mut changed = false;
+                        for (tab, label) in [
+                            (BoothStripTab::None, "Hide"),
+                            (BoothStripTab::Fx, "FX Rack"),
+                            (BoothStripTab::Sampler, "Sampler"),
+                            (BoothStripTab::Video, "Video"),
+                        ] {
+                            if ui
+                                .selectable_label(self.prefs.booth_strip == tab, label)
+                                .clicked()
+                            {
+                                self.prefs.booth_strip = tab;
+                                changed = true;
+                            }
+                        }
+                        if changed {
+                            self.prefs.save();
+                        }
+                    });
+
+                    match self.prefs.booth_strip {
+                        BoothStripTab::None => {}
+                        BoothStripTab::Fx => {
+                            ui.add_space(3.0);
+                            self.render_fx_rack_dock(ui, palette);
+                        }
+                        BoothStripTab::Sampler => {
+                            ui.add_space(3.0);
+                            self.render_collapsible_sampler_strip(ui, palette);
+                        }
+                        BoothStripTab::Video => {
+                            ui.add_space(3.0);
+                            self.render_collapsible_live_video_strip(ui, palette);
+                        }
+                    }
+                });
+            });
+
+        // LOWER HALF: Embedded 2-Pane Crate Browser (Left Crate Sidebar + Prepared Gig Crate Track Table)
+        let deck_a_key = self
+            .orch
+            .deck_a
+            .loaded_track
+            .as_ref()
+            .map(|t| t.musical_key.clone());
+        let mut actions = Vec::new();
+        egui::CentralPanel::default().show(ui, |ui| {
+            actions = render_crate_two_pane_browser(
+                ui,
+                palette,
+                &mut self.crate_ui,
+                &mut self.crate_query,
+                &self.crate_nodes,
+                &self.crate_results,
+                deck_a_key.as_deref(),
+                true,
+            );
+        });
+        self.handle_crate_actions(actions);
+    }
+
     fn render_hardware_deck(
         &mut self,
         ui: &mut egui::Ui,
@@ -1653,6 +2042,8 @@ impl eframe::App for DjCraftApp {
         self.video_deck_b.set_playing(self.orch.deck_b.is_playing);
         let need_video = (self.workspace_mode == WorkspaceMode::LiveConsole
             && self.prefs.show_live_video_strip)
+            || (self.workspace_mode == WorkspaceMode::BoothAndCrate
+                && self.prefs.booth_strip == BoothStripTab::Video)
             || self.lower_tab == LowerDockTab::VideoMixer
             || self.video_projector_open;
         if need_video {
@@ -2036,6 +2427,7 @@ impl eframe::App for DjCraftApp {
                 ui.separator();
                 let mode_lbl = match self.workspace_mode {
                     WorkspaceMode::LiveConsole => t(I18nKey::LiveConsole, self.locale),
+                    WorkspaceMode::BoothAndCrate => "BOOTH + CRATE",
                     WorkspaceMode::CratesGigPrep => t(I18nKey::CratesGigPrep, self.locale),
                 };
                 egui::ComboBox::from_id_salt("top_workspace_mode")
@@ -2046,6 +2438,11 @@ impl eframe::App for DjCraftApp {
                             &mut self.workspace_mode,
                             WorkspaceMode::LiveConsole,
                             t(I18nKey::LiveConsole, self.locale),
+                        );
+                        ui.selectable_value(
+                            &mut self.workspace_mode,
+                            WorkspaceMode::BoothAndCrate,
+                            "BOOTH + CRATE",
                         );
                         ui.selectable_value(
                             &mut self.workspace_mode,
@@ -2172,6 +2569,17 @@ impl eframe::App for DjCraftApp {
                 self.render_collapsible_sampler_strip(ui, &palette);
             }
         });
+
+        // Performance Booth + Lower Crate Split Workspace (center vertical waveforms, small platters, hideable FX/Sampler/Video strip, lower crate browser)
+        if self.workspace_mode == WorkspaceMode::BoothAndCrate {
+            if self.crate_dirty {
+                self.refresh_crates();
+            }
+            self.render_booth_and_crate_workspace(ui, &palette);
+            self.sync_audio_and_repaint(&ctx);
+            self.maybe_capture_screenshot(&ctx);
+            return;
+        }
 
         // Dedicated Full-Width File-Oriented CRATES & GIG PREP Workspace
         if self.workspace_mode == WorkspaceMode::CratesGigPrep {
@@ -2448,6 +2856,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.crates {
         app.workspace_mode = WorkspaceMode::CratesGigPrep;
+    }
+    if args.booth_crate {
+        app.workspace_mode = WorkspaceMode::BoothAndCrate;
     }
     app.screenshot_out = args.screenshot;
     let native_options = eframe::NativeOptions {

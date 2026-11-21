@@ -48,6 +48,7 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 $shots = @(
     @{ Name = 'live-console-battle'; Args = @('--skin', 'battle') },
+    @{ Name = 'booth-crate-split'; Args = @('--skin', 'battle', '--booth-crate') },
     @{ Name = 'live-console-shocking-pink-4deck'; Args = @('--skin', 'pink', '--four-deck') },
     @{ Name = 'daylight-booth'; Args = @('--skin', 'daylight') },
     @{ Name = 'crates-gig-prep'; Args = @('--skin', 'battle', '--crates') }

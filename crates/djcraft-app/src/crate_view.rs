@@ -152,12 +152,35 @@ pub fn render_gig_prep_workspace(
 
     ui.add_space(6.0);
 
-    // 2. TWO-PANE FILE-MANAGER LAYOUT: Left Crate Tree | Right Track Table
-    let avail_h = ui.available_height().max(320.0);
+    let mut two_pane_actions = render_crate_two_pane_browser(
+        ui, palette, ui_state, query, nodes, tracks, deck_a_key, false,
+    );
+    actions.append(&mut two_pane_actions);
+    actions
+}
+
+/// Reusable 2-pane crate browser (Left Crate/Subcrate sidebar + Right Gig-Prep track table).
+/// Used both in full-screen `CratesGigPrep` and in the lower half of `BoothAndCrate`.
+#[allow(clippy::too_many_arguments)]
+pub fn render_crate_two_pane_browser(
+    ui: &mut egui::Ui,
+    palette: &SkinPalette,
+    ui_state: &mut CrateUiState,
+    query: &mut CrateQuery,
+    nodes: &[CrateNode],
+    tracks: &[CrateTrack],
+    deck_a_key: Option<&str>,
+    compact: bool,
+) -> Vec<CrateAction> {
+    let mut actions = Vec::new();
+    let avail_h = ui
+        .available_height()
+        .max(if compact { 180.0 } else { 320.0 });
+    let sidebar_w = if compact { 235.0 } else { 270.0 };
     ui.horizontal_top(|ui| {
         // LEFT PANE: Hierarchical Crate / Subcrate Tree + Full CRUD
         ui.allocate_ui_with_layout(
-            egui::vec2(270.0, avail_h),
+            egui::vec2(sidebar_w, avail_h),
             egui::Layout::top_down(egui::Align::LEFT),
             |ui| {
                 theme::card_frame(ui, palette, |ui| {

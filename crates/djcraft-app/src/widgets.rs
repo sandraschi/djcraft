@@ -706,7 +706,7 @@ pub struct PlatterResponse {
     pub angle_delta: f32,
 }
 
-/// Paint an interactive Rane Twelve MKII / CDJ motorized vinyl jog platter with live scratching.
+/// Paint an interactive motorized vinyl jog platter with live scratching.
 pub fn paint_platter(
     ui: &mut egui::Ui,
     angle: f32,
@@ -714,7 +714,20 @@ pub fn paint_platter(
     is_playing: bool,
     bpm: Option<f64>,
 ) -> PlatterResponse {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(134.0), Sense::click_and_drag());
+    paint_platter_sized(ui, angle, accent, is_playing, bpm, 134.0)
+}
+
+/// Paint an interactive motorized vinyl jog platter at a custom diameter (e.g. 76px compact or 134px full).
+pub fn paint_platter_sized(
+    ui: &mut egui::Ui,
+    angle: f32,
+    accent: Color32,
+    is_playing: bool,
+    bpm: Option<f64>,
+    diameter: f32,
+) -> PlatterResponse {
+    let diameter = diameter.max(52.0);
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(diameter), Sense::click_and_drag());
     let mut out = PlatterResponse::default();
     let scratching = resp.dragged() || resp.is_pointer_button_down_on();
     if scratching {
@@ -727,7 +740,8 @@ pub fn paint_platter(
 
     let painter = ui.painter_at(rect);
     let center = rect.center();
-    let radius = 62.0;
+    let radius = diameter * 0.462;
+    let scale = diameter / 134.0;
 
     painter.circle_filled(center, radius, Color32::from_rgb(14, 16, 22));
     let ring_color = if scratching {
@@ -740,21 +754,27 @@ pub fn paint_platter(
     painter.circle_stroke(
         center,
         radius,
-        Stroke::new(if scratching { 3.6 } else { 2.8 }, ring_color),
+        Stroke::new(if scratching { 3.2 } else { 2.4 }, ring_color),
     );
 
-    for i in 0..24 {
-        let a = angle * 0.5 + (i as f32) * std::f32::consts::TAU / 24.0;
-        let p = center + Vec2::new(a.cos(), a.sin()) * (radius - 5.5);
-        painter.circle_filled(p, 1.4, Color32::from_rgb(140, 152, 176));
+    let tick_count = if diameter < 96.0 { 16 } else { 24 };
+    for i in 0..tick_count {
+        let a = angle * 0.5 + (i as f32) * std::f32::consts::TAU / (tick_count as f32);
+        let p = center + Vec2::new(a.cos(), a.sin()) * (radius - 4.5 * scale.max(0.65));
+        painter.circle_filled(p, (1.4 * scale).max(0.9), Color32::from_rgb(140, 152, 176));
     }
 
-    for r in [47.0, 38.0, 30.0] {
-        painter.circle_stroke(center, r, Stroke::new(0.8, Color32::from_rgb(36, 42, 56)));
+    for r_base in [47.0, 38.0, 30.0] {
+        painter.circle_stroke(
+            center,
+            r_base * scale,
+            Stroke::new(0.8, Color32::from_rgb(36, 42, 56)),
+        );
     }
 
-    painter.circle_filled(center, 22.0, Color32::from_rgb(10, 12, 18));
-    painter.circle_stroke(center, 22.0, Stroke::new(1.6, accent));
+    let hub_r = 22.0 * scale;
+    painter.circle_filled(center, hub_r, Color32::from_rgb(10, 12, 18));
+    painter.circle_stroke(center, hub_r, Stroke::new(1.4, accent));
     let bpm_txt = if scratching {
         "SCRATCH".to_string()
     } else {
@@ -765,14 +785,21 @@ pub fn paint_platter(
         center,
         Align2::CENTER_CENTER,
         bpm_txt,
-        FontId::monospace(if scratching { 9.5 } else { 11.5 }),
+        FontId::monospace(if scratching {
+            (9.5 * scale).max(7.5)
+        } else {
+            (11.5 * scale).max(9.0)
+        }),
         Color32::from_rgb(240, 244, 250),
     );
 
     let dir = Vec2::new(angle.cos(), angle.sin());
     painter.line_segment(
-        [center + dir * 23.0, center + dir * (radius - 8.0)],
-        Stroke::new(3.2, accent),
+        [
+            center + dir * (hub_r + 1.5),
+            center + dir * (radius - 6.0 * scale.max(0.65)),
+        ],
+        Stroke::new((3.2 * scale).max(2.0), accent),
     );
 
     let _ = resp.on_hover_text("Drag platter left/right to vinyl-scratch (forward & reverse)");
