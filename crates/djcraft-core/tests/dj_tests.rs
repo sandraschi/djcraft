@@ -1051,3 +1051,134 @@ fn test_deck_b_start_seek_gen_vinyl_scratch_and_i18n() {
     assert_eq!(t(I18nKey::Play, AppLocale::De), "START");
     assert_eq!(AppLocale::De.short_label(), "DE");
 }
+
+#[test]
+fn test_bipolar_color_filter_lpf_hpf_and_bypass() {
+    use djcraft_audio::BipolarFilter;
+
+    // 0.0 = transparent bypass
+    let mut flt_flat = BipolarFilter::new(44100);
+    let (l, r) = flt_flat.process_stereo(0.42, -0.42, 0.0);
+    assert!((l - 0.42).abs() < 1e-6 && (r + 0.42).abs() < 1e-6);
+
+    // High-frequency 6 kHz sine should be strongly attenuated by deep LPF (-0.9)
+    let mut flt_lpf = BipolarFilter::new(44100);
+    let mut lpf_energy = 0.0_f32;
+    let mut dry_energy = 0.0_f32;
+    for i in 0..800 {
+        let s = (2.0 * std::f32::consts::PI * 6000.0 * i as f32 / 44100.0).sin();
+        let (ol, _) = flt_lpf.process_stereo(s, s, -0.9);
+        if i >= 200 {
+            dry_energy += s.abs();
+            lpf_energy += ol.abs();
+        }
+    }
+    assert!(
+        lpf_energy < dry_energy * 0.25,
+        "Deep LPF must attenuate 6 kHz (lpf={lpf_energy}, dry={dry_energy})"
+    );
+
+    // Low-frequency 80 Hz sine should be strongly attenuated by sharp HPF (+0.9)
+    let mut flt_hpf = BipolarFilter::new(44100);
+    let mut hpf_energy = 0.0_f32;
+    let mut low_dry = 0.0_f32;
+    for i in 0..1200 {
+        let s = (2.0 * std::f32::consts::PI * 80.0 * i as f32 / 44100.0).sin();
+        let (ol, _) = flt_hpf.process_stereo(s, s, 0.9);
+        if i >= 400 {
+            low_dry += s.abs();
+            hpf_energy += ol.abs();
+        }
+    }
+    assert!(
+        hpf_energy < low_dry * 0.25,
+        "Sharp HPF must attenuate 80 Hz (hpf={hpf_energy}, dry={low_dry})"
+    );
+}
+
+#[test]
+fn test_all_12_fx_algorithms_and_3_packs_produce_finite_stereo() {
+    use djcraft_audio::{FxKind, FxSlotParams, FxStemScope, FxTarget, FxUnitDsp, FxUnitParams};
+
+    assert_eq!(FxKind::ALL.len(), 12);
+    for kind in FxKind::ALL {
+        let mut dsp = FxUnitDsp::new(44100);
+        let params = FxUnitParams {
+            enabled: true,
+            target: FxTarget::DeckA,
+            stem_scope: FxStemScope::FullDeck,
+            beats: 0.5,
+            wet_dry: 0.8,
+            slots: [
+                FxSlotParams {
+                    kind,
+                    enabled: true,
+                    depth: 0.7,
+                },
+                FxSlotParams::default(),
+                FxSlotParams::default(),
+            ],
+        };
+        let mut energy = 0.0_f32;
+        for i in 0..1024 {
+            let s = (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 44100.0).sin() * 0.5;
+            let (ol, or) = dsp.process_stereo(s, s, &params, 128.0);
+            assert!(ol.is_finite() && or.is_finite(), "Non-finite output for {kind:?}");
+            energy += ol.abs() + or.abs();
+        }
+        assert!(energy > 1.0, "FX {kind:?} produced silent output");
+    }
+}
+
+#[test]
+fn test_fx_commands_preset_load_and_json_roundtrip() {
+    use djcraft_audio::{
+        builtin_fx_presets, load_user_fx_presets_from_dir, save_fx_preset_to_dir, FxPackId,
+        FxPackPreset, FxStemScope,
+    };
+
+    let mut orch = DjOrchestrator::new();
+    let flt = orch
+        .dispatch(Command::SetDeckFilter {
+            deck: DeckId::DeckA,
+            value: -0.65,
+        })
+        .expect("set filter");
+    assert!(flt.ok);
+    assert!((orch.deck_a.color_filter + 0.65).abs() < 1e-6);
+
+    let tog = orch
+        .dispatch(Command::ToggleFxUnit { unit: 0 })
+        .expect("toggle fx1");
+    assert!(tog.ok && orch.fx_units[0].enabled);
+
+    let presets = builtin_fx_presets();
+    assert!(presets.len() >= 6);
+    let load = orch
+        .dispatch(Command::LoadFxPreset {
+            unit: 1,
+            preset_name: "Vocal Dub Wash".to_string(),
+        })
+        .expect("load preset");
+    assert!(load.ok);
+    assert!(orch.fx_units[1].enabled);
+    assert_eq!(orch.fx_units[1].stem_scope, FxStemScope::VocalsOnly);
+
+    // JSON custom FX pack persistence roundtrip
+    let tmp_dir = std::env::temp_dir().join("djcraft_fx_pack_test");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    let custom = FxPackPreset {
+        name: "Vienna Club Dub".to_string(),
+        pack: FxPackId::ClubCore,
+        beats: 0.75,
+        wet_dry: 0.8,
+        stem_scope: FxStemScope::VocalsOnly,
+        slots: orch.fx_units[1].slots,
+    };
+    let saved_path = save_fx_preset_to_dir(&tmp_dir, &custom).expect("save fx preset");
+    assert!(saved_path.is_file());
+    let loaded = load_user_fx_presets_from_dir(&tmp_dir);
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].name, "Vienna Club Dub");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}

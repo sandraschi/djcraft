@@ -8,7 +8,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
+use djcraft_audio::{
+    builtin_fx_presets, fx_packs_dir, load_user_fx_presets_from_dir, AudioEngine, DeckId,
+    FxUnitParams, TrackMeta,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -117,6 +120,21 @@ pub enum Command {
     },
     ResetDeckEq {
         deck: DeckId,
+    },
+    SetDeckFilter {
+        deck: DeckId,
+        value: f64,
+    },
+    SetFxUnit {
+        unit: usize,
+        params: FxUnitParams,
+    },
+    ToggleFxUnit {
+        unit: usize,
+    },
+    LoadFxPreset {
+        unit: usize,
+        preset_name: String,
     },
     ResetAllStems,
     SetHotCue {
@@ -259,6 +277,18 @@ impl Command {
             CommandSpec {
                 id: "modify.pfl_cue_b",
                 label: "Toggle Headphone PFL Pre-Cue on Deck B",
+                category: "Modify",
+                hotkey: "",
+            },
+            CommandSpec {
+                id: "modify.toggle_fx1",
+                label: "Toggle FX Bank 1 On / Off",
+                category: "Modify",
+                hotkey: "",
+            },
+            CommandSpec {
+                id: "modify.toggle_fx2",
+                label: "Toggle FX Bank 2 On / Off",
                 category: "Modify",
                 hotkey: "",
             },
@@ -864,11 +894,95 @@ impl DjOrchestrator {
                 state.eq_low = 1.0;
                 state.eq_mid = 1.0;
                 state.eq_high = 1.0;
+                state.color_filter = 0.0;
                 Ok(DispatchOutcome {
                     ok: true,
                     command: "reset_deck_eq".to_string(),
-                    message: format!("{} 3-band EQ reset to flat (100%)", deck.label()),
-                    data: json!({ "deck": deck, "eq_low": 1.0, "eq_mid": 1.0, "eq_high": 1.0 }),
+                    message: format!("{} 3-band EQ & Color Filter reset to flat", deck.label()),
+                    data: json!({ "deck": deck, "eq_low": 1.0, "eq_mid": 1.0, "eq_high": 1.0, "color_filter": 0.0 }),
+                })
+            }
+            Command::SetDeckFilter { deck, value } => {
+                self.push_undo();
+                let clamped = value.clamp(-1.0, 1.0);
+                self.deck_mut(deck).color_filter = clamped;
+                let mode = if clamped < -0.02 {
+                    "LPF"
+                } else if clamped > 0.02 {
+                    "HPF"
+                } else {
+                    "FLAT"
+                };
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "set_deck_filter".to_string(),
+                    message: format!("{} Color Filter {mode} ({:+.2})", deck.label(), clamped),
+                    data: json!({ "deck": deck, "color_filter": clamped }),
+                })
+            }
+            Command::SetFxUnit { unit, params } => {
+                if unit >= 2 {
+                    return Err(DjError::Deck(format!("FX unit {unit} out of range (0..2)")));
+                }
+                self.push_undo();
+                let clamped = params.clamped();
+                self.fx_units[unit] = clamped.clone();
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "set_fx_unit".to_string(),
+                    message: format!(
+                        "FX {} {} -> {} ({:.2} beats, Wet {:.0}%)",
+                        unit + 1,
+                        if clamped.enabled { "ON" } else { "OFF" },
+                        clamped.target.label(),
+                        clamped.beats,
+                        clamped.wet_dry * 100.0
+                    ),
+                    data: json!({ "unit": unit, "params": clamped }),
+                })
+            }
+            Command::ToggleFxUnit { unit } => {
+                if unit >= 2 {
+                    return Err(DjError::Deck(format!("FX unit {unit} out of range (0..2)")));
+                }
+                self.push_undo();
+                self.fx_units[unit].enabled = !self.fx_units[unit].enabled;
+                let active = self.fx_units[unit].enabled;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "toggle_fx_unit".to_string(),
+                    message: format!("FX Bank {} {}", unit + 1, if active { "ON" } else { "OFF" }),
+                    data: json!({ "unit": unit, "enabled": active }),
+                })
+            }
+            Command::LoadFxPreset { unit, preset_name } => {
+                if unit >= 2 {
+                    return Err(DjError::Deck(format!("FX unit {unit} out of range (0..2)")));
+                }
+                let mut all_presets = builtin_fx_presets();
+                all_presets.extend(load_user_fx_presets_from_dir(&fx_packs_dir()));
+                let Some(found) = all_presets
+                    .into_iter()
+                    .find(|p| p.name.eq_ignore_ascii_case(preset_name.trim()))
+                else {
+                    return Err(DjError::Deck(format!("FX preset not found: {preset_name}")));
+                };
+                self.push_undo();
+                let target = self.fx_units[unit].target;
+                self.fx_units[unit] = FxUnitParams {
+                    enabled: true,
+                    target,
+                    stem_scope: found.stem_scope,
+                    beats: found.beats,
+                    wet_dry: found.wet_dry,
+                    slots: found.slots,
+                }
+                .clamped();
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "load_fx_preset".to_string(),
+                    message: format!("FX {} loaded preset '{}'", unit + 1, found.name),
+                    data: json!({ "unit": unit, "preset": found.name }),
                 })
             }
             Command::SetHotCue { deck, slot } => {

@@ -35,7 +35,7 @@ pub use mixxxxx_osc::{
     MixxxxxConfig, MixxxxxPingResult, MixxxxxVideoControls, OscArg,
 };
 
-use djcraft_audio::{AudioEngine, DeckId, DeckState, TrackMeta};
+use djcraft_audio::{AudioEngine, DeckId, DeckState, FxUnitParams, TrackMeta};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -73,6 +73,7 @@ struct MixerSnapshot {
     headphone_volume: f64,
     headphone_cue_mix: f64,
     headphone_split_cue: bool,
+    fx_units: [FxUnitParams; 2],
 }
 
 pub struct DjOrchestrator {
@@ -86,6 +87,7 @@ pub struct DjOrchestrator {
     pub headphone_volume: f64,    // 0.0 to 1.0 (Cue bus level)
     pub headphone_cue_mix: f64,   // 0.0 (100% PFL) to 1.0 (100% Master PGM)
     pub headphone_split_cue: bool, // Single-device Split Mono Cue (L=Cue, R=Master)
+    pub fx_units: [FxUnitParams; 2],
     pub crate_tracks: Vec<TrackMeta>,
     undo_stack: Vec<MixerSnapshot>,
     redo_stack: Vec<MixerSnapshot>,
@@ -141,6 +143,7 @@ impl DjOrchestrator {
             headphone_volume: 0.85,
             headphone_cue_mix: 0.35,
             headphone_split_cue: false,
+            fx_units: [FxUnitParams::default_unit(0), FxUnitParams::default_unit(1)],
             crate_tracks,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -184,6 +187,7 @@ impl DjOrchestrator {
             headphone_volume: self.headphone_volume,
             headphone_cue_mix: self.headphone_cue_mix,
             headphone_split_cue: self.headphone_split_cue,
+            fx_units: self.fx_units.clone(),
         }
     }
 
@@ -198,6 +202,7 @@ impl DjOrchestrator {
         self.headphone_volume = snap.headphone_volume;
         self.headphone_cue_mix = snap.headphone_cue_mix;
         self.headphone_split_cue = snap.headphone_split_cue;
+        self.fx_units = snap.fx_units;
     }
 
     pub(crate) fn push_undo(&mut self) {

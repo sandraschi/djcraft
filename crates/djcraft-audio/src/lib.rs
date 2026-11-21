@@ -8,9 +8,15 @@
 use serde::{Deserialize, Serialize};
 
 pub mod dsp;
+pub mod fx;
 pub mod output;
 pub mod recorder;
 
+pub use fx::{
+    builtin_fx_presets, fx_packs_dir, load_user_fx_presets_from_dir, save_fx_preset_to_dir,
+    BipolarFilter, FxKind, FxPackId, FxPackPreset, FxSlotParams, FxStemScope, FxTarget, FxUnitDsp,
+    FxUnitParams,
+};
 pub use recorder::{RecordingFormat, RecordingStopReport};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -62,6 +68,8 @@ pub struct DeckState {
     pub eq_low: f64,           // 0.0 (kill) to 2.0 (boost), 1.0 = flat
     pub eq_mid: f64,           // 0.0 (kill) to 2.0 (boost), 1.0 = flat
     pub eq_high: f64,          // 0.0 (kill) to 2.0 (boost), 1.0 = flat
+    #[serde(default)]
+    pub color_filter: f64,     // -1.0 (LPF) .. 0.0 (flat) .. +1.0 (HPF)
     pub hot_cue_seconds: [Option<f64>; 4],
     pub loop_bars: Option<u32>,
     #[serde(default)]
@@ -93,6 +101,7 @@ impl AudioEngine {
             eq_low: 1.0,
             eq_mid: 1.0,
             eq_high: 1.0,
+            color_filter: 0.0,
             hot_cue_seconds: [None; 4],
             loop_bars: None,
             seek_gen: 0,

@@ -15,7 +15,11 @@ use djcraft_audio::dsp::{
     decode_audio_file, detect_beatgrid, load_sidecar_stems, WaveformSummary,
 };
 use djcraft_audio::output::AudioOutput;
-use djcraft_audio::{AudioEngine, DeckId, RecordingFormat, TrackMeta};
+use djcraft_audio::{
+    builtin_fx_presets, fx_packs_dir, load_user_fx_presets_from_dir, save_fx_preset_to_dir,
+    AudioEngine, DeckId, FxKind, FxPackId, FxPackPreset, FxStemScope, FxTarget, RecordingFormat,
+    TrackMeta,
+};
 use djcraft_core::i18n::{t, AppLocale, I18nKey};
 use djcraft_core::{
     action_to_command, batch_stem_folder, butterchurn_sync_bpm, chat_with_booth_ai,
@@ -97,6 +101,7 @@ enum WorkspaceMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LowerDockTab {
+    FxRack,
     Crates,
     VideoMixer,
     MidiControllers,
@@ -198,6 +203,8 @@ pub struct DjCraftApp {
     audio_output_devices: Vec<String>,
     selected_headphone_device: Option<String>,
     recording_format: RecordingFormat,
+    fx_user_presets: Vec<FxPackPreset>,
+    fx_save_name: String,
     deck_waveforms: [Option<WaveformSummary>; 4],
 
     // Hardware MIDI Controller Engine (Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer, Hercules)
@@ -306,13 +313,15 @@ impl DjCraftApp {
 
             prefs,
             workspace_mode: WorkspaceMode::LiveConsole,
-            lower_tab: LowerDockTab::Crates,
+            lower_tab: LowerDockTab::FxRack,
             crate_ui: CrateUiState::default(),
 
             audio_out,
             audio_output_devices,
             selected_headphone_device: None,
             recording_format: RecordingFormat::Wav,
+            fx_user_presets: load_user_fx_presets_from_dir(&fx_packs_dir()),
+            fx_save_name: "My Club Chain".to_string(),
             deck_waveforms: [None, None, None, None],
 
             midi: MidiControllerManager::new(),
@@ -1008,6 +1017,8 @@ impl DjCraftApp {
             "modify.pfl_cue_b" => {
                 self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckB })
             }
+            "modify.toggle_fx1" => self.dispatch_and_report(Command::ToggleFxUnit { unit: 0 }),
+            "modify.toggle_fx2" => self.dispatch_and_report(Command::ToggleFxUnit { unit: 1 }),
             "modify.keylock_a" => {
                 self.dispatch_and_report(Command::ToggleKeylock { deck: DeckId::DeckA })
             }
@@ -1080,6 +1091,7 @@ impl DjCraftApp {
             self.orch.headphone_cue_mix,
             self.orch.headphone_split_cue,
         );
+        self.audio_out.set_fx_units(self.orch.fx_units.clone());
         let any_active = self.orch.deck_a.is_playing
             || self.orch.deck_b.is_playing
             || self.orch.deck_c.is_playing
@@ -2022,6 +2034,11 @@ impl eframe::App for DjCraftApp {
                 self.render_battle_mixer(ui, &palette);
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(
+                        &mut self.lower_tab,
+                        LowerDockTab::FxRack,
+                        "FX Rack (3 Free Packs)",
+                    );
                     ui.selectable_value(&mut self.lower_tab, LowerDockTab::Crates, "Crate Library");
                     ui.selectable_value(&mut self.lower_tab, LowerDockTab::VideoMixer, "Video Mixer");
                     ui.selectable_value(
@@ -2047,6 +2064,7 @@ impl eframe::App for DjCraftApp {
                 });
                 ui.add_space(4.0);
                 match self.lower_tab {
+                    LowerDockTab::FxRack => self.render_fx_rack_dock(ui, &palette),
                     LowerDockTab::Crates => self.render_crate_dock(ui, &palette),
                     LowerDockTab::VideoMixer => self.render_video_dock(ui, &palette),
                     LowerDockTab::MidiControllers => self.render_midi_dock(ui, &palette),
@@ -2092,9 +2110,21 @@ impl DjCraftApp {
                     let mut hi = da.eq_high;
                     let mut mi = da.eq_mid;
                     let mut lo = da.eq_low;
+                    let mut flt = da.color_filter;
                     let r1 = widgets::rotary_knob(ui, "A HI", &mut hi, 0.0, 2.0, 1.0, true, palette.deck_a, palette);
                     let r2 = widgets::rotary_knob(ui, "A MID", &mut mi, 0.0, 2.0, 1.0, true, palette.deck_a, palette);
                     let r3 = widgets::rotary_knob(ui, "A LOW", &mut lo, 0.0, 2.0, 1.0, true, palette.deck_a, palette);
+                    let r4 = widgets::rotary_knob(
+                        ui,
+                        "A FLT",
+                        &mut flt,
+                        -1.0,
+                        1.0,
+                        0.0,
+                        true,
+                        egui::Color32::from_rgb(168, 85, 247),
+                        palette,
+                    );
                     if r1.changed || r2.changed || r3.changed {
                         self.orch.deck_a.eq_high = hi;
                         self.orch.deck_a.eq_mid = mi;
@@ -2106,6 +2136,15 @@ impl DjCraftApp {
                             low: lo,
                             mid: mi,
                             high: hi,
+                        });
+                    }
+                    if r4.changed {
+                        self.orch.deck_a.color_filter = flt;
+                    }
+                    if r4.committed {
+                        self.dispatch_and_report(Command::SetDeckFilter {
+                            deck: DeckId::DeckA,
+                            value: flt,
                         });
                     }
                 });
@@ -2145,6 +2184,29 @@ impl DjCraftApp {
                     if rm.committed {
                         self.dispatch_and_report(Command::SetMasterVolume { volume: mv });
                     }
+                    ui.add_space(6.0);
+                    let fx1_on = self.orch.fx_units[0].enabled;
+                    let fx1_btn = egui::Button::new(if fx1_on { "FX 1: ON" } else { "FX 1" })
+                        .small()
+                        .fill(if fx1_on {
+                            egui::Color32::from_rgb(168, 85, 247)
+                        } else {
+                            palette.card_fill
+                        });
+                    if ui.add(fx1_btn).on_hover_text("Toggle FX Bank 1").clicked() {
+                        self.execute_catalog_id("modify.toggle_fx1");
+                    }
+                    let fx2_on = self.orch.fx_units[1].enabled;
+                    let fx2_btn = egui::Button::new(if fx2_on { "FX 2: ON" } else { "FX 2" })
+                        .small()
+                        .fill(if fx2_on {
+                            egui::Color32::from_rgb(236, 72, 153)
+                        } else {
+                            palette.card_fill
+                        });
+                    if ui.add(fx2_btn).on_hover_text("Toggle FX Bank 2").clicked() {
+                        self.execute_catalog_id("modify.toggle_fx2");
+                    }
                 });
 
                 // Deck B VU + Channel Volume Fader
@@ -2166,9 +2228,21 @@ impl DjCraftApp {
                     let mut hi = db.eq_high;
                     let mut mi = db.eq_mid;
                     let mut lo = db.eq_low;
+                    let mut flt = db.color_filter;
                     let r1 = widgets::rotary_knob(ui, "B HI", &mut hi, 0.0, 2.0, 1.0, true, palette.deck_b, palette);
                     let r2 = widgets::rotary_knob(ui, "B MID", &mut mi, 0.0, 2.0, 1.0, true, palette.deck_b, palette);
                     let r3 = widgets::rotary_knob(ui, "B LOW", &mut lo, 0.0, 2.0, 1.0, true, palette.deck_b, palette);
+                    let r4 = widgets::rotary_knob(
+                        ui,
+                        "B FLT",
+                        &mut flt,
+                        -1.0,
+                        1.0,
+                        0.0,
+                        true,
+                        egui::Color32::from_rgb(168, 85, 247),
+                        palette,
+                    );
                     if r1.changed || r2.changed || r3.changed {
                         self.orch.deck_b.eq_high = hi;
                         self.orch.deck_b.eq_mid = mi;
@@ -2180,6 +2254,15 @@ impl DjCraftApp {
                             low: lo,
                             mid: mi,
                             high: hi,
+                        });
+                    }
+                    if r4.changed {
+                        self.orch.deck_b.color_filter = flt;
+                    }
+                    if r4.committed {
+                        self.dispatch_and_report(Command::SetDeckFilter {
+                            deck: DeckId::DeckB,
+                            value: flt,
                         });
                     }
                 });
@@ -2378,6 +2461,208 @@ impl DjCraftApp {
                     }
                 }
             });
+        });
+    }
+
+    fn render_fx_rack_dock(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+        theme::card_frame(ui, palette, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Real-Time DJ FX Rack (3 Free Built-In Packs: Club Core, Modulation, Battle & Lo-Fi)");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("Save FX 1 Pack").clicked() {
+                        let u0 = &self.orch.fx_units[0];
+                        let preset = FxPackPreset {
+                            name: self.fx_save_name.trim().to_string(),
+                            pack: FxPackId::ClubCore,
+                            beats: u0.beats,
+                            wet_dry: u0.wet_dry,
+                            stem_scope: u0.stem_scope,
+                            slots: u0.slots,
+                        };
+                        match save_fx_preset_to_dir(&fx_packs_dir(), &preset) {
+                            Ok(p) => {
+                                self.fx_user_presets = load_user_fx_presets_from_dir(&fx_packs_dir());
+                                self.status_msg = format!("Saved FX preset -> {}", p.display());
+                            }
+                            Err(e) => self.status_msg = format!("FX save error: {e}"),
+                        }
+                    }
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.fx_save_name)
+                            .desired_width(120.0)
+                            .hint_text("Preset name..."),
+                    );
+                });
+            });
+            ui.add_space(4.0);
+
+            // 1-Click Built-In & User FX Pack Presets
+            let mut presets = builtin_fx_presets();
+            presets.extend(self.fx_user_presets.clone());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new("Presets -> FX 1:").color(palette.text_secondary));
+                for p in &presets {
+                    if ui.small_button(&p.name).clicked() {
+                        self.dispatch_and_report(Command::LoadFxPreset {
+                            unit: 0,
+                            preset_name: p.name.clone(),
+                        });
+                    }
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new("Presets -> FX 2:").color(palette.text_secondary));
+                for p in &presets {
+                    if ui.small_button(&p.name).clicked() {
+                        self.dispatch_and_report(Command::LoadFxPreset {
+                            unit: 1,
+                            preset_name: p.name.clone(),
+                        });
+                    }
+                }
+            });
+            ui.add_space(6.0);
+
+            // Side-by-side FX Bank 1 and FX Bank 2
+            let mut pending_cmd: Option<Command> = None;
+            ui.columns(2, |cols| {
+                for (unit_idx, col) in cols.iter_mut().enumerate().take(2) {
+                    let accent = if unit_idx == 0 {
+                        egui::Color32::from_rgb(168, 85, 247)
+                    } else {
+                        egui::Color32::from_rgb(236, 72, 153)
+                    };
+                    let mut p = self.orch.fx_units[unit_idx].clone();
+                    let mut changed = false;
+
+                    theme::card_frame(col, palette, |ui| {
+                        ui.push_id(("fx_bank", unit_idx), |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                let on_btn = egui::Button::new(format!(
+                                    "FX {} {}",
+                                    unit_idx + 1,
+                                    if p.enabled { "ON" } else { "OFF" }
+                                ))
+                                .small()
+                                .fill(if p.enabled { accent } else { palette.card_fill });
+                                if ui.add(on_btn).clicked() {
+                                    p.enabled = !p.enabled;
+                                    changed = true;
+                                }
+
+                                egui::ComboBox::from_id_salt(("fx_target", unit_idx))
+                                    .selected_text(p.target.label())
+                                    .width(74.0)
+                                    .show_ui(ui, |ui| {
+                                        for tgt in FxTarget::ALL {
+                                            if ui
+                                                .selectable_label(p.target == tgt, tgt.label())
+                                                .clicked()
+                                            {
+                                                p.target = tgt;
+                                                changed = true;
+                                            }
+                                        }
+                                    });
+
+                                egui::ComboBox::from_id_salt(("fx_scope", unit_idx))
+                                    .selected_text(p.stem_scope.label())
+                                    .width(88.0)
+                                    .show_ui(ui, |ui| {
+                                        for sc in FxStemScope::ALL {
+                                            if ui
+                                                .selectable_label(p.stem_scope == sc, sc.label())
+                                                .clicked()
+                                            {
+                                                p.stem_scope = sc;
+                                                changed = true;
+                                            }
+                                        }
+                                    });
+                            });
+
+                            // Beat division pills + Wet/Dry slider
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Beats:");
+                                for (lbl, val) in [
+                                    ("1/8", 0.125),
+                                    ("1/4", 0.25),
+                                    ("1/2", 0.5),
+                                    ("1", 1.0),
+                                    ("2", 2.0),
+                                    ("4", 4.0),
+                                ] {
+                                    let sel = (p.beats - val).abs() < 0.01;
+                                    if ui.selectable_label(sel, lbl).clicked() {
+                                        p.beats = val;
+                                        changed = true;
+                                    }
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Wet/Dry");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut p.wet_dry, 0.0..=1.0)
+                                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                                    )
+                                    .changed()
+                                {
+                                    changed = true;
+                                }
+                            });
+
+                            ui.separator();
+                            // 3 Chained Multi-FX Slots
+                            for (slot_idx, slot) in p.slots.iter_mut().enumerate() {
+                                ui.horizontal(|ui| {
+                                    if ui.checkbox(&mut slot.enabled, format!("S{}", slot_idx + 1)).changed() {
+                                        changed = true;
+                                    }
+                                    let cur_lbl =
+                                        format!("[{}] {}", slot.kind.pack().label().split(' ').next().unwrap_or("FX"), slot.kind.label());
+                                    egui::ComboBox::from_id_salt(("fx_slot_kind", unit_idx, slot_idx))
+                                        .selected_text(cur_lbl)
+                                        .width(155.0)
+                                        .show_ui(ui, |ui| {
+                                            for k in FxKind::ALL {
+                                                let lbl = format!(
+                                                    "[{}] {}",
+                                                    k.pack().label().split(' ').next().unwrap_or("FX"),
+                                                    k.label()
+                                                );
+                                                if ui.selectable_label(slot.kind == k, lbl).clicked() {
+                                                    slot.kind = k;
+                                                    changed = true;
+                                                }
+                                            }
+                                        });
+                                    if ui
+                                        .add(
+                                            egui::Slider::new(&mut slot.depth, 0.0..=1.0)
+                                                .show_value(false),
+                                        )
+                                        .changed()
+                                    {
+                                        changed = true;
+                                    }
+                                });
+                            }
+                        });
+                    });
+
+                    if changed {
+                        self.orch.fx_units[unit_idx] = p.clone();
+                        pending_cmd = Some(Command::SetFxUnit {
+                            unit: unit_idx,
+                            params: p,
+                        });
+                    }
+                }
+            });
+            if let Some(cmd) = pending_cmd {
+                self.dispatch_and_report(cmd);
+            }
         });
     }
 

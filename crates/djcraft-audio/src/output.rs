@@ -16,6 +16,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream};
 
 use crate::dsp::{sample_varispeed, DecodedAudio, DecodedStems, ThreeBandEq, WsolaDeckState};
+use crate::fx::{BipolarFilter, FxStemScope, FxTarget, FxUnitDsp, FxUnitParams};
 use crate::recorder::{ActiveRecording, RecordingFormat, RecordingStopReport, RecordingTap};
 use crate::{AudioEngine, DeckId, DeckState};
 
@@ -27,6 +28,9 @@ struct LiveMixState {
     decoded_stems: [Option<Arc<DecodedStems>>; 4],
     wsola: [WsolaDeckState; 4],
     eqs: [ThreeBandEq; 4],
+    filters: [BipolarFilter; 4],
+    fx_units: [FxUnitDsp; 2],
+    fx_params: [FxUnitParams; 2],
     crossfader: f64,
     master_volume: f64,
     muted: bool,
@@ -62,6 +66,14 @@ impl LiveMixState {
                 ThreeBandEq::new(sample_rate),
                 ThreeBandEq::new(sample_rate),
             ],
+            filters: [
+                BipolarFilter::new(sample_rate),
+                BipolarFilter::new(sample_rate),
+                BipolarFilter::new(sample_rate),
+                BipolarFilter::new(sample_rate),
+            ],
+            fx_units: [FxUnitDsp::new(sample_rate), FxUnitDsp::new(sample_rate)],
+            fx_params: [FxUnitParams::default_unit(0), FxUnitParams::default_unit(1)],
             crossfader: 0.0,
             master_volume: 0.75,
             muted: false,
@@ -406,6 +418,13 @@ impl AudioOutput {
         }
     }
 
+    /// Push live FX 1 & FX 2 unit parameters into the real-time WASAPI mixer (non-blocking).
+    pub fn set_fx_units(&self, units: [FxUnitParams; 2]) {
+        if let Ok(mut guard) = self.state.try_lock() {
+            guard.fx_params = [units[0].clone().clamped(), units[1].clone().clamped()];
+        }
+    }
+
     /// Push the latest mixer and deck parameters into the live audio thread (non-blocking).
     pub fn sync_state(
         &self,
@@ -463,6 +482,9 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
     let mut deck_post = [(0.0_f32, 0.0_f32); 4];
     let mut deck_pfl = [(0.0_f32, 0.0_f32); 4];
 
+    let fx_params_snap = guard.fx_params.clone();
+    let deck_ids = [DeckId::DeckA, DeckId::DeckB, DeckId::DeckC, DeckId::DeckD];
+
     for i in 0..4 {
         let deck = &guard.decks[i];
         let scratching = deck.scratch_velocity;
@@ -475,17 +497,43 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
                 continue;
             }
         }
+        let deck_bpm = deck
+            .loaded_track
+            .as_ref()
+            .map(|t| (t.bpm * (1.0 + deck.pitch_bend_pct / 100.0)).clamp(60.0, 200.0))
+            .unwrap_or(126.0);
         let rate = match scratching {
             Some(vel) => vel.clamp(-4.0, 4.0),
             None => (1.0 + deck.pitch_bend_pct / 100.0).clamp(0.5, 2.0),
         };
-        let (pre_l, pre_r) = if let Some(stems) = guard.decoded_stems[i].as_ref() {
+        let (mut pre_l, mut pre_r) = if let Some(stems) = guard.decoded_stems[i].as_ref() {
             let sample_pos = (guard.play_times[i] * stems.sample_rate() as f64).max(0.0);
-            let (vl, vr) = sample_varispeed(&stems.vocals, sample_pos);
-            let (dl, dr) = sample_varispeed(&stems.drums, sample_pos);
+            let (mut vl, mut vr) = sample_varispeed(&stems.vocals, sample_pos);
+            let (mut dl, mut dr) = sample_varispeed(&stems.drums, sample_pos);
             let (bl, br) = sample_varispeed(&stems.bass, sample_pos);
             let (ol, or) = sample_varispeed(&stems.other, sample_pos);
             guard.play_times[i] = (guard.play_times[i] + dt * rate).max(0.0);
+
+            // Stem-targeted FX (e.g. Vocal Echo Out while Drums stay dry!)
+            for (u_idx, fp) in fx_params_snap.iter().enumerate() {
+                if fp.enabled && fp.target.matches_deck(deck_ids[i]) {
+                    match fp.stem_scope {
+                        FxStemScope::VocalsOnly => {
+                            let (wl, wr) =
+                                guard.fx_units[u_idx].process_stereo(vl, vr, fp, deck_bpm);
+                            vl = wl;
+                            vr = wr;
+                        }
+                        FxStemScope::DrumsOnly => {
+                            let (wl, wr) =
+                                guard.fx_units[u_idx].process_stereo(dl, dr, fp, deck_bpm);
+                            dl = wl;
+                            dr = wr;
+                        }
+                        FxStemScope::FullDeck => {}
+                    }
+                }
+            }
 
             let gv = deck.stem_vocals_gain as f32;
             let gd = deck.stem_drums_gain as f32;
@@ -534,6 +582,25 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
             )
         };
 
+        // Per-deck bipolar Color Filter (LPF <-> Flat <-> HPF)
+        let color_flt = deck.color_filter;
+        let has_stems = guard.decoded_stems[i].is_some();
+        let (fl, fr) = guard.filters[i].process_stereo(pre_l, pre_r, color_flt);
+        pre_l = fl;
+        pre_r = fr;
+
+        // Per-deck FX 1 / FX 2 (FullDeck scope, or fallback when deck has no sidecar stems)
+        for (u_idx, fp) in fx_params_snap.iter().enumerate() {
+            if fp.enabled
+                && fp.target.matches_deck(deck_ids[i])
+                && (fp.stem_scope == FxStemScope::FullDeck || !has_stems)
+            {
+                let (wl, wr) = guard.fx_units[u_idx].process_stereo(pre_l, pre_r, fp, deck_bpm);
+                pre_l = wl;
+                pre_r = wr;
+            }
+        }
+
         let vol = deck.volume_fader as f32;
         deck_post[i] = (pre_l * vol, pre_r * vol);
         if deck.pfl_cue {
@@ -543,7 +610,7 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
 
     guard.sample_counter = guard.sample_counter.wrapping_add(1);
 
-    let (master_l, master_r) = if guard.muted || guard.master_volume <= 0.0 {
+    let (mut master_l, mut master_r) = if guard.muted || guard.master_volume <= 0.0 {
         (0.0, 0.0)
     } else {
         let sum_l = (deck_post[0].0 + deck_post[2].0) * gain_left
@@ -553,6 +620,20 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
         let mv = guard.master_volume.clamp(0.0, 1.0) as f32;
         (sum_l.tanh() * mv, sum_r.tanh() * mv)
     };
+
+    // Master-targeted FX 1 / FX 2
+    let master_bpm = guard.decks[0]
+        .loaded_track
+        .as_ref()
+        .map(|t| t.bpm)
+        .unwrap_or(126.0);
+    for (u_idx, fp) in fx_params_snap.iter().enumerate() {
+        if fp.enabled && fp.target == FxTarget::Master {
+            let (wl, wr) = guard.fx_units[u_idx].process_stereo(master_l, master_r, fp, master_bpm);
+            master_l = wl.tanh();
+            master_r = wr.tanh();
+        }
+    }
 
     // Feed live Master mix (pre-split) into the non-blocking WAV/FLAC recorder tap
     if let Some(tap) = guard.recorder_tap.as_mut() {

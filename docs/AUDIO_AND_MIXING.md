@@ -51,4 +51,19 @@ Use `Vol` (headphone gain) and `Cue/PGM` (`0%` = 100% PFL Cue, `100%` = 100% Mas
   ```text
   <music_folder>/.djcraft-stems/<track_stem>/{vocals,drums,bass,other}.wav
   ```
-- Hidden from DJCraft's folder scanners so stem WAVs never pollute your library, travel portably with your music folders, and load automatically into the `VOC` / `DRM` / `BAS` / `OTH` rotary knobs for real-time 4-stem isolation.
+- **Hidden from DJCraft's folder scanners** so stem WAVs never pollute your library, travel portably with your music folders, and load automatically into the `VOC` / `DRM` / `BAS` / `OTH` rotary knobs for real-time 4-stem isolation.
+
+---
+
+## 6. Per-Deck Color Filter & Dual 3-Slot BPM-Synced FX Rack (`fx.rs`)
+
+All FX run zero-allocation in 100% Safe Rust on the live WASAPI audio thread (zero payola, all 3 packs included free):
+
+- **Per-Deck Bipolar Color Filter (`A FLT` / `B FLT`)**: Chamberlin state-variable filter in the Battle Mixer (`-1.0` deep LPF <-> `0.0` transparent flat <-> `+1.0` sharp HPF, double-click snaps to `0.0`).
+- **Dual FX Banks (`FX 1` & `FX 2`)**: Assignable to `Deck A`, `Deck B`, `Deck C`, `Deck D`, or `Master`, with 3 chained Multi-FX slots, BPM beat divisions (`1/8`, `1/4`, `1/2`, `1`, `2`, `4`), and Wet/Dry mix.
+- **Stem-Targeted FX Routing**: Route any FX bank to **`Full Deck`**, **`Vocals Only`** (e.g. Vocal Dub Wash / Echo Out while drums stay completely dry), or **`Drums Only`** when `.djcraft-stems/` are loaded.
+- **3 Free Built-In FX Packs (12 Real-Time DSP Effects)**:
+  - **Club Core Pack**: `BPM Echo`, `Echo Out (Freeze)`, `Hall Reverb`, `Dub Tape Delay`
+  - **Modulation Pack**: `Flanger`, `Phaser`, `Stereo Chorus`, `Auto-Gate / Tremolo`
+  - **Battle & Lo-Fi Pack**: `Bitcrusher`, `Tape Overdrive`, `Vinyl Brake`, `Beat Stutter`
+- **Custom FX Packs**: Save your own 3-slot chains as JSON presets in `%LOCALAPPDATA%\djcraft\fx_packs\`.
