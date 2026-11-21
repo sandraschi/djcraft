@@ -11,7 +11,13 @@
 
 ## Screenshots
 
-Generate fresh local screenshots of all views (`live-console-battle.png`, `live-console-shocking-pink-4deck.png`, `crates-gig-prep.png`, `daylight-booth.png`) into `docs/screenshots/` on your desktop:
+| Live Console (Dark) | Daylight Booth (Light) |
+| :---: | :---: |
+| ![DJCraft Live Console](docs/images/live-console-battle.png) | ![DJCraft Daylight Booth](docs/images/daylight-booth.png) |
+| **4-Deck Mode** | **Crates & Gig Prep** |
+| ![DJCraft 4-Deck Mode](docs/images/live-console-shocking-pink-4deck.png) | ![DJCraft Crates & Gig Prep](docs/images/crates-gig-prep.png) |
+
+Generate fresh local screenshots of all views into `docs/images/`:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\capture-screenshots.ps1

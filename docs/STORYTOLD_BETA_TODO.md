@@ -33,7 +33,7 @@
 
 ## P2 - Polish, Accessibility & Evidence
 
-- [ ] **Real desktop screenshots (dark + light modes)** committed to `docs/images/` and linked from `README.md` (currently 0 images committed in repo).
+- [x] **Real desktop screenshots (dark + light modes)** committed to `docs/images/` and linked from `README.md` (`live-console-battle.png`, `live-console-shocking-pink-4deck.png`, `daylight-booth.png`, `crates-gig-prep.png`, attributed in `ATTRIBUTION.md`).
 - [ ] **Accessibility check (RFC-0014)**: keyboard shortcut path for every deck/mixer command, numeric entry alternatives for rotary knobs/faders, high-contrast light mode.
 - [ ] **Clean fresh-clone verification**: clone to a temp directory, run `cargo xtask ci` and `--smoke`, confirm zero warnings and zero stubs on public paths.
 - [ ] **Submit** 4-field form at https://getartcraft.com/beta (App name, Email, Repo URL, Description).

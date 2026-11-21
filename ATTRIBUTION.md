@@ -7,3 +7,7 @@ Every non-code asset in this repository is listed here with its author, source a
 | Asset | Author | Source | Licence | Notes |
 |---|---|---|---|---|
 | `docs/brochure/djcraft-brochure.pdf` | DJCraft contributors | created for DJCraft | MIT OR Apache-2.0 | domain brochure |
+| `docs/images/live-console-battle.png` | DJCraft contributors | captured from DJCraft | MIT OR Apache-2.0 | Battle Console dark theme screenshot |
+| `docs/images/live-console-shocking-pink-4deck.png` | DJCraft contributors | captured from DJCraft | MIT OR Apache-2.0 | 4-Deck Shocking Pink theme screenshot |
+| `docs/images/daylight-booth.png` | DJCraft contributors | captured from DJCraft | MIT OR Apache-2.0 | Daylight Booth light theme screenshot |
+| `docs/images/crates-gig-prep.png` | DJCraft contributors | captured from DJCraft | MIT OR Apache-2.0 | 2-pane Crates & Gig Prep screenshot |
