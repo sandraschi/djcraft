@@ -24,10 +24,11 @@ Switch skins and backdrops live from the top-right bar (persisted in `%LOCALAPPD
 
 ---
 
-## 2. 2-Deck / 4-Deck Layout & Internationalization (i18n)
+## 2. 2-Deck / 4-Deck Layout, Vertical Waveforms & Internationalization (i18n)
 
-- **Layout Toggle**: Click **`2-DECK`** or **`4-DECK`** in the top bar right next to `CRATES & GIG PREP`.
-  - **`2-DECK`**: Full-height Decks A & B with **`-> C`** / **`-> D`** layer-swap buttons in each deck header plus a compact Decks C & D strip at the bottom.
+- **Compact Dropdown Top Bar**: Switch **Mode** (`LIVE CONSOLE` / `CRATES & GIG PREP`), **Decks** (`2-Deck` / `4-Deck`), **`Panels`** (toggle `Live Video Strip`, `Live Sampler Strip`, `Parallel Waveforms`, `Vertical Waveforms (between decks)`, `Decks C & D Bottom Bar`), and **`Sync`** (`Auto-Sync`, `Phase-Sync`, `Command Palette`) from clean dropdowns.
+  - **Horizontal vs. Vertical Waveforms**: Toggle **`Vertical Waveforms (between decks)`** in the **`Panels`** menu for classic battle-style top-to-bottom scrolling Deck A / Deck B waveforms right beside the Battle Mixer.
+  - **`2-DECK`**: Full-height Decks A & B with **`-> C`** / **`-> D`** layer-swap buttons in each deck header plus optional compact Decks C & D strip at the bottom.
   - **`4-DECK`**: Stacks full hardware **Deck A + Deck C** on the left and **Deck B + Deck D** on the right.
 - **i18n (`crates/djcraft-core/src/i18n.rs`)**: Switch languages live in the top-right dropdown across **EN**, **DE**, **FR**, **ES**, **JA**, **KO**, and **ZH**.
 

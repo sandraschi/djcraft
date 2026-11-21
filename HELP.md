@@ -12,15 +12,13 @@ DJCraft Pro is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck 
 3. **Start Playback**: Click the highlighted **`PLAY`** button on the deck (turns green **`PAUSE`** while playing), or press **`Space`** for Deck A and **`Shift+Space`** for Deck B.
 4. **Verify Audio Routing**: Make sure the deck's channel volume fader (`CH A` / `CH B`) is raised, `MST` Master Loudness is above 0%, `MUTE` is off, and the MAG FOUR crossfader is centered (`0.0`) or moved toward the playing deck.
 
-### Switching Decks & 2-Deck vs 4-Deck Layout
-- **Top Bar Layout Toggle**: Click **`2-DECK`** or **`4-DECK`** right next to `CRATES & GIG PREP`.
-- **In `2-DECK` Mode**:
-  - Click **`-> C`** in Deck A's header to flip the left side between **Deck A** and **Deck C**.
-  - Click **`-> D`** in Deck B's header to flip the right side between **Deck B** and **Deck D**.
-  - A compact **Decks C & D** transport strip (`PLAY`, `CUE`, `PFL`) is also docked at the bottom.
-- **In `4-DECK` Mode**:
-  - Left column stacks full hardware **Deck A** (top) + **Deck C** (bottom).
-  - Right column stacks full hardware **Deck B** (top) + **Deck D** (bottom).
+### Switching Decks, Layouts & Collapsible Strips
+- **Top Bar Dropdowns**:
+  - **Mode dropdown**: switch between **`LIVE CONSOLE`** and **`CRATES & GIG PREP`**.
+  - **Decks dropdown**: switch between **`2-Deck (A/B + Layer)`** and **`4-Deck (Stacked)`** (left column stacks Deck A + C; right column stacks Deck B + D).
+  - **`Panels` menu**: toggle **`Live Video Strip (A / Mix / B)`**, **`Live Sampler Strip (4x8)`**, **`Parallel Waveforms`**, **`Vertical Waveforms (between decks)`**, and **`Decks C & D Bottom Bar`**.
+- **In `2-Deck` Mode**: click **`-> C`** in Deck A's header or **`-> D`** in Deck B's header to flip layers instantly.
+- **Lower Dock Panel**: choose between `FX Rack (3 Free Packs)`, `Crate Library`, `Video Mixer`, `MIDI Controllers`, `AI Chat & Workflows`, `Fleet Hub`, and `Camelot & Mixxxxx OSC` from the single **`Dock Panel:`** dropdown.
 
 ### Skins, Textured & Sparkly Underlay, and Language (i18n)
 - **6 Built-in Skins** (top-right dropdown):

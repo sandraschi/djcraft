@@ -35,9 +35,9 @@ Or run the per-user Windows installer (`dist\djcraft-0.2.0-setup.exe`) or standa
 
 | Area | Status | Guide |
 | :--- | :--- | :--- |
-| 4-Deck WASAPI, Vinyl Scratching, Dual-Bus Headphone PFL, WAV/FLAC Recording & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
+| 4-Deck WASAPI, Vinyl Scratching, Color Filter, 3-Pack FX Rack, 4x8 Sampler, Dual-Bus PFL, WAV/FLAC Recording & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
 | Dedicated 2-Pane Crates & Gig Prep UI, Drag-Drop Ordering, Serato `.crate` & VirtualDJ Interop | **Implemented** | [docs/CRATES_AND_GIG_PREP.md](docs/CRATES_AND_GIG_PREP.md) |
-| 6 Skins (incl. Shocking Pink & Daylight), Sparkle Underlay, 2/4-Deck Layout, i18n, MIDI (Rane 12/72) & Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
+| 6 Skins (incl. Shocking Pink & Daylight), Sparkle Underlay, 2/4-Deck + Vertical Waveforms, i18n, MIDI (Rane 12/72) & 3-Monitor Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
 | AI Booth Chat (Ollama/LM Studio), Fleet Hub (Speech/SFX/VFX/Butterchurn), CLI & 10-Tool MCP Server | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
 | Standalone Release & Per-User NSIS Installer (`SHA256SUMS.txt`) | **Implemented** | [BUILD_LOG.md](BUILD_LOG.md) |
 
@@ -46,7 +46,7 @@ Or run the per-user Windows installer (`dist\djcraft-0.2.0-setup.exe`) or standa
 ## Quick Verification
 
 ```powershell
-# Lint & test suite (45 tests: 44 core/audio/DSP/Crates/MIDI/PFL/Recorder/Scratch/i18n + glyph_allowlist)
+# Lint & test suite (52 tests: 47 core/audio/FX/Crates/MIDI/PFL/Recorder/Scratch/i18n + 3 app/video + 2 sampler)
 cargo clippy --all-targets -- -D warnings
 cargo test
 

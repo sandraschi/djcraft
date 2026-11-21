@@ -414,6 +414,124 @@ pub fn paint_parallel_waveforms(
     );
 }
 
+/// Vertical layout: Deck A and Deck B waveforms scroll top-to-bottom side-by-side between the decks,
+/// with a shared horizontal playhead in the middle for visual beatmatching.
+pub fn paint_vertical_waveforms(
+    ui: &mut egui::Ui,
+    deck_a: &DeckState,
+    wf_a: Option<&WaveformSummary>,
+    deck_b: &DeckState,
+    wf_b: Option<&WaveformSummary>,
+    palette: &SkinPalette,
+    height: f32,
+) {
+    let w = ui.available_width().clamp(120.0, 260.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, height.max(160.0)), Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect(
+        rect,
+        CornerRadius::same(6),
+        palette.fader_slot,
+        Stroke::new(1.0, palette.card_border),
+        StrokeKind::Inside,
+    );
+    let half_w = rect.width() * 0.5;
+    let rect_a = Rect::from_min_max(rect.min, Pos2::new(rect.min.x + half_w, rect.max.y));
+    let rect_b = Rect::from_min_max(Pos2::new(rect.min.x + half_w, rect.min.y), rect.max);
+    paint_vertical_lane(&painter, rect_a, deck_a, wf_a, palette.deck_a, "A");
+    paint_vertical_lane(&painter, rect_b, deck_b, wf_b, palette.deck_b, "B");
+    painter.line_segment(
+        [Pos2::new(rect.min.x + half_w, rect.top()), Pos2::new(rect.min.x + half_w, rect.bottom())],
+        Stroke::new(1.0, palette.card_border),
+    );
+    painter.line_segment(
+        [Pos2::new(rect.left(), rect.center().y), Pos2::new(rect.right(), rect.center().y)],
+        Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
+    );
+}
+
+fn paint_vertical_lane(
+    painter: &egui::Painter,
+    rect: Rect,
+    deck: &DeckState,
+    waveform: Option<&WaveformSummary>,
+    accent: Color32,
+    tag: &str,
+) {
+    painter.text(
+        Pos2::new(rect.center().x, rect.top() + 9.0),
+        Align2::CENTER_CENTER,
+        tag,
+        FontId::monospace(11.0),
+        accent,
+    );
+    let Some(track) = deck.loaded_track.as_ref() else {
+        return;
+    };
+    let bpm = (track.bpm * (1.0 + deck.pitch_bend_pct / 100.0)).max(20.0);
+    let beat_sec = 60.0 / bpm;
+    let window_sec = 8.0_f64;
+    // Time flows downward: future audio at the top, past at the bottom.
+    let start_t = deck.position_seconds + window_sec * 0.5;
+    let rows = ((rect.height() / 3.0) as usize).clamp(48, 400);
+    let row_h = rect.height() / rows as f32;
+    let mid_x = rect.center().x;
+    let max_half_w = rect.width() * 0.44;
+
+    for row in 0..rows {
+        let frac = row as f64 / rows as f64;
+        let t = start_t - frac * window_sec;
+        if t < 0.0 || t > track.duration_seconds {
+            continue;
+        }
+        let (bass_amp, high_amp) = if let Some(wf) = waveform {
+            let (lo, hi) = wf.sample_at(t);
+            (
+                (lo as f64 * deck.eq_low).clamp(0.0, 1.0),
+                (hi as f64 * deck.eq_high.max(deck.eq_mid)).clamp(0.0, 1.0),
+            )
+        } else {
+            let beat_phase = ((t - deck.beatgrid_offset_sec).rem_euclid(beat_sec)) / beat_sec;
+            let kick = if beat_phase < 0.22 { 1.0 - beat_phase / 0.22 } else { 0.18 };
+            let mel = (t * 3.7).sin().abs() * 0.5 + (t * 7.3).cos().abs() * 0.5;
+            ((kick * 0.7 + 0.3).clamp(0.0, 1.0), (mel * 0.8 + 0.2).clamp(0.0, 1.0))
+        };
+        let y = rect.top() + row as f32 * row_h + row_h * 0.5;
+        let w_bass = bass_amp as f32 * max_half_w * deck.volume_fader as f32;
+        let w_high = high_amp as f32 * max_half_w * 0.65 * deck.volume_fader as f32;
+        painter.line_segment(
+            [Pos2::new(mid_x - w_bass, y), Pos2::new(mid_x + w_bass, y)],
+            Stroke::new(2.0, Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 165)),
+        );
+        painter.line_segment(
+            [Pos2::new(mid_x - w_high, y), Pos2::new(mid_x + w_high, y)],
+            Stroke::new(1.3, Color32::from_rgb(236, 242, 248)),
+        );
+    }
+
+    // Beatgrid ticks (horizontal), bars brighter
+    let last_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
+    let first_beat = ((start_t - window_sec - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
+    for b in first_beat..=last_beat {
+        if b < 0 {
+            continue;
+        }
+        let t = deck.beatgrid_offset_sec + b as f64 * beat_sec;
+        let y = rect.top() + ((start_t - t) / window_sec) as f32 * rect.height();
+        let is_bar = b % 4 == 0;
+        let col = if is_bar {
+            Color32::from_rgb(248, 250, 252)
+        } else {
+            Color32::from_rgb(100, 116, 139)
+        };
+        let len = if is_bar { 10.0 } else { 5.0 };
+        painter.line_segment(
+            [Pos2::new(rect.left() + 1.0, y), Pos2::new(rect.left() + len, y)],
+            Stroke::new(if is_bar { 1.6 } else { 1.0 }, col),
+        );
+    }
+}
+
 fn paint_waveform_lane(
     painter: &egui::Painter,
     rect: Rect,
