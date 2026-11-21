@@ -206,6 +206,12 @@ impl CrateStore {
                     position INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (crate_id, track_id)
                 );
+                CREATE TABLE IF NOT EXISTS track_cues (
+                    track_path TEXT NOT NULL,
+                    slot INTEGER NOT NULL,
+                    position_seconds REAL NOT NULL,
+                    PRIMARY KEY (track_path, slot)
+                );
                 ",
             )
             .map_err(|e| DjError::Deck(format!("Crates schema init failed: {e}")))?;
@@ -1051,6 +1057,61 @@ impl CrateStore {
             .map(|t| PathBuf::from(t.path))
             .collect();
         Ok(batch_stem_paths(&paths))
+    }
+
+    /// Persist or clear a single hot-cue slot (0..4) for an audio track path in SQLite.
+    pub fn set_track_hot_cue(
+        &self,
+        track_path: &str,
+        slot: usize,
+        position_seconds: Option<f64>,
+    ) -> Result<(), DjError> {
+        if slot >= 4 {
+            return Err(DjError::Deck(format!(
+                "Hot cue slot {slot} out of range (0..4)"
+            )));
+        }
+        match position_seconds {
+            Some(pos) => {
+                self.conn
+                    .execute(
+                        "INSERT INTO track_cues (track_path, slot, position_seconds)
+                         VALUES (?1, ?2, ?3)
+                         ON CONFLICT(track_path, slot) DO UPDATE SET position_seconds = excluded.position_seconds",
+                        params![track_path, slot as i64, pos.max(0.0)],
+                    )
+                    .map_err(|e| DjError::Deck(format!("Save hot cue failed: {e}")))?;
+            }
+            None => {
+                self.conn
+                    .execute(
+                        "DELETE FROM track_cues WHERE track_path = ?1 AND slot = ?2",
+                        params![track_path, slot as i64],
+                    )
+                    .map_err(|e| DjError::Deck(format!("Clear hot cue failed: {e}")))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Load all 4 hot-cue positions for an audio track path from SQLite.
+    pub fn get_track_hot_cues(&self, track_path: &str) -> Result<[Option<f64>; 4], DjError> {
+        let mut cues = [None; 4];
+        let mut stmt = self
+            .conn
+            .prepare("SELECT slot, position_seconds FROM track_cues WHERE track_path = ?1")
+            .map_err(|e| DjError::Deck(format!("Query hot cues failed: {e}")))?;
+        let rows = stmt
+            .query_map(params![track_path], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+            })
+            .map_err(|e| DjError::Deck(format!("Map hot cues failed: {e}")))?;
+        for (slot, pos) in rows.flatten() {
+            if (0..4).contains(&slot) {
+                cues[slot as usize] = Some(pos);
+            }
+        }
+        Ok(cues)
     }
 }
 

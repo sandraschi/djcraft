@@ -507,6 +507,25 @@ impl DjCraftApp {
         }
     }
 
+    fn restore_hot_cues_for_deck(&mut self, deck: DeckId, track_path: &str) {
+        if let Some(ref store) = self.crate_store {
+            if let Ok(cues) = store.get_track_hot_cues(track_path) {
+                self.orch.deck_mut(deck).hot_cue_seconds = cues;
+            }
+        }
+    }
+
+    fn autosave_hot_cue_for_deck(&self, deck: DeckId, slot: usize) {
+        if slot < 4 {
+            let d = self.orch.deck(deck);
+            if let Some(ref track_path) = d.audio_path {
+                if let Some(ref store) = self.crate_store {
+                    let _ = store.set_track_hot_cue(track_path, slot, d.hot_cue_seconds[slot]);
+                }
+            }
+        }
+    }
+
     fn handle_pad_click(&mut self, deck: DeckId, pad_idx: usize) {
         match pad_idx {
             0..=3 => {
@@ -524,6 +543,7 @@ impl DjCraftApp {
                         deck,
                         slot: pad_idx,
                     });
+                    self.autosave_hot_cue_for_deck(deck, pad_idx);
                 }
             }
             4 => {
@@ -603,7 +623,9 @@ impl DjCraftApp {
                 self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
                 let st = self.orch.deck_mut(deck);
                 st.beatgrid_offset_sec = grid.first_beat_sec;
-                st.audio_path = Some(path.to_string_lossy().to_string());
+                let path_str = path.to_string_lossy().to_string();
+                st.audio_path = Some(path_str.clone());
+                self.restore_hot_cues_for_deck(deck, &path_str);
                 if let Some(vid_path) = find_companion_video(&path) {
                     let _ = match deck {
                         DeckId::DeckA => self.video_deck_a.load_file(&vid_path),
@@ -706,6 +728,8 @@ impl DjCraftApp {
                 },
             };
             self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
+            self.orch.deck_mut(deck).audio_path = Some(track.path.clone());
+            self.restore_hot_cues_for_deck(deck, &track.path);
             return;
         }
         let path = std::path::Path::new(&track.path);
@@ -738,6 +762,7 @@ impl DjCraftApp {
                 let st = self.orch.deck_mut(deck);
                 st.beatgrid_offset_sec = offset;
                 st.audio_path = Some(track.path.clone());
+                self.restore_hot_cues_for_deck(deck, &track.path);
                 if let Some(vid) = find_companion_video(path) {
                     let _ = match deck {
                         DeckId::DeckA => self.video_deck_a.load_file(&vid),

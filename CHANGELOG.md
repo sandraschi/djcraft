@@ -2,6 +2,17 @@
 
 All notable changes to DJCraft are documented in this file.
 
+## [0.2.1] - 2026-11-21
+
+### Added
+- **Per-File Autosaved Hot Cues (`crates_db.rs`, `main.rs`)**:
+  - Added `track_cues` SQLite table in `%LOCALAPPDATA%\djcraft\crates.db` (`CrateStore::set_track_hot_cue`, `CrateStore::get_track_hot_cues`).
+  - Hot cues (slots 1-4) are autosaved per audio track path when set and automatically restored whenever that track is loaded onto any deck.
+- **Booth + Crate Split Workspace (`--booth-crate`)**:
+  - Added `BOOTH + CRATE` workspace mode with center vertical waveforms, small (`78px`) interactive platters, hideable `FX Rack` / `Sampler` / `Video` strip, and lower 2-pane crate browser defaulting to the prepared gig crate.
+- **Storytold Beta & Cross-Platform Readiness**:
+  - Removed sibling path dependencies, added `xtask ci` (`fmt`, `clippy`, `test`, `layers`, `assets`), cross-platform CI/release workflows (`ubuntu-latest`, `macos-latest`, `windows-latest`), RFC-0029 generic naming, opt-in external bridges, AccessKit slider metadata + keyboard nudge on rotary knobs, and dark/light desktop screenshots.
+
 ## [0.2.0] - 2026-11-21
 
 ### Added

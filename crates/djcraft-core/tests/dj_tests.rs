@@ -1209,3 +1209,32 @@ fn test_fx_commands_preset_load_and_json_roundtrip() {
     assert_eq!(loaded[0].name, "Vienna Club Dub");
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
+
+#[test]
+fn test_track_hot_cues_sqlite_persistence() {
+    let store = CrateStore::open_in_memory().expect("db");
+    let path = "demo://subterranean_dub";
+
+    assert_eq!(store.get_track_hot_cues(path).expect("empty"), [None; 4]);
+
+    store.set_track_hot_cue(path, 0, Some(12.5)).expect("set 0");
+    store
+        .set_track_hot_cue(path, 2, Some(64.25))
+        .expect("set 2");
+    assert_eq!(
+        store.get_track_hot_cues(path).expect("loaded"),
+        [Some(12.5), None, Some(64.25), None]
+    );
+
+    // Overwrite and clear
+    store
+        .set_track_hot_cue(path, 0, Some(15.0))
+        .expect("overwrite 0");
+    store.set_track_hot_cue(path, 2, None).expect("clear 2");
+    assert_eq!(
+        store.get_track_hot_cues(path).expect("updated"),
+        [Some(15.0), None, None, None]
+    );
+
+    assert!(store.set_track_hot_cue(path, 4, Some(1.0)).is_err());
+}
