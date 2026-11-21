@@ -463,6 +463,103 @@ impl super::DjCraftApp {
                     ev.value
                 ));
             }
+
+            ui.separator();
+            ui.horizontal_wrapped(|ui| {
+                theme::status_dot(ui, self.dvs_input.is_some() && self.dvs_telemetry.locked);
+                ui.label(
+                    egui::RichText::new("DVS Timecode Vinyl (Safe Rust Quadrature Decoder)")
+                        .strong()
+                        .color(palette.text_primary),
+                );
+                if ui.small_button("Rescan Audio In").clicked() {
+                    self.dvs_devices = djcraft_audio::list_input_devices();
+                    self.status_msg =
+                        format!("Found {} audio input device(s)", self.dvs_devices.len());
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                let dev_label = self
+                    .dvs_selected_device
+                    .as_deref()
+                    .unwrap_or("Default Input");
+                egui::ComboBox::from_id_salt("dvs_input_device")
+                    .selected_text(dev_label)
+                    .width(175.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.dvs_selected_device, None, "Default Input");
+                        for dev in &self.dvs_devices {
+                            ui.selectable_value(
+                                &mut self.dvs_selected_device,
+                                Some(dev.clone()),
+                                dev,
+                            );
+                        }
+                    });
+                egui::ComboBox::from_id_salt("dvs_carrier_select")
+                    .selected_text(self.dvs_carrier.label())
+                    .width(155.0)
+                    .show_ui(ui, |ui| {
+                        for c in djcraft_audio::DvsCarrier::ALL {
+                            ui.selectable_value(&mut self.dvs_carrier, c, c.label());
+                        }
+                    });
+                egui::ComboBox::from_id_salt("dvs_deck_select")
+                    .selected_text(self.dvs_target_deck.label())
+                    .width(80.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.dvs_target_deck,
+                            djcraft_audio::DeckId::DeckA,
+                            "Deck A",
+                        );
+                        ui.selectable_value(
+                            &mut self.dvs_target_deck,
+                            djcraft_audio::DeckId::DeckB,
+                            "Deck B",
+                        );
+                    });
+                let dvs_active = self.dvs_input.is_some();
+                if ui
+                    .small_button(if dvs_active { "Stop DVS" } else { "Start DVS" })
+                    .clicked()
+                {
+                    if dvs_active {
+                        self.dvs_input = None;
+                        self.dvs_telemetry = djcraft_audio::DvsTelemetry::default();
+                        self.status_msg = "DVS timecode input stopped".to_string();
+                    } else {
+                        match djcraft_audio::DvsInputStream::start(
+                            self.dvs_selected_device.as_deref(),
+                            self.dvs_carrier,
+                        ) {
+                            Ok(stream) => {
+                                self.dvs_input = Some(stream);
+                                self.status_msg = format!(
+                                    "DVS active on {} ({})",
+                                    self.dvs_target_deck.label(),
+                                    self.dvs_carrier.label()
+                                );
+                            }
+                            Err(e) => self.status_msg = format!("DVS start error: {e}"),
+                        }
+                    }
+                }
+            });
+            if self.dvs_input.is_some() {
+                ui.monospace(format!(
+                    "DVS {}: {} | Speed {:+.3}x | Pitch {:+.2}% | Level {:.1} dBFS",
+                    self.dvs_target_deck.label(),
+                    if self.dvs_telemetry.locked {
+                        "LOCKED"
+                    } else {
+                        "NO SIGNAL"
+                    },
+                    self.dvs_telemetry.speed_ratio,
+                    self.dvs_telemetry.pitch_pct,
+                    self.dvs_telemetry.signal_dbfs,
+                ));
+            }
         });
     }
 

@@ -24,15 +24,16 @@ use djcraft_audio::dsp::{
 };
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{
-    fx_packs_dir, load_user_fx_presets_from_dir, AudioEngine, DeckId, DrumGenre, FxPackPreset,
-    RecordingFormat, SamplePlayMode, SampleSlice, TrackMeta, SAMPLER_BANKS, SAMPLER_SLOTS,
+    fx_packs_dir, list_input_devices, load_user_fx_presets_from_dir, AudioEngine, DeckId,
+    DrumGenre, DvsCarrier, DvsInputStream, DvsTelemetry, FxPackPreset, RecordingFormat,
+    SamplePlayMode, SampleSlice, TrackMeta, SAMPLER_BANKS, SAMPLER_SLOTS,
 };
 use djcraft_core::i18n::{t, AppLocale, I18nKey};
 use djcraft_core::{
     action_to_command, batch_stem_folder, resolve_dettato_binary, resolve_mixxxxx_binary,
     AiChatConfig, Command, ControllerProfileId, CrateNode, CrateQuery, CrateSortField, CrateStore,
-    CrateTrack, DjOrchestrator, FleetEndpoints, FleetHealthReport, MidiControllerManager,
-    MidiTargetAction, MixxxxxVideoControls,
+    CrateTrack, DjOrchestrator, FleetEndpoints, FleetHealthReport, LinkEngine,
+    MidiControllerManager, MidiTargetAction, MixxxxxVideoControls,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -333,6 +334,15 @@ pub struct DjCraftApp {
     speech_drop_text: String,
     sfx_query: String,
     vfx_preset: String,
+
+    // Pure-Rust UDP Multicast Beat/Tempo Sync (Link) & DVS Timecode Vinyl
+    link_engine: LinkEngine,
+    dvs_input: Option<DvsInputStream>,
+    dvs_devices: Vec<String>,
+    dvs_selected_device: Option<String>,
+    dvs_carrier: DvsCarrier,
+    dvs_target_deck: DeckId,
+    dvs_telemetry: DvsTelemetry,
     fleet_last_output: String,
 
     // Help Suite modals
@@ -469,6 +479,14 @@ impl DjCraftApp {
             speech_drop_text: "DJCraft Live in the Mix!".to_string(),
             sfx_query: "riser impact".to_string(),
             vfx_preset: "vhs_glitch".to_string(),
+
+            link_engine: LinkEngine::new(126.0),
+            dvs_input: None,
+            dvs_devices: list_input_devices(),
+            dvs_selected_device: None,
+            dvs_carrier: DvsCarrier::Control1kHz,
+            dvs_target_deck: DeckId::DeckA,
+            dvs_telemetry: DvsTelemetry::default(),
             fleet_last_output: "Click Probe Fleet to check local MCP services.".to_string(),
 
             show_command_palette: false,
@@ -2100,6 +2118,40 @@ impl eframe::App for DjCraftApp {
         // Continuous playback tick (uses actual frame dt; skips decks currently being vinyl-scratched)
         let mut any_playing = false;
         let dt_play = dt_vis as f64;
+
+        // Poll DVS timecode vinyl input if active
+        if let Some(ref dvs) = self.dvs_input {
+            let tel = dvs.telemetry();
+            self.dvs_telemetry = tel;
+            if tel.locked {
+                let d = self.orch.deck_mut(self.dvs_target_deck);
+                if tel.speed_ratio < 0.0 || tel.speed_ratio > 1.5 {
+                    d.scratch_velocity = Some(tel.speed_ratio);
+                } else {
+                    d.scratch_velocity = None;
+                    d.pitch_bend_pct = tel.pitch_pct.clamp(-16.0, 16.0);
+                }
+            }
+        }
+
+        // Tick pure-Rust UDP multicast Link tempo/beat clock
+        if self.link_engine.enabled {
+            if let Some(t) = &self.orch.deck_a.loaded_track {
+                self.link_engine.bpm =
+                    (t.bpm * (1.0 + self.orch.deck_a.pitch_bend_pct / 100.0)).clamp(40.0, 240.0);
+            }
+            if let Some(peer_bpm) = self.link_engine.tick(dt_play) {
+                if let Some(t) = &self.orch.deck_a.loaded_track {
+                    if t.bpm > 0.0 {
+                        self.orch.deck_a.pitch_bend_pct =
+                            ((peer_bpm / t.bpm - 1.0) * 100.0).clamp(-16.0, 16.0);
+                    }
+                }
+            }
+        } else {
+            let _ = self.link_engine.tick(dt_play);
+        }
+
         for (i, deck_id) in [DeckId::DeckA, DeckId::DeckB, DeckId::DeckC, DeckId::DeckD]
             .into_iter()
             .enumerate()
@@ -2612,6 +2664,43 @@ impl eframe::App for DjCraftApp {
                         ui.close();
                     }
                 });
+
+                let link_lbl = if self.link_engine.enabled {
+                    let peers = self.link_engine.peer_count();
+                    if peers > 0 {
+                        format!("LINK ({peers})")
+                    } else {
+                        "LINK ON".to_string()
+                    }
+                } else {
+                    "LINK".to_string()
+                };
+                let link_btn = egui::Button::new(egui::RichText::new(link_lbl).small().color(
+                    if self.link_engine.enabled {
+                        egui::Color32::WHITE
+                    } else {
+                        palette.text_primary
+                    },
+                ))
+                .small()
+                .fill(if self.link_engine.enabled {
+                    egui::Color32::from_rgb(22, 163, 74)
+                } else {
+                    palette.card_fill
+                });
+                if ui
+                    .add(link_btn)
+                    .on_hover_text("Toggle UDP Multicast Beat & Tempo Link (224.76.78.75:20808)")
+                    .clicked()
+                {
+                    let next = !self.link_engine.enabled;
+                    self.link_engine.set_enabled(next);
+                    self.status_msg = if next {
+                        format!("Link Sync ON ({:.1} BPM)", self.link_engine.bpm)
+                    } else {
+                        "Link Sync OFF".to_string()
+                    };
+                }
 
                 if ui.small_button("Stop All").clicked() {
                     self.execute_catalog_id("deck.stop_all");

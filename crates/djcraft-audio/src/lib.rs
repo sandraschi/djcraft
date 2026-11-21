@@ -8,11 +8,14 @@
 use serde::{Deserialize, Serialize};
 
 pub mod dsp;
+pub mod dvs;
 pub mod fx;
 pub mod output;
 pub mod recorder;
 pub mod sampler;
 pub mod studio;
+
+pub use dvs::{list_input_devices, DvsCarrier, DvsDecoder, DvsInputStream, DvsTelemetry};
 
 pub use fx::{
     builtin_fx_presets, fx_packs_dir, load_user_fx_presets_from_dir, save_fx_preset_to_dir,

@@ -8,6 +8,7 @@ pub mod command;
 pub mod crates_db;
 pub mod fleet_ai;
 pub mod i18n;
+pub mod link;
 pub mod midi;
 pub mod mixxxxx_osc;
 
@@ -26,6 +27,7 @@ pub use fleet_ai::{
     plan_harmonic_setlist, probe_fleet_health, sfx_search, vfx_apply_preset, AiChatConfig,
     FleetEndpoints, FleetHealthReport,
 };
+pub use link::{LinkBeacon, LinkEngine};
 pub use midi::{
     action_to_command, builtin_profile_rules, parse_raw_midi, ControllerProfileId, MidiBindingKey,
     MidiControllerManager, MidiMappingRule, MidiMsgKind, MidiTargetAction, RawMidiEvent,

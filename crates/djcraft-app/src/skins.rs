@@ -187,8 +187,8 @@ impl SkinId {
                 chassis: Color32::from_rgb(238, 242, 246),
                 card_fill: Color32::from_rgb(255, 255, 255),
                 card_border: Color32::from_rgb(100, 116, 139),
-                text_primary: Color32::from_rgb(2, 6, 23),
-                text_secondary: Color32::from_rgb(30, 41, 59),
+                text_primary: Color32::BLACK,
+                text_secondary: Color32::from_rgb(15, 18, 24),
                 deck_a: Color32::from_rgb(3, 105, 161),
                 deck_b: Color32::from_rgb(194, 65, 12),
                 deck_c: Color32::from_rgb(4, 120, 87),
@@ -355,48 +355,73 @@ pub fn paint_backdrop(
     match style {
         BackdropStyle::Solid => {}
         BackdropStyle::BrushedMetal => {
-            let step = 6.0_f32;
+            let step = 4.0_f32;
             let mut y = rect.top();
             let mut row = 0u32;
             while y < rect.bottom() {
-                let alpha = if row.is_multiple_of(2) { 16 } else { 7 };
+                let alpha = if row.is_multiple_of(3) {
+                    62
+                } else if row.is_multiple_of(2) {
+                    34
+                } else {
+                    18
+                };
                 let col = if palette.is_light {
                     Color32::from_rgba_unmultiplied(15, 23, 42, alpha)
                 } else {
-                    Color32::from_rgba_unmultiplied(255, 255, 255, alpha)
+                    Color32::from_rgba_unmultiplied(226, 232, 240, alpha)
                 };
                 painter.line_segment(
                     [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                    Stroke::new(1.0, col),
+                    Stroke::new(1.5, col),
                 );
                 y += step;
                 row += 1;
             }
+            // Diagonal metallic sheen bands
+            for i in 0..3 {
+                let x0 = rect.left() + rect.width() * (0.15 + i as f32 * 0.32);
+                painter.line_segment(
+                    [
+                        egui::pos2(x0, rect.top()),
+                        egui::pos2(x0 + rect.height() * 0.35, rect.bottom()),
+                    ],
+                    Stroke::new(
+                        48.0,
+                        if palette.is_light {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 45)
+                        } else {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 16)
+                        },
+                    ),
+                );
+            }
         }
         BackdropStyle::CarbonWeave => {
-            let step = 18.0_f32;
+            let step = 14.0_f32;
             let col_a = Color32::from_rgba_unmultiplied(
                 palette.deck_a.r(),
                 palette.deck_a.g(),
                 palette.deck_a.b(),
-                if palette.is_light { 24 } else { 22 },
+                if palette.is_light { 58 } else { 62 },
             );
-            let col_b = Color32::from_rgba_unmultiplied(
-                palette.deck_b.r(),
-                palette.deck_b.g(),
-                palette.deck_b.b(),
-                18,
-            );
-            let mut x = rect.left() - rect.height();
+            let col_b = if palette.is_light {
+                Color32::from_rgba_unmultiplied(15, 23, 42, 42)
+            } else {
+                Color32::from_rgba_unmultiplied(148, 163, 184, 48)
+            };
+            let h = rect.height();
+            let mut x = rect.left() - h;
             let mut idx = 0u32;
-            while x < rect.right() + rect.height() {
+            while x < rect.right() + h {
                 let col = if idx.is_multiple_of(2) { col_a } else { col_b };
                 painter.line_segment(
-                    [
-                        egui::pos2(x, rect.top()),
-                        egui::pos2(x + rect.height(), rect.bottom()),
-                    ],
-                    Stroke::new(1.2, col),
+                    [egui::pos2(x, rect.top()), egui::pos2(x + h, rect.bottom())],
+                    Stroke::new(2.2, col),
+                );
+                painter.line_segment(
+                    [egui::pos2(x + h, rect.top()), egui::pos2(x, rect.bottom())],
+                    Stroke::new(2.0, col_b),
                 );
                 x += step;
                 idx += 1;
