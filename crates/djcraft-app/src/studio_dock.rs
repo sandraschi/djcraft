@@ -10,7 +10,11 @@ use crate::skins::SkinPalette;
 use crate::{theme, DjCraftApp};
 
 impl DjCraftApp {
-    pub(crate) fn render_studio_beatmaker_dock(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+    pub(crate) fn render_studio_beatmaker_dock(
+        &mut self,
+        ui: &mut egui::Ui,
+        palette: &SkinPalette,
+    ) {
         let (seq_on, cur_step, mut steps) = self.audio_out.sequencer_snapshot();
 
         // 1. 16-Step BPM-Synced Drum Sequencer ("Make Beats")
@@ -29,7 +33,11 @@ impl DjCraftApp {
                     self.audio_out.set_sequencer_enabled(next);
                     self.status_msg = format!(
                         "Studio Beatmaker {}",
-                        if next { "STARTED (locked to Deck A BPM)" } else { "STOPPED" }
+                        if next {
+                            "STARTED (locked to Deck A BPM)"
+                        } else {
+                            "STOPPED"
+                        }
                     );
                 }
 
@@ -38,7 +46,10 @@ impl DjCraftApp {
                     .width(142.0)
                     .show_ui(ui, |ui| {
                         for g in DrumGenre::ALL {
-                            if ui.selectable_label(self.studio_genre == g, g.label()).clicked() {
+                            if ui
+                                .selectable_label(self.studio_genre == g, g.label())
+                                .clicked()
+                            {
                                 self.studio_genre = g;
                                 self.audio_out.set_sequencer_genre(g);
                                 self.status_msg = format!("Loaded {} drum pattern", g.label());
@@ -69,7 +80,8 @@ impl DjCraftApp {
                 ui.horizontal(|ui| {
                     ui.add_sized([48.0, 20.0], egui::Label::new(*lane_label));
                     let lane_color = palette.pad_colors[lane_idx % palette.pad_colors.len()];
-                    for (step_idx, cell) in steps[lane_idx].iter_mut().enumerate().take(STEP_COUNT) {
+                    for (step_idx, cell) in steps[lane_idx].iter_mut().enumerate().take(STEP_COUNT)
+                    {
                         if step_idx > 0 && step_idx % 4 == 0 {
                             ui.add_space(4.0);
                         }
@@ -151,7 +163,12 @@ impl DjCraftApp {
     }
 
     fn chop_deck_into_sampler(&mut self, deck_idx: usize) {
-        let Some(audio) = self.deck_decoded.get(deck_idx).and_then(|o| o.as_ref()).cloned() else {
+        let Some(audio) = self
+            .deck_decoded
+            .get(deck_idx)
+            .and_then(|o| o.as_ref())
+            .cloned()
+        else {
             self.status_msg = format!(
                 "Deck {} has no decoded local audio file yet (click AUDIO on that deck first)",
                 if deck_idx == 0 { "A" } else { "B" }
@@ -180,7 +197,11 @@ impl DjCraftApp {
         }
     }
 
-    fn apply_chopped_slices(&mut self, decoded: &djcraft_audio::dsp::DecodedAudio, source_name: &str) {
+    fn apply_chopped_slices(
+        &mut self,
+        decoded: &djcraft_audio::dsp::DecodedAudio,
+        source_name: &str,
+    ) {
         let slices = auto_slice_audio(decoded, 8);
         if slices.is_empty() {
             self.status_msg = format!("Could not find slices in '{source_name}' (too short)");
@@ -188,8 +209,12 @@ impl DjCraftApp {
         }
         let bank = self.studio_chop_bank;
         for (idx, sl) in slices.iter().enumerate().take(8) {
-            self.audio_out
-                .set_sample_slot_audio(bank, idx, sl.label.clone(), Arc::clone(&sl.audio));
+            self.audio_out.set_sample_slot_audio(
+                bank,
+                idx,
+                sl.label.clone(),
+                Arc::clone(&sl.audio),
+            );
             self.sampler_names[bank][idx] = sl.label.clone();
         }
         let count = slices.len();

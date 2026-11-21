@@ -365,9 +365,8 @@ fn synth_studio_clap(sr: u32) -> Vec<f32> {
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
         let t = i as f32 / sr as f32;
-        let noise = ((((i as u64).wrapping_mul(22695477).wrapping_add(1)) & 0x7fff) as f32
-            / 16384.0)
-            - 1.0;
+        let noise =
+            ((((i as u64).wrapping_mul(22695477).wrapping_add(1)) & 0x7fff) as f32 / 16384.0) - 1.0;
         let env = if t < 0.03 {
             ((t * 120.0).sin().abs()).powf(0.4)
         } else {

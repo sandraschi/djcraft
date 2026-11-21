@@ -1,3 +1,4 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![forbid(unsafe_code)]
 
 mod battle_mixer;
@@ -1182,12 +1183,12 @@ impl DjCraftApp {
             }),
             "modify.toggle_fx1" => self.dispatch_and_report(Command::ToggleFxUnit { unit: 0 }),
             "modify.toggle_fx2" => self.dispatch_and_report(Command::ToggleFxUnit { unit: 1 }),
-            "modify.slip_a" => {
-                self.dispatch_and_report(Command::ToggleSlipMode { deck: DeckId::DeckA })
-            }
-            "modify.slip_b" => {
-                self.dispatch_and_report(Command::ToggleSlipMode { deck: DeckId::DeckB })
-            }
+            "modify.slip_a" => self.dispatch_and_report(Command::ToggleSlipMode {
+                deck: DeckId::DeckA,
+            }),
+            "modify.slip_b" => self.dispatch_and_report(Command::ToggleSlipMode {
+                deck: DeckId::DeckB,
+            }),
             "modify.keylock_a" => self.dispatch_and_report(Command::ToggleKeylock {
                 deck: DeckId::DeckA,
             }),
