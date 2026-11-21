@@ -43,10 +43,10 @@ $outDir = Join-Path $repoRoot 'docs\screenshots'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 $shots = @(
-    @{ Name = 'live-console-rane'; Args = @('--skin', 'rane') },
+    @{ Name = 'live-console-battle'; Args = @('--skin', 'battle') },
     @{ Name = 'live-console-shocking-pink-4deck'; Args = @('--skin', 'pink', '--four-deck') },
     @{ Name = 'daylight-booth'; Args = @('--skin', 'daylight') },
-    @{ Name = 'crates-gig-prep'; Args = @('--skin', 'rane', '--crates') }
+    @{ Name = 'crates-gig-prep'; Args = @('--skin', 'battle', '--crates') }
 )
 
 foreach ($s in $shots) {

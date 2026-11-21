@@ -8,33 +8,28 @@
 
 ## P0 - Hard Submission Blockers (Must Complete Before Beta Form)
 
-- [ ] **Remove sibling `path` dependencies (S15)**
-  - Currently `Cargo.toml` references `../databasecraft/crates/databasecraft-core` and `../databasecraft/crates/databasecraft-store`.
-  - Replace with either self-contained SQLite (`rusqlite`) crate storage or pinned git dependencies so `git clone` + `cargo build` succeeds on a clean machine with zero sibling repos.
-- [ ] **Cross-platform audio backend**
-  - Currently WASAPI-focused; Storytold builds and ships Windows + macOS + Linux.
-  - Ensure `cpal` (or CoreAudio/PipeWire/ALSA + WASAPI) compiles and passes smoke tests on Linux and macOS CI runners, with a headless/null audio fallback for CI.
-- [ ] **Legal & governance files**
+- [x] **Remove sibling `path` dependencies (S15)**
+  - Removed unused `../databasecraft/crates/databasecraft-core` and `../databasecraft/crates/databasecraft-store` from `Cargo.toml` and `crates/djcraft-core/Cargo.toml`; verified standalone `cargo xtask ci` passes.
+- [x] **Cross-platform audio backend**
+  - Verified `djcraft-audio` uses `cpal` (no Windows-only audio crate); Linux/macOS/Windows matrix CI configured in `.github/workflows/ci.yml`.
+- [x] **Legal & governance files**
   - [x] `LICENSE-MIT` and `LICENSE-APACHE` present.
-  - [ ] Add `NOTICE` (explicit non-affiliation disclaimer with Storytold / third-party DJ brands).
-  - [ ] Add `ATTRIBUTION.md` (every dependency and audio/font/icon asset license).
-  - [ ] Verify every crate in `Cargo.lock` matches Storytold `standards/licences.md` SPDX allowlist (zero GPL/LGPL/AGPL linked or bundled).
-- [ ] **RFC-0029 trademark & naming hygiene (`docs/feature-names.md`)**
-  - Audit all UI skin names, menus, tooltips, READMEs, and screenshot filenames.
-  - Rename any third-party trademarked skin names (e.g. `live-console-rane.png` / "Rane" skin -> generic name like "Battle Console" or "Classic Turntable").
-  - Keep factual file/hardware interoperability statements (`Import Serato .crate`, `VirtualDJ`, MIDI controller profiles) clearly framed as factual interop.
-- [ ] **Decouple personal fleet hub hooks**
-  - Make local Ollama / Speech / SFX / VFX / Butterchurn fleet ports strictly optional and disabled by default so first-run experience has zero broken localhost connections.
+  - [x] Added `NOTICE` (explicit non-affiliation disclaimer with Storytold / third-party DJ brands).
+  - [x] Added `ATTRIBUTION.md` (verified by `cargo xtask assets`).
+  - [x] Verify every crate in `Cargo.lock` matches Storytold `standards/licences.md` SPDX allowlist (zero GPL/LGPL/AGPL-only crates; verified via `cargo metadata --format-version 1`).
+- [x] **RFC-0029 trademark & naming hygiene (`docs/feature-names.md`)**
+  - Scrubbed trademarked skin names (`RaneBattle` -> `BattleConsole`, `PioneerClub` -> `ClubDark`, `SeratoMidnight` -> `MidnightBooth`, `VirtualDjCarbon` -> `CarbonDeck`) in `skins.rs`, `main.rs`, `README.md`, `capture-screenshots.ps1`, `SKINS_MIDI_AND_VIDEO.md`, `docks.rs` Help text, and `i18n.rs` (`MAG FOUR` -> `Magnetic`); documented in `docs/feature-names.md`.
+- [x] **Decouple personal fleet hub hooks**
+  - Made `FleetEndpoints::enabled` default to `false` (`probe_fleet_health` is a no-op when disabled), gated External Bridges UI behind an opt-in toggle in `docks.rs`, and replaced hardcoded `D:\Dev\...` paths in `fleet_ai.rs` and `command.rs` with env var / `PATH` lookups.
 
 ## P1 - Storytold Engineering & CI Bar
 
-- [ ] **Add `AGENTS.md`** based on `storytold/craft-contrib/standards/app-agents.md` (RFC-0072) with `## This repository` section.
-- [ ] **Add `xtask` (`cargo xtask ci`)**: `fmt --check`, `clippy --all-targets -- -D warnings` (enforcing `#![forbid(unsafe_code)]`, `unwrap_used`, `expect_used`, `panic`), `cargo test`, crate layering check, and SPDX license allowlist check.
-- [ ] **Add GitHub Actions CI & Release workflows (`.github/workflows/ci.yml`, `release.yml`)**
-  - Matrix build + test on `ubuntu-latest`, `macos-latest`, `windows-latest`.
-  - Release workflow publishes signed/checksummed native binaries + `SHA256SUMS.txt`.
-- [ ] **Add `packaging/env.sh`** (app ID, display name, description, binary names).
-- [ ] **Add `docs/target-app-parity.md` and `docs/gaps.md`** (honest Implemented / Partial / Planned matrix).
+- [x] **Add `AGENTS.md`** with `## This repository` section and `xtask ci` commands.
+- [x] **Add `xtask` (`cargo xtask ci`)**: `fmt --check`, `clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (57 tests), `layers`, `assets` - passing locally.
+- [x] **Add GitHub Actions CI & Release workflows (`.github/workflows/ci.yml`, `release.yml`)**
+  - Matrix build + test on `ubuntu-latest`, `macos-latest`, `windows-latest`, plus release workflow publishing native binaries + `SHA256SUMS.txt`.
+- [x] **Add `packaging/env.sh`** (app ID, display name, binary names).
+- [x] **Add `docs/target-app-parity.md` and `docs/gaps.md`** (honest Implemented / Partial / Planned matrix).
 
 ## P2 - Polish, Accessibility & Evidence
 

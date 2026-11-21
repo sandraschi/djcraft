@@ -11,7 +11,7 @@
 
 ## Screenshots
 
-Generate fresh local screenshots of all views (`live-console-rane.png`, `live-console-shocking-pink-4deck.png`, `crates-gig-prep.png`, `daylight-booth.png`) into `docs/screenshots/` on your desktop:
+Generate fresh local screenshots of all views (`live-console-battle.png`, `live-console-shocking-pink-4deck.png`, `crates-gig-prep.png`, `daylight-booth.png`) into `docs/screenshots/` on your desktop:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\capture-screenshots.ps1

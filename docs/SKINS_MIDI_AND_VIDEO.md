@@ -9,10 +9,10 @@ Back to [README.md](../README.md)
 Switch skins and backdrops live from the top-right bar (persisted in `%LOCALAPPDATA%\djcraft\ui.json`):
 
 ### 6 Built-In Console Skins
-1. **Rane Seventy-Two Battle** (electric cyan + crimson battle dark)
-2. **Pioneer Club Dark** (deep navy + amber club console)
-3. **Serato Midnight** (pitch-black contrast + neon cyan/pink)
-4. **VirtualDJ Carbon** (slate carbon + teal/orange)
+1. **Battle Console** (electric cyan + crimson battle dark)
+2. **Club Dark** (deep navy + amber club console)
+3. **Midnight Booth** (pitch-black contrast + neon cyan/pink)
+4. **Carbon Deck** (slate carbon + teal/orange)
 5. **Shocking Pink Club** (velvet plum-black + shocking pink, electric cyan, acid lime & hot gold)
 6. **Daylight Booth (Light)** (high-contrast near-black ink `#020617` on crisp `#FFFFFF` / `#E2E8F0` surfaces)
 
