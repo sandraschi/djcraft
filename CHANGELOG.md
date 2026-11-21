@@ -5,13 +5,16 @@ All notable changes to DJCraft are documented in this file.
 ## [0.2.1] - 2026-11-21
 
 ### Added
+- **3-Band RGB Spectral Waveforms (`dsp.rs`, `widgets.rs`)**:
+  - Upgraded `WaveformSummary` to 3-band spectral peaks (`<250 Hz` Crimson/Red, `250-2500 Hz` Emerald/Lime, `>2500 Hz` Electric Cyan) with white-hot transient cores at `1.5px` slice density, full-lane beatgrid/bar lines, active loop highlights, and colored hot-cue flags across both horizontal and vertical waveforms.
 - **Per-File Autosaved Hot Cues (`crates_db.rs`, `main.rs`)**:
   - Added `track_cues` SQLite table in `%LOCALAPPDATA%\djcraft\crates.db` (`CrateStore::set_track_hot_cue`, `CrateStore::get_track_hot_cues`).
   - Hot cues (slots 1-4) are autosaved per audio track path when set and automatically restored whenever that track is loaded onto any deck.
 - **Booth + Crate Split Workspace (`--booth-crate`)**:
   - Added `BOOTH + CRATE` workspace mode with center vertical waveforms, small (`78px`) interactive platters, hideable `FX Rack` / `Sampler` / `Video` strip, and lower 2-pane crate browser defaulting to the prepared gig crate.
-- **Storytold Beta & Cross-Platform Readiness**:
-  - Removed sibling path dependencies, added `xtask ci` (`fmt`, `clippy`, `test`, `layers`, `assets`), cross-platform CI/release workflows (`ubuntu-latest`, `macos-latest`, `windows-latest`), RFC-0029 generic naming, opt-in external bridges, AccessKit slider metadata + keyboard nudge on rotary knobs, and dark/light desktop screenshots.
+- **Windows GUI & Cross-Platform Release (`v0.2.1`)**:
+  - Added `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` so Windows release launches cleanly without a console window.
+  - Removed sibling path dependencies, added `xtask ci` (`fmt`, `clippy`, `test`, `layers`, `assets`), verified cross-platform CI (`ubuntu-latest`, `macos-latest`, `windows-latest`), scrubbed RFC-0029 naming, gated external bridges opt-in, added AccessKit slider metadata + keyboard nudge on rotary knobs, and published `v0.2.1` (Linux/macOS/Windows binaries, `djcraft-0.2.1-setup.exe`, and `SHA256SUMS.txt`).
 
 ## [0.2.0] - 2026-11-21
 

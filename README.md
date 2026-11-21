@@ -14,8 +14,10 @@
 | Live Console (Dark) | Daylight Booth (Light) |
 | :---: | :---: |
 | ![DJCraft Live Console](docs/images/live-console-battle.png) | ![DJCraft Daylight Booth](docs/images/daylight-booth.png) |
-| **4-Deck Mode** | **Crates & Gig Prep** |
-| ![DJCraft 4-Deck Mode](docs/images/live-console-shocking-pink-4deck.png) | ![DJCraft Crates & Gig Prep](docs/images/crates-gig-prep.png) |
+| **Booth + Crate Split (`--booth-crate`)** | **4-Deck Mode** |
+| ![DJCraft Booth + Crate](docs/images/booth-crate-split.png) | ![DJCraft 4-Deck Mode](docs/images/live-console-shocking-pink-4deck.png) |
+| **Crates & Gig Prep** | |
+| ![DJCraft Crates & Gig Prep](docs/images/crates-gig-prep.png) | |
 
 Generate fresh local screenshots of all views into `docs/images/`:
 
@@ -33,7 +35,7 @@ Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
 ```
 
-Or run the per-user Windows installer (`dist\djcraft-0.2.0-setup.exe`) or standalone `dist\djcraft.exe`.
+Or download the per-user Windows installer (`djcraft-0.2.1-setup.exe`) or Linux/macOS/Windows binaries from [GitHub Releases](https://github.com/sandraschi/djcraft/releases/tag/v0.2.1).
 
 ---
 
@@ -41,8 +43,8 @@ Or run the per-user Windows installer (`dist\djcraft-0.2.0-setup.exe`) or standa
 
 | Area | Status | Guide |
 | :--- | :--- | :--- |
-| 4-Deck WASAPI, Vinyl Scratching, Color Filter, 3-Pack FX Rack, 4x8 Sampler, Dual-Bus PFL, WAV/FLAC Recording & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
-| Dedicated 2-Pane Crates & Gig Prep UI, Drag-Drop Ordering, Serato `.crate` & VirtualDJ Interop | **Implemented** | [docs/CRATES_AND_GIG_PREP.md](docs/CRATES_AND_GIG_PREP.md) |
+| 4-Deck Audio, 3-Band RGB Waveforms, Vinyl Scratching, Color Filter, 3-Pack FX Rack, 4x8 Sampler, Dual-Bus PFL, WAV/FLAC Recording & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
+| Dedicated 2-Pane Crates & Gig Prep UI, `BOOTH + CRATE` Split View, Per-File Autosaved Hot Cues, Drag-Drop Ordering, Serato `.crate` & VirtualDJ Interop | **Implemented** | [docs/CRATES_AND_GIG_PREP.md](docs/CRATES_AND_GIG_PREP.md) |
 | 6 Skins (incl. Shocking Pink & Daylight), Sparkle Underlay, 2/4-Deck + Vertical Waveforms, i18n, MIDI (Rane 12/72) & 3-Monitor Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
 | AI Booth Chat (Ollama/LM Studio), Fleet Hub (Speech/SFX/VFX/Butterchurn), CLI & 10-Tool MCP Server | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
 | Standalone Release & Per-User NSIS Installer (`SHA256SUMS.txt`) | **Implemented** | [BUILD_LOG.md](BUILD_LOG.md) |
@@ -52,9 +54,8 @@ Or run the per-user Windows installer (`dist\djcraft-0.2.0-setup.exe`) or standa
 ## Quick Verification
 
 ```powershell
-# Lint & test suite (52 tests: 47 core/audio/FX/Crates/MIDI/PFL/Recorder/Scratch/i18n + 3 app/video + 2 sampler)
-cargo clippy --all-targets -- -D warnings
-cargo test
+# Full CI gate (fmt, clippy, 61 workspace tests, layer & asset checks)
+cargo run -p xtask -- ci
 
 # Headless smoke verification
 .\target\release\djcraft.exe --smoke
