@@ -20,6 +20,7 @@ use crate::dsp::{sample_varispeed, DecodedAudio, DecodedStems, ThreeBandEq, Wsol
 use crate::fx::{BipolarFilter, FxStemScope, FxTarget, FxUnitDsp, FxUnitParams};
 use crate::recorder::{ActiveRecording, RecordingFormat, RecordingStopReport, RecordingTap};
 use crate::sampler::{SamplePlayMode, SamplerEngine, SAMPLER_SLOTS};
+use crate::studio::{DrumGenre, StepSequencer, STEP_COUNT, STEP_LANES};
 use crate::{AudioEngine, DeckId, DeckState};
 
 const CUE_RING_CAPACITY: usize = 8192;
@@ -47,6 +48,15 @@ enum SamplerCmd {
         volume: f32,
     },
     SetMasterVolume(f32),
+    SeqSetEnabled(bool),
+    SeqSetStep {
+        lane: usize,
+        step: usize,
+        active: bool,
+    },
+    SeqSetGenre(DrumGenre),
+    SeqClear,
+    SeqSetVolume(f32),
 }
 
 struct LiveMixState {
@@ -59,6 +69,7 @@ struct LiveMixState {
     fx_units: [FxUnitDsp; 2],
     fx_params: [FxUnitParams; 2],
     sampler: SamplerEngine,
+    sequencer: StepSequencer,
     sampler_rx: Option<Receiver<SamplerCmd>>,
     crossfader: f64,
     master_volume: f64,
@@ -68,6 +79,7 @@ struct LiveMixState {
     split_cue: bool,
     has_headphone_stream: bool,
     play_times: [f64; 4],
+    slip_times: [f64; 4],
     sample_counter: u64,
     recorder_tap: Option<RecordingTap>,
 }
@@ -104,6 +116,7 @@ impl LiveMixState {
             fx_units: [FxUnitDsp::new(sample_rate), FxUnitDsp::new(sample_rate)],
             fx_params: [FxUnitParams::default_unit(0), FxUnitParams::default_unit(1)],
             sampler: SamplerEngine::new(sample_rate),
+            sequencer: StepSequencer::new(sample_rate),
             sampler_rx: None,
             crossfader: 0.0,
             master_volume: 0.75,
@@ -113,6 +126,7 @@ impl LiveMixState {
             split_cue: false,
             has_headphone_stream: false,
             play_times: [0.0; 4],
+            slip_times: [0.0; 4],
             sample_counter: 0,
             recorder_tap: None,
         }
@@ -542,6 +556,38 @@ impl AudioOutput {
         std::array::from_fn(|i| format!("Slot {}", i + 1))
     }
 
+    pub fn set_sequencer_enabled(&self, enabled: bool) {
+        self.enqueue_sampler(SamplerCmd::SeqSetEnabled(enabled));
+    }
+
+    pub fn set_sequencer_step(&self, lane: usize, step: usize, active: bool) {
+        self.enqueue_sampler(SamplerCmd::SeqSetStep { lane, step, active });
+    }
+
+    pub fn set_sequencer_genre(&self, genre: DrumGenre) {
+        self.enqueue_sampler(SamplerCmd::SeqSetGenre(genre));
+    }
+
+    pub fn clear_sequencer(&self) {
+        self.enqueue_sampler(SamplerCmd::SeqClear);
+    }
+
+    pub fn set_sequencer_volume(&self, volume: f32) {
+        self.enqueue_sampler(SamplerCmd::SeqSetVolume(volume));
+    }
+
+    pub fn sequencer_snapshot(&self) -> (bool, usize, [[bool; STEP_COUNT]; STEP_LANES]) {
+        if let Ok(guard) = self.state.try_lock() {
+            (
+                guard.sequencer.enabled,
+                guard.sequencer.current_step,
+                guard.sequencer.steps,
+            )
+        } else {
+            (false, 0, [[false; STEP_COUNT]; STEP_LANES])
+        }
+    }
+
     /// Push the latest mixer and deck parameters into the live audio thread (non-blocking).
     pub fn sync_state(
         &self,
@@ -562,11 +608,24 @@ impl AudioOutput {
                 if track_changed || seek_changed {
                     let t0 = new_deck.position_seconds.max(0.0);
                     guard.play_times[idx] = t0;
+                    guard.slip_times[idx] = t0;
                     let sr = guard.decoded[idx]
                         .as_ref()
                         .map(|a| a.sample_rate as f64)
                         .unwrap_or(self.sample_rate as f64);
                     guard.wsola[idx].reset(t0 * sr);
+                } else if new_deck.slip_mode
+                    && guard.decks[idx].scratch_velocity.is_some()
+                    && new_deck.scratch_velocity.is_none()
+                {
+                    // Slip Mode release: snap playback back to the silent slip playhead!
+                    let t_slip = guard.slip_times[idx].max(0.0);
+                    guard.play_times[idx] = t_slip;
+                    let sr = guard.decoded[idx]
+                        .as_ref()
+                        .map(|a| a.sample_rate as f64)
+                        .unwrap_or(self.sample_rate as f64);
+                    guard.wsola[idx].reset(t_slip * sr);
                 } else if keylock_changed {
                     let sr = guard.decoded[idx]
                         .as_ref()
@@ -611,6 +670,15 @@ fn drain_sampler_queue(guard: &mut LiveMixState) {
             } => guard.sampler.set_slot_config(bank, slot, mode, volume),
             SamplerCmd::SetMasterVolume(volume) => {
                 guard.sampler.master_volume = volume.clamp(0.0, 1.0);
+            }
+            SamplerCmd::SeqSetEnabled(en) => guard.sequencer.set_enabled(en),
+            SamplerCmd::SeqSetStep { lane, step, active } => {
+                guard.sequencer.set_step(lane, step, active);
+            }
+            SamplerCmd::SeqSetGenre(genre) => guard.sequencer.set_genre(genre),
+            SamplerCmd::SeqClear => guard.sequencer.clear(),
+            SamplerCmd::SeqSetVolume(vol) => {
+                guard.sequencer.volume = vol.clamp(0.0, 1.0);
             }
         }
     }
@@ -749,6 +817,12 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
         }
 
         let vol = deck.volume_fader as f32;
+        if deck.slip_mode && deck.is_playing {
+            let norm_rate = (1.0 + deck.pitch_bend_pct / 100.0).clamp(0.5, 2.0);
+            guard.slip_times[i] = (guard.slip_times[i] + dt * norm_rate).max(0.0);
+        } else {
+            guard.slip_times[i] = guard.play_times[i];
+        }
         deck_post[i] = (pre_l * vol, pre_r * vol);
         if deck.pfl_cue {
             deck_pfl[i] = (pre_l, pre_r);
@@ -757,17 +831,25 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
 
     guard.sample_counter = guard.sample_counter.wrapping_add(1);
 
+    let seq_bpm = guard.decks[0]
+        .loaded_track
+        .as_ref()
+        .map(|t| (t.bpm * (1.0 + guard.decks[0].pitch_bend_pct / 100.0)).clamp(60.0, 200.0))
+        .unwrap_or(126.0);
     let (samp_l, samp_r) = guard.sampler.next_stereo_frame(out_sr);
+    let (seq_l, seq_r) = guard.sequencer.next_stereo_frame(out_sr, seq_bpm);
 
     let (mut master_l, mut master_r) = if guard.muted || guard.master_volume <= 0.0 {
         (0.0, 0.0)
     } else {
         let sum_l = (deck_post[0].0 + deck_post[2].0) * gain_left
             + (deck_post[1].0 + deck_post[3].0) * gain_right
-            + samp_l;
+            + samp_l
+            + seq_l;
         let sum_r = (deck_post[0].1 + deck_post[2].1) * gain_left
             + (deck_post[1].1 + deck_post[3].1) * gain_right
-            + samp_r;
+            + samp_r
+            + seq_r;
         let mv = guard.master_volume.clamp(0.0, 1.0) as f32;
         (sum_l.tanh() * mv, sum_r.tanh() * mv)
     };

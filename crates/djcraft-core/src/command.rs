@@ -96,6 +96,13 @@ pub enum Command {
     ToggleKeylock {
         deck: DeckId,
     },
+    ToggleSlipMode {
+        deck: DeckId,
+    },
+    BeatJump {
+        deck: DeckId,
+        beats: f64,
+    },
     NudgeBeatgrid {
         deck: DeckId,
         delta_ms: f64,
@@ -289,6 +296,18 @@ impl Command {
             CommandSpec {
                 id: "modify.toggle_fx2",
                 label: "Toggle FX Bank 2 On / Off",
+                category: "Modify",
+                hotkey: "",
+            },
+            CommandSpec {
+                id: "modify.slip_a",
+                label: "Toggle Slip Mode on Deck A",
+                category: "Modify",
+                hotkey: "",
+            },
+            CommandSpec {
+                id: "modify.slip_b",
+                label: "Toggle Slip Mode on Deck B",
                 category: "Modify",
                 hotkey: "",
             },
@@ -740,6 +759,52 @@ impl DjOrchestrator {
                         }
                     ),
                     data: json!({ "deck": deck, "keylock": kl }),
+                })
+            }
+            Command::ToggleSlipMode { deck } => {
+                self.push_undo();
+                let state = self.deck_mut(deck);
+                state.slip_mode = !state.slip_mode;
+                let slip = state.slip_mode;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "toggle_slip_mode".to_string(),
+                    message: format!(
+                        "{}: SLIP MODE {}",
+                        deck.label(),
+                        if slip { "ON" } else { "OFF" }
+                    ),
+                    data: json!({ "deck": deck, "slip_mode": slip }),
+                })
+            }
+            Command::BeatJump { deck, beats } => {
+                let state = self.deck(deck);
+                let bpm = state
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| (t.bpm * (1.0 + state.pitch_bend_pct / 100.0)).max(20.0))
+                    .unwrap_or(126.0);
+                let max_dur = state
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| t.duration_seconds)
+                    .unwrap_or(600.0);
+                let delta_sec = beats.clamp(-64.0, 64.0) * (60.0 / bpm);
+                self.push_undo();
+                let st = self.deck_mut(deck);
+                st.position_seconds = (st.position_seconds + delta_sec).clamp(0.0, max_dur);
+                st.seek_gen = st.seek_gen.wrapping_add(1);
+                let new_pos = st.position_seconds;
+                Ok(DispatchOutcome {
+                    ok: true,
+                    command: "beat_jump".to_string(),
+                    message: format!(
+                        "{}: Beatjump {:+.0} beats -> {:.2}s",
+                        deck.label(),
+                        beats,
+                        new_pos
+                    ),
+                    data: json!({ "deck": deck, "beats": beats, "position_seconds": new_pos }),
                 })
             }
             Command::NudgeBeatgrid { deck, delta_ms } => {

@@ -6,6 +6,7 @@ mod docks;
 mod fx_rack;
 mod performance_strips;
 mod skins;
+mod studio_dock;
 mod theme;
 mod video;
 mod widgets;
@@ -17,11 +18,13 @@ use clap::Parser;
 use crate_view::{
     render_crate_two_pane_browser, render_gig_prep_workspace, CrateAction, CrateUiState,
 };
-use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid, load_sidecar_stems, WaveformSummary};
+use djcraft_audio::dsp::{
+    decode_audio_file, detect_beatgrid, load_sidecar_stems, DecodedAudio, WaveformSummary,
+};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{
-    fx_packs_dir, load_user_fx_presets_from_dir, AudioEngine, DeckId, FxPackPreset,
-    RecordingFormat, SamplePlayMode, TrackMeta, SAMPLER_BANKS, SAMPLER_SLOTS,
+    fx_packs_dir, load_user_fx_presets_from_dir, AudioEngine, DeckId, DrumGenre, FxPackPreset,
+    RecordingFormat, SamplePlayMode, SampleSlice, TrackMeta, SAMPLER_BANKS, SAMPLER_SLOTS,
 };
 use djcraft_core::i18n::{t, AppLocale, I18nKey};
 use djcraft_core::{
@@ -119,6 +122,7 @@ enum BoothStripTab {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LowerDockTab {
     FxRack,
+    StudioBeatmaker,
     Crates,
     VideoMixer,
     MidiControllers,
@@ -128,8 +132,9 @@ enum LowerDockTab {
 }
 
 impl LowerDockTab {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::FxRack,
+        Self::StudioBeatmaker,
         Self::Crates,
         Self::VideoMixer,
         Self::MidiControllers,
@@ -141,6 +146,7 @@ impl LowerDockTab {
     fn label(self) -> &'static str {
         match self {
             Self::FxRack => "FX Rack (3 Free Packs)",
+            Self::StudioBeatmaker => "Studio Beatmaker & Chopper",
             Self::Crates => "Crate Library",
             Self::VideoMixer => "Video Mixer",
             Self::MidiControllers => "MIDI Controllers (Rane 12/72)",
@@ -264,6 +270,11 @@ pub struct DjCraftApp {
     sampler_modes: [[SamplePlayMode; SAMPLER_SLOTS]; SAMPLER_BANKS],
     sampler_vols: [[f32; SAMPLER_SLOTS]; SAMPLER_BANKS],
     sampler_names: [[String; SAMPLER_SLOTS]; SAMPLER_BANKS],
+    studio_genre: DrumGenre,
+    studio_seq_vol: f32,
+    studio_chop_bank: usize,
+    studio_slices: Vec<SampleSlice>,
+    deck_decoded: [Option<Arc<DecodedAudio>>; 4],
     deck_waveforms: [Option<WaveformSummary>; 4],
 
     // Hardware MIDI Controller Engine (Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer, Hercules)
@@ -398,6 +409,11 @@ impl DjCraftApp {
             sampler_modes: [[SamplePlayMode::Trigger; SAMPLER_SLOTS]; SAMPLER_BANKS],
             sampler_vols: [[0.85; SAMPLER_SLOTS]; SAMPLER_BANKS],
             sampler_names,
+            studio_genre: DrumGenre::House,
+            studio_seq_vol: 0.78,
+            studio_chop_bank: 1,
+            studio_slices: Vec::new(),
+            deck_decoded: [None, None, None, None],
             deck_waveforms: [None, None, None, None],
 
             midi: MidiControllerManager::new(),
@@ -611,8 +627,9 @@ impl DjCraftApp {
                 };
                 let deck_idx = deck_index(deck);
                 self.deck_waveforms[deck_idx] = Some(WaveformSummary::from_decoded(&decoded));
-                self.audio_out
-                    .set_deck_audio(deck_idx, Some(Arc::new(decoded)));
+                let arc_audio = Arc::new(decoded);
+                self.deck_decoded[deck_idx] = Some(Arc::clone(&arc_audio));
+                self.audio_out.set_deck_audio(deck_idx, Some(arc_audio));
                 let stems_tag = if let Some(stems) = load_sidecar_stems(&path) {
                     self.audio_out
                         .set_deck_stems(deck_idx, Some(Arc::new(stems)));
@@ -742,8 +759,9 @@ impl DjCraftApp {
                     (g.bpm, g.first_beat_sec)
                 };
                 self.deck_waveforms[idx] = Some(WaveformSummary::from_decoded(&decoded));
-                self.audio_out
-                    .set_deck_audio(idx, Some(Arc::new(decoded.clone())));
+                let arc_audio = Arc::new(decoded.clone());
+                self.deck_decoded[idx] = Some(Arc::clone(&arc_audio));
+                self.audio_out.set_deck_audio(idx, Some(arc_audio));
                 if let Some(stems) = load_sidecar_stems(path) {
                     self.audio_out.set_deck_stems(idx, Some(Arc::new(stems)));
                 }
@@ -1164,6 +1182,12 @@ impl DjCraftApp {
             }),
             "modify.toggle_fx1" => self.dispatch_and_report(Command::ToggleFxUnit { unit: 0 }),
             "modify.toggle_fx2" => self.dispatch_and_report(Command::ToggleFxUnit { unit: 1 }),
+            "modify.slip_a" => {
+                self.dispatch_and_report(Command::ToggleSlipMode { deck: DeckId::DeckA })
+            }
+            "modify.slip_b" => {
+                self.dispatch_and_report(Command::ToggleSlipMode { deck: DeckId::DeckB })
+            }
             "modify.keylock_a" => self.dispatch_and_report(Command::ToggleKeylock {
                 deck: DeckId::DeckA,
             }),
@@ -1247,6 +1271,7 @@ impl DjCraftApp {
             || self.orch.deck_d.scratch_velocity.is_some()
             || self.midi.connected_port.is_some()
             || self.audio_out.is_recording()
+            || self.audio_out.sequencer_snapshot().0
             || self.prefs.backdrop == BackdropStyle::SparkleClub;
         if any_active {
             ctx.request_repaint();
@@ -1806,6 +1831,31 @@ impl DjCraftApp {
                                     delta_ms: 10.0,
                                 });
                                 ui.close();
+                            }
+                            ui.separator();
+                            let slip_lbl = if d.slip_mode {
+                                "Slip Mode: ON (Click to disable)"
+                            } else {
+                                "Slip Mode: OFF (Click to enable)"
+                            };
+                            if ui.button(slip_lbl).clicked() {
+                                self.dispatch_and_report(Command::ToggleSlipMode { deck: deck_id });
+                                ui.close();
+                            }
+                            ui.separator();
+                            for (lbl, beats) in [
+                                ("Beatjump -4 Beats", -4.0),
+                                ("Beatjump -1 Beat", -1.0),
+                                ("Beatjump +1 Beat", 1.0),
+                                ("Beatjump +4 Beats", 4.0),
+                            ] {
+                                if ui.button(lbl).clicked() {
+                                    self.dispatch_and_report(Command::BeatJump {
+                                        deck: deck_id,
+                                        beats,
+                                    });
+                                    ui.close();
+                                }
                             }
                         });
                     });
@@ -2775,6 +2825,9 @@ impl eframe::App for DjCraftApp {
                 ui.add_space(4.0);
                 match self.lower_tab {
                     LowerDockTab::FxRack => self.render_fx_rack_dock(ui, &palette),
+                    LowerDockTab::StudioBeatmaker => {
+                        self.render_studio_beatmaker_dock(ui, &palette);
+                    }
                     LowerDockTab::Crates => self.render_crate_dock(ui, &palette),
                     LowerDockTab::VideoMixer => self.render_video_dock(ui, &palette),
                     LowerDockTab::MidiControllers => self.render_midi_dock(ui, &palette),
@@ -2913,6 +2966,7 @@ mod tests {
                 include_str!("performance_strips.rs"),
             ),
             ("skins.rs", include_str!("skins.rs")),
+            ("studio_dock.rs", include_str!("studio_dock.rs")),
             ("theme.rs", include_str!("theme.rs")),
             ("video.rs", include_str!("video.rs")),
             ("widgets.rs", include_str!("widgets.rs")),

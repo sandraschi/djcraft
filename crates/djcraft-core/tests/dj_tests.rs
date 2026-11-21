@@ -1211,6 +1211,38 @@ fn test_fx_commands_preset_load_and_json_roundtrip() {
 }
 
 #[test]
+fn test_slip_mode_and_beatjump_dispatch() {
+    let mut orch = DjOrchestrator::new();
+    let slip_on = orch
+        .dispatch(Command::ToggleSlipMode {
+            deck: DeckId::DeckA,
+        })
+        .expect("slip on");
+    assert!(slip_on.ok && orch.deck_a.slip_mode);
+
+    let pos0 = orch.deck_a.position_seconds;
+    let gen0 = orch.deck_a.seek_gen;
+    let jump_fwd = orch
+        .dispatch(Command::BeatJump {
+            deck: DeckId::DeckA,
+            beats: 4.0,
+        })
+        .expect("jump +4");
+    assert!(jump_fwd.ok);
+    assert!(orch.deck_a.position_seconds > pos0 + 1.5);
+    assert!(orch.deck_a.seek_gen > gen0);
+
+    let jump_back = orch
+        .dispatch(Command::BeatJump {
+            deck: DeckId::DeckA,
+            beats: -4.0,
+        })
+        .expect("jump -4");
+    assert!(jump_back.ok);
+    assert!((orch.deck_a.position_seconds - pos0).abs() < 0.05);
+}
+
+#[test]
 fn test_track_hot_cues_sqlite_persistence() {
     let store = CrateStore::open_in_memory().expect("db");
     let path = "demo://subterranean_dub";

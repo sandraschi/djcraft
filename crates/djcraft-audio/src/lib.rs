@@ -12,6 +12,7 @@ pub mod fx;
 pub mod output;
 pub mod recorder;
 pub mod sampler;
+pub mod studio;
 
 pub use fx::{
     builtin_fx_presets, fx_packs_dir, load_user_fx_presets_from_dir, save_fx_preset_to_dir,
@@ -20,6 +21,9 @@ pub use fx::{
 };
 pub use recorder::{RecordingFormat, RecordingStopReport};
 pub use sampler::{SamplePlayMode, SamplerEngine, SAMPLER_BANKS, SAMPLER_SLOTS};
+pub use studio::{
+    auto_slice_audio, DrumGenre, SampleSlice, StepSequencer, LANE_LABELS, STEP_COUNT, STEP_LANES,
+};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum DeckId {
@@ -78,6 +82,8 @@ pub struct DeckState {
     pub seek_gen: u64,
     #[serde(default)]
     pub scratch_velocity: Option<f64>,
+    #[serde(default)]
+    pub slip_mode: bool,
 }
 
 pub struct AudioEngine;
@@ -108,6 +114,7 @@ impl AudioEngine {
             loop_bars: None,
             seek_gen: 0,
             scratch_velocity: None,
+            slip_mode: false,
         }
     }
 
