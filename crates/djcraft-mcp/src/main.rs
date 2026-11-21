@@ -11,7 +11,7 @@ use djcraft_core::{Command, CrateStore, DjOrchestrator, MixxxxxVideoControls};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
-const VERSION: &str = "0.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     eprintln!("[djcraft-mcp] Starting MCP stdio loop");

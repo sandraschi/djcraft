@@ -767,10 +767,7 @@ impl CrateStore {
                     return false;
                 }
             }
-            if q.analyzed_only && t.analyzed_at.is_none() {
-                return false;
-            }
-            true
+            !(q.analyzed_only && t.analyzed_at.is_none())
         });
 
         tracks.sort_by(|a, b| {

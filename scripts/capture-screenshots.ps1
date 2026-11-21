@@ -10,6 +10,7 @@ public class DjWindowCapture {
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdc, uint flags);
 
     public static IntPtr FindMainWindow(uint targetPid) {
@@ -38,8 +39,11 @@ public class DjWindowCapture {
 "@
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $repoRoot 'dist\djcraft.exe'
-$outDir = Join-Path $repoRoot 'docs\screenshots'
+$exe = Join-Path $repoRoot 'target\release\djcraft.exe'
+if (-not (Test-Path $exe)) {
+    $exe = Join-Path $repoRoot 'dist\djcraft.exe'
+}
+$outDir = Join-Path $repoRoot 'docs\images'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 $shots = @(
@@ -63,6 +67,7 @@ foreach ($s in $shots) {
             throw "Could not find visible DJCraft window for $($s.Name)"
         }
         Start-Sleep -Milliseconds 1200
+        [DjWindowCapture]::SetProcessDPIAware() | Out-Null
         $r = New-Object DjWindowCapture+RECT
         [DjWindowCapture]::GetWindowRect($hwnd, [ref]$r) | Out-Null
         $w = [Math]::Max(1, $r.Right - $r.Left)
