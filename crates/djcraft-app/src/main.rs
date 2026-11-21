@@ -113,6 +113,30 @@ enum LowerDockTab {
     CamelotAndMixxxxx,
 }
 
+impl LowerDockTab {
+    const ALL: [Self; 7] = [
+        Self::FxRack,
+        Self::Crates,
+        Self::VideoMixer,
+        Self::MidiControllers,
+        Self::AiChatAndWorkflows,
+        Self::FleetHub,
+        Self::CamelotAndMixxxxx,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::FxRack => "FX Rack (3 Free Packs)",
+            Self::Crates => "Crate Library",
+            Self::VideoMixer => "Video Mixer",
+            Self::MidiControllers => "MIDI Controllers (Rane 12/72)",
+            Self::AiChatAndWorkflows => "AI Chat & Workflows",
+            Self::FleetHub => "Fleet Hub (Speech/SFX/VFX/Butterchurn)",
+            Self::CamelotAndMixxxxx => "Camelot & Mixxxxx OSC",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UiPrefs {
     #[serde(default)]
@@ -130,14 +154,10 @@ struct UiPrefs {
     show_deck_b: bool,
     show_decks_cd: bool,
     show_parallel_waveforms: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     show_live_video_strip: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     show_live_sampler_strip: bool,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn default_last_dark() -> SkinId {
@@ -157,8 +177,8 @@ impl Default for UiPrefs {
             show_deck_b: true,
             show_decks_cd: true,
             show_parallel_waveforms: true,
-            show_live_video_strip: true,
-            show_live_sampler_strip: true,
+            show_live_video_strip: false,
+            show_live_sampler_strip: false,
         }
     }
 }
@@ -1298,41 +1318,44 @@ impl DjCraftApp {
                     }
 
                     ui.vertical(|ui| {
-                        ui.label(
-                            egui::RichText::new("Beatgrid")
-                                .size(11.0)
-                                .color(palette.text_secondary),
-                        );
-                        if ui.small_button("0% Pitch").clicked() {
-                            self.dispatch_and_report(Command::SetPitchBend {
-                                deck: deck_id,
-                                pct: 0.0,
-                            });
-                        }
-                        if ui.small_button("/2 BPM").clicked() {
-                            self.dispatch_and_report(Command::ScaleBpm {
-                                deck: deck_id,
-                                multiplier: 0.5,
-                            });
-                        }
-                        if ui.small_button("x2 BPM").clicked() {
-                            self.dispatch_and_report(Command::ScaleBpm {
-                                deck: deck_id,
-                                multiplier: 2.0,
-                            });
-                        }
-                        if ui.small_button("-10ms").clicked() {
-                            self.dispatch_and_report(Command::NudgeBeatgrid {
-                                deck: deck_id,
-                                delta_ms: -10.0,
-                            });
-                        }
-                        if ui.small_button("+10ms").clicked() {
-                            self.dispatch_and_report(Command::NudgeBeatgrid {
-                                deck: deck_id,
-                                delta_ms: 10.0,
-                            });
-                        }
+                        ui.menu_button("Grid...", |ui| {
+                            if ui.button("Reset Pitch (0%)").clicked() {
+                                self.dispatch_and_report(Command::SetPitchBend {
+                                    deck: deck_id,
+                                    pct: 0.0,
+                                });
+                                ui.close();
+                            }
+                            if ui.button("Half BPM (/2)").clicked() {
+                                self.dispatch_and_report(Command::ScaleBpm {
+                                    deck: deck_id,
+                                    multiplier: 0.5,
+                                });
+                                ui.close();
+                            }
+                            if ui.button("Double BPM (x2)").clicked() {
+                                self.dispatch_and_report(Command::ScaleBpm {
+                                    deck: deck_id,
+                                    multiplier: 2.0,
+                                });
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui.button("Nudge Grid -10ms").clicked() {
+                                self.dispatch_and_report(Command::NudgeBeatgrid {
+                                    deck: deck_id,
+                                    delta_ms: -10.0,
+                                });
+                                ui.close();
+                            }
+                            if ui.button("Nudge Grid +10ms").clicked() {
+                                self.dispatch_and_report(Command::NudgeBeatgrid {
+                                    deck: deck_id,
+                                    delta_ms: 10.0,
+                                });
+                                ui.close();
+                            }
+                        });
                     });
                 });
             });
@@ -1923,72 +1946,96 @@ impl eframe::App for DjCraftApp {
             ui.horizontal(|ui| {
                 ui.strong(egui::RichText::new("DJCraft Pro").color(palette.deck_a));
                 ui.separator();
-                ui.selectable_value(
-                    &mut self.workspace_mode,
-                    WorkspaceMode::LiveConsole,
-                    t(I18nKey::LiveConsole, self.locale),
-                );
-                ui.selectable_value(
-                    &mut self.workspace_mode,
-                    WorkspaceMode::CratesGigPrep,
-                    t(I18nKey::CratesGigPrep, self.locale),
-                );
-                ui.separator();
-                if ui
-                    .selectable_label(!self.prefs.four_deck_layout, "2-DECK")
-                    .on_hover_text("2-Deck view with A/C and B/D layer buttons + C/D strip")
-                    .clicked()
-                {
-                    self.prefs.four_deck_layout = false;
-                    self.prefs.save();
-                }
-                if ui
-                    .selectable_label(self.prefs.four_deck_layout, "4-DECK")
-                    .on_hover_text("Full 4-Deck stacked hardware layout (A+C left, B+D right)")
-                    .clicked()
-                {
-                    self.prefs.four_deck_layout = true;
-                    self.prefs.save();
-                }
-                ui.separator();
-                let vid_lbl = if self.prefs.show_live_video_strip {
-                    "VIDEO: ON"
-                } else {
-                    "VIDEO"
+                let mode_lbl = match self.workspace_mode {
+                    WorkspaceMode::LiveConsole => t(I18nKey::LiveConsole, self.locale),
+                    WorkspaceMode::CratesGigPrep => t(I18nKey::CratesGigPrep, self.locale),
                 };
-                if ui
-                    .selectable_label(self.prefs.show_live_video_strip, vid_lbl)
-                    .on_hover_text("Collapse / expand live 3-monitor Video Mix strip (Left A, Mixed, Right B)")
-                    .clicked()
-                {
-                    self.prefs.show_live_video_strip = !self.prefs.show_live_video_strip;
-                    self.prefs.save();
-                }
-                let smp_lbl = if self.prefs.show_live_sampler_strip {
-                    "SAMPLER: ON"
+                egui::ComboBox::from_id_salt("top_workspace_mode")
+                    .selected_text(mode_lbl)
+                    .width(135.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.workspace_mode,
+                            WorkspaceMode::LiveConsole,
+                            t(I18nKey::LiveConsole, self.locale),
+                        );
+                        ui.selectable_value(
+                            &mut self.workspace_mode,
+                            WorkspaceMode::CratesGigPrep,
+                            t(I18nKey::CratesGigPrep, self.locale),
+                        );
+                    });
+
+                let deck_mode_lbl = if self.prefs.four_deck_layout {
+                    "4-Deck"
                 } else {
-                    "SAMPLER"
+                    "2-Deck"
                 };
-                if ui
-                    .selectable_label(self.prefs.show_live_sampler_strip, smp_lbl)
-                    .on_hover_text("Collapse / expand live 8-slot Multi-Bank Sampler (4 Banks x 8 Pads)")
-                    .clicked()
-                {
-                    self.prefs.show_live_sampler_strip = !self.prefs.show_live_sampler_strip;
-                    self.prefs.save();
-                }
-                ui.separator();
-                if ui.small_button("Auto-Sync").clicked() {
-                    self.execute_catalog_id("commands.auto_sync");
-                }
-                if ui.small_button("Phase Sync").clicked() {
-                    self.execute_catalog_id("commands.phase_sync");
-                }
+                egui::ComboBox::from_id_salt("top_deck_layout")
+                    .selected_text(deck_mode_lbl)
+                    .width(72.0)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(!self.prefs.four_deck_layout, "2-Deck (A/B + Layer)")
+                            .clicked()
+                        {
+                            self.prefs.four_deck_layout = false;
+                            self.prefs.save();
+                        }
+                        if ui
+                            .selectable_label(self.prefs.four_deck_layout, "4-Deck (Stacked)")
+                            .clicked()
+                        {
+                            self.prefs.four_deck_layout = true;
+                            self.prefs.save();
+                        }
+                    });
+
+                ui.menu_button("Panels", |ui| {
+                    if ui
+                        .checkbox(&mut self.prefs.show_live_video_strip, "Live Video Strip (A / Mix / B)")
+                        .changed()
+                    {
+                        self.prefs.save();
+                    }
+                    if ui
+                        .checkbox(&mut self.prefs.show_live_sampler_strip, "Live Sampler Strip (4x8)")
+                        .changed()
+                    {
+                        self.prefs.save();
+                    }
+                    if ui
+                        .checkbox(&mut self.prefs.show_parallel_waveforms, "Parallel Waveforms")
+                        .changed()
+                    {
+                        self.prefs.save();
+                    }
+                    if ui
+                        .checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Bottom Bar")
+                        .changed()
+                    {
+                        self.prefs.save();
+                    }
+                });
+
+                ui.menu_button("Sync", |ui| {
+                    if ui.button("Auto-Sync BPM (Deck B -> A)").clicked() {
+                        self.execute_catalog_id("commands.auto_sync");
+                        ui.close();
+                    }
+                    if ui.button("Phase-Sync Beatgrid").clicked() {
+                        self.execute_catalog_id("commands.phase_sync");
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Command Palette (Ctrl+K)").clicked() {
+                        self.show_command_palette = true;
+                        ui.close();
+                    }
+                });
+
                 if ui.small_button("Stop All").clicked() {
                     self.execute_catalog_id("deck.stop_all");
-                }
-                if ui.small_button("Palette (Ctrl+K)").clicked() {
-                    self.show_command_palette = true;
                 }
                 ui.separator();
                 ui.label(egui::RichText::new(&self.status_msg).color(palette.text_secondary));
@@ -2146,34 +2193,16 @@ impl eframe::App for DjCraftApp {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 self.render_battle_mixer(ui, &palette);
                 ui.add_space(8.0);
-                ui.horizontal_wrapped(|ui| {
-                    ui.selectable_value(
-                        &mut self.lower_tab,
-                        LowerDockTab::FxRack,
-                        "FX Rack (3 Free Packs)",
-                    );
-                    ui.selectable_value(&mut self.lower_tab, LowerDockTab::Crates, "Crate Library");
-                    ui.selectable_value(&mut self.lower_tab, LowerDockTab::VideoMixer, "Video Mixer");
-                    ui.selectable_value(
-                        &mut self.lower_tab,
-                        LowerDockTab::MidiControllers,
-                        "MIDI (Rane 12/72)",
-                    );
-                    ui.selectable_value(
-                        &mut self.lower_tab,
-                        LowerDockTab::AiChatAndWorkflows,
-                        "AI Chat & Workflows",
-                    );
-                    ui.selectable_value(
-                        &mut self.lower_tab,
-                        LowerDockTab::FleetHub,
-                        "Fleet Hub (Speech/SFX/VFX/Butterchurn)",
-                    );
-                    ui.selectable_value(
-                        &mut self.lower_tab,
-                        LowerDockTab::CamelotAndMixxxxx,
-                        "Camelot & Mixxxxx",
-                    );
+                ui.horizontal(|ui| {
+                    ui.strong("Dock Panel:");
+                    egui::ComboBox::from_id_salt("lower_dock_selector")
+                        .selected_text(self.lower_tab.label())
+                        .width(240.0)
+                        .show_ui(ui, |ui| {
+                            for tab in LowerDockTab::ALL {
+                                ui.selectable_value(&mut self.lower_tab, tab, tab.label());
+                            }
+                        });
                 });
                 ui.add_space(4.0);
                 match self.lower_tab {
@@ -2509,8 +2538,21 @@ impl DjCraftApp {
                 ui.strong(t(I18nKey::MixRecorder, self.locale));
                 let is_rec = self.audio_out.is_recording();
                 ui.add_enabled_ui(!is_rec, |ui| {
-                    ui.selectable_value(&mut self.recording_format, RecordingFormat::Wav, "WAV");
-                    ui.selectable_value(&mut self.recording_format, RecordingFormat::Flac, "FLAC");
+                    egui::ComboBox::from_id_salt("rec_format_combo")
+                        .selected_text(self.recording_format.extension().to_uppercase())
+                        .width(64.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.recording_format,
+                                RecordingFormat::Wav,
+                                "WAV (16-bit PCM)",
+                            );
+                            ui.selectable_value(
+                                &mut self.recording_format,
+                                RecordingFormat::Flac,
+                                "FLAC (Lossless)",
+                            );
+                        });
                 });
                 if is_rec {
                     let secs = self.audio_out.recording_seconds();
@@ -2582,11 +2624,16 @@ impl DjCraftApp {
         let active_mask = self.audio_out.sampler_active_mask(bank);
         theme::card_frame(ui, palette, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.strong("Sampler (4 Banks x 8 Pads)");
-                ui.separator();
-                for (b_idx, lbl) in ["Bank A", "Bank B", "Bank C", "Bank D"].into_iter().enumerate() {
-                    ui.selectable_value(&mut self.sampler_bank, b_idx, lbl);
-                }
+                ui.strong("Sampler");
+                let bank_labels = ["Bank A", "Bank B", "Bank C", "Bank D"];
+                egui::ComboBox::from_id_salt("sampler_bank_combo")
+                    .selected_text(bank_labels[self.sampler_bank])
+                    .width(78.0)
+                    .show_ui(ui, |ui| {
+                        for (b_idx, lbl) in bank_labels.into_iter().enumerate() {
+                            ui.selectable_value(&mut self.sampler_bank, b_idx, lbl);
+                        }
+                    });
                 ui.separator();
                 ui.label("Sampler Vol");
                 if ui
@@ -2845,32 +2892,10 @@ impl DjCraftApp {
             });
             ui.add_space(4.0);
 
-            // 1-Click Built-In & User FX Pack Presets
+            // Built-in & User FX Pack Presets list (loaded via compact per-bank dropdown)
             let mut presets = builtin_fx_presets();
             presets.extend(self.fx_user_presets.clone());
-            ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new("Presets -> FX 1:").color(palette.text_secondary));
-                for p in &presets {
-                    if ui.small_button(&p.name).clicked() {
-                        self.dispatch_and_report(Command::LoadFxPreset {
-                            unit: 0,
-                            preset_name: p.name.clone(),
-                        });
-                    }
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new("Presets -> FX 2:").color(palette.text_secondary));
-                for p in &presets {
-                    if ui.small_button(&p.name).clicked() {
-                        self.dispatch_and_report(Command::LoadFxPreset {
-                            unit: 1,
-                            preset_name: p.name.clone(),
-                        });
-                    }
-                }
-            });
-            ui.add_space(6.0);
+            ui.add_space(4.0);
 
             // Side-by-side FX Bank 1 and FX Bank 2
             let mut pending_cmd: Option<Command> = None;
@@ -2901,7 +2926,7 @@ impl DjCraftApp {
 
                                 egui::ComboBox::from_id_salt(("fx_target", unit_idx))
                                     .selected_text(p.target.label())
-                                    .width(74.0)
+                                    .width(72.0)
                                     .show_ui(ui, |ui| {
                                         for tgt in FxTarget::ALL {
                                             if ui
@@ -2916,7 +2941,7 @@ impl DjCraftApp {
 
                                 egui::ComboBox::from_id_salt(("fx_scope", unit_idx))
                                     .selected_text(p.stem_scope.label())
-                                    .width(88.0)
+                                    .width(84.0)
                                     .show_ui(ui, |ui| {
                                         for sc in FxStemScope::ALL {
                                             if ui
@@ -2928,26 +2953,50 @@ impl DjCraftApp {
                                             }
                                         }
                                     });
-                            });
 
-                            // Beat division pills + Wet/Dry slider
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label("Beats:");
-                                for (lbl, val) in [
+                                let beat_options = [
                                     ("1/8", 0.125),
                                     ("1/4", 0.25),
                                     ("1/2", 0.5),
-                                    ("1", 1.0),
-                                    ("2", 2.0),
-                                    ("4", 4.0),
-                                ] {
-                                    let sel = (p.beats - val).abs() < 0.01;
-                                    if ui.selectable_label(sel, lbl).clicked() {
-                                        p.beats = val;
-                                        changed = true;
-                                    }
-                                }
+                                    ("1 Beat", 1.0),
+                                    ("2 Beats", 2.0),
+                                    ("4 Beats", 4.0),
+                                ];
+                                let cur_beat_lbl = beat_options
+                                    .iter()
+                                    .find(|(_, v)| (p.beats - *v).abs() < 0.01)
+                                    .map(|(l, _)| *l)
+                                    .unwrap_or("1/2");
+                                egui::ComboBox::from_id_salt(("fx_beats", unit_idx))
+                                    .selected_text(cur_beat_lbl)
+                                    .width(66.0)
+                                    .show_ui(ui, |ui| {
+                                        for (lbl, val) in beat_options {
+                                            if ui
+                                                .selectable_label((p.beats - val).abs() < 0.01, lbl)
+                                                .clicked()
+                                            {
+                                                p.beats = val;
+                                                changed = true;
+                                            }
+                                        }
+                                    });
+
+                                egui::ComboBox::from_id_salt(("fx_preset_pick", unit_idx))
+                                    .selected_text("Preset...")
+                                    .width(96.0)
+                                    .show_ui(ui, |ui| {
+                                        for pr in &presets {
+                                            if ui.selectable_label(false, &pr.name).clicked() {
+                                                pending_cmd = Some(Command::LoadFxPreset {
+                                                    unit: unit_idx,
+                                                    preset_name: pr.name.clone(),
+                                                });
+                                            }
+                                        }
+                                    });
                             });
+
                             ui.horizontal(|ui| {
                                 ui.label("Wet/Dry");
                                 if ui
