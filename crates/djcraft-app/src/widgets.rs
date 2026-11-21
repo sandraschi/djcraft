@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 //! GPU-painted tactile DJ hardware controls:
-//! rotary EQ/gain knobs, vertical club faders, MAG FOUR battle crossfader,
+//! rotary EQ/gain knobs, vertical club faders, Magnetic battle crossfader,
 //! 8 RGB MPC performance pads, stacked parallel beatmatching waveforms,
 //! motorized vinyl platters, stereo VU meters, and 12-hour Camelot wheel.
 
@@ -36,6 +36,13 @@ pub fn rotary_knob(
     ui.vertical(|ui| {
         let size = Vec2::new(48.0, 48.0);
         let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
+        resp.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::Role::Slider,
+                ui.is_enabled(),
+                format!("{label}: {:.2}", *value),
+            )
+        });
 
         if resp.double_clicked() {
             *value = default_val;
@@ -45,6 +52,28 @@ pub fn rotary_knob(
             let delta = -resp.drag_delta().y as f64 * (max - min) / 140.0;
             *value = (*value + delta).clamp(min, max);
             changed = true;
+        } else if resp.has_focus() {
+            let step = (max - min) / 40.0;
+            let (inc, dec, rst) = ui.input(|i| {
+                (
+                    i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowRight),
+                    i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::ArrowLeft),
+                    i.key_pressed(egui::Key::Home) || i.key_pressed(egui::Key::Num0),
+                )
+            });
+            if inc {
+                *value = (*value + step).clamp(min, max);
+                changed = true;
+                committed = true;
+            } else if dec {
+                *value = (*value - step).clamp(min, max);
+                changed = true;
+                committed = true;
+            } else if rst {
+                *value = default_val;
+                changed = true;
+                committed = true;
+            }
         }
         if resp.drag_stopped() {
             committed = true;

@@ -14,7 +14,16 @@ impl super::DjCraftApp {
     pub(super) fn render_battle_mixer(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
         theme::card_frame(ui, palette, |ui| {
             ui.horizontal(|ui| {
-                ui.strong(t(I18nKey::BattleMixer, self.locale));
+                let title_w = (ui.available_width() - 280.0).max(90.0);
+                ui.add_sized(
+                    [title_w, 18.0],
+                    egui::Label::new(
+                        egui::RichText::new(t(I18nKey::BattleMixer, self.locale))
+                            .strong()
+                            .color(palette.text_primary),
+                    )
+                    .truncate(),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mute_lbl = if self.orch.master_muted {
                         "UNMUTE"
@@ -24,11 +33,15 @@ impl super::DjCraftApp {
                     if ui.small_button(mute_lbl).clicked() {
                         self.execute_catalog_id("modify.toggle_mute");
                     }
-                    ui.monospace(if self.audio_out.active {
+                    let dev_text = if self.audio_out.active {
                         format!("WASAPI: {}", self.audio_out.device_name)
                     } else {
                         "WASAPI: Offline".to_string()
-                    });
+                    };
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(dev_text).monospace().small())
+                            .truncate(),
+                    );
                     theme::status_dot(ui, self.audio_out.active && !self.orch.master_muted);
                 });
             });
@@ -295,7 +308,11 @@ impl super::DjCraftApp {
             ui.separator();
             // Dual-Bus Headphone PFL Pre-Cue Strip
             ui.horizontal_wrapped(|ui| {
-                ui.strong(t(I18nKey::HeadphonePfl, self.locale));
+                ui.label(
+                    egui::RichText::new(t(I18nKey::HeadphonePfl, self.locale))
+                        .strong()
+                        .color(palette.text_primary),
+                );
                 let pfl_a = egui::Button::new("PFL A").small().fill(if da.pfl_cue {
                     palette.deck_a
                 } else {
@@ -426,7 +443,11 @@ impl super::DjCraftApp {
 
             // Live Lossless WAV / FLAC Mix Recorder Strip
             ui.horizontal_wrapped(|ui| {
-                ui.strong(t(I18nKey::MixRecorder, self.locale));
+                ui.label(
+                    egui::RichText::new(t(I18nKey::MixRecorder, self.locale))
+                        .strong()
+                        .color(palette.text_primary),
+                );
                 let is_rec = self.audio_out.is_recording();
                 ui.add_enabled_ui(!is_rec, |ui| {
                     egui::ComboBox::from_id_salt("rec_format_combo")

@@ -1236,12 +1236,22 @@ impl DjCraftApp {
                         }
                     }
                     if let Some(track) = &d.loaded_track {
-                        ui.label(egui::RichText::new(&track.title).strong());
+                        let key_bpm = format!("{} | {:.1} BPM", track.musical_key, track.bpm);
+                        let avail = (ui.available_width() - 124.0).max(32.0);
+                        ui.add_sized(
+                            [avail, 18.0],
+                            egui::Label::new(
+                                egui::RichText::new(&track.title)
+                                    .strong()
+                                    .color(palette.text_primary),
+                            )
+                            .truncate(),
+                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.monospace(format!("{} | {:.1} BPM", track.musical_key, track.bpm));
+                            ui.monospace(key_bpm);
                         });
                     } else {
-                        ui.label("Empty Deck");
+                        ui.label(egui::RichText::new("Empty Deck").color(palette.text_secondary));
                     }
                 });
                 ui.horizontal_wrapped(|ui| {
