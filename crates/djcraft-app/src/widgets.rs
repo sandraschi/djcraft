@@ -506,6 +506,103 @@ pub fn paint_vertical_waveforms(
     );
 }
 
+/// Sample 3-band spectral amplitudes `(low, mid, high)` in `0.0..=1.0` at track time `t`.
+fn sample_waveform_3band(
+    deck: &DeckState,
+    waveform: Option<&WaveformSummary>,
+    t: f64,
+    beat_sec: f64,
+) -> (f32, f32, f32) {
+    if let Some(wf) = waveform {
+        let (lo, mid, hi) = wf.sample_3band_at(t);
+        (
+            (lo * deck.eq_low as f32).clamp(0.0, 1.0),
+            (mid * deck.eq_mid as f32).clamp(0.0, 1.0),
+            (hi * deck.eq_high as f32).clamp(0.0, 1.0),
+        )
+    } else {
+        let rel = (t - deck.beatgrid_offset_sec).max(0.0);
+        let beat_idx = (rel / beat_sec).floor() as i64;
+        let beat_phase = (rel.rem_euclid(beat_sec)) / beat_sec;
+        let sub_16th = (beat_phase * 4.0).fract();
+
+        // Low: punchy 4/4 kick + sub groove
+        let kick = if beat_phase < 0.24 {
+            (1.0 - beat_phase / 0.24).powf(1.4)
+        } else {
+            0.08
+        };
+        let sub_pulse = if beat_phase > 0.45 && beat_phase < 0.85 {
+            0.42
+        } else {
+            0.12
+        };
+        let low = ((kick * 0.85 + sub_pulse * 0.35)
+            * deck.stem_drums_gain.max(deck.stem_bass_gain)
+            * deck.eq_low)
+            .clamp(0.0, 1.0);
+
+        // Mid: backbeat clap/snare on beats 2 & 4 + warm chord swell
+        let is_snare_beat = beat_idx.rem_euclid(2) == 1;
+        let snare = if is_snare_beat && beat_phase < 0.20 {
+            1.0 - beat_phase / 0.20
+        } else {
+            0.0
+        };
+        let chord = ((t * 2.4).sin().abs() * 0.45 + (t * 5.1).cos().abs() * 0.30)
+            * deck.stem_vocals_gain.max(deck.stem_other_gain);
+        let mid = ((snare * 0.72 + chord * 0.65) * deck.eq_mid).clamp(0.0, 1.0);
+
+        // High: 16th-note crisp hi-hats + off-beat open hat shimmer
+        let hat = if sub_16th < 0.25 {
+            (1.0 - sub_16th / 0.25) * 0.75
+        } else {
+            0.06
+        };
+        let offbeat_hat = if (beat_phase - 0.5).abs() < 0.14 {
+            0.45
+        } else {
+            0.0
+        };
+        let high =
+            (((hat + offbeat_hat) * 0.85) * deck.stem_drums_gain * deck.eq_high).clamp(0.0, 1.0);
+
+        (low as f32, mid as f32, high as f32)
+    }
+}
+
+/// Serato-style 3-band RGB spectral color mapping:
+/// Low (<250 Hz) = Crimson/Red, Mid (250-2500 Hz) = Emerald/Lime, High (>2500 Hz) = Electric Cyan/Blue.
+fn rgb_waveform_color(low: f32, mid: f32, high: f32) -> (Color32, Color32) {
+    let sum = (low + mid + high).max(1e-4);
+    let wl = low / sum;
+    let wm = mid / sum;
+    let wh = high / sum;
+
+    // Vivid saturated primaries for club readability on dark & light booths
+    let r = (wl * 255.0 + wm * 55.0 + wh * 40.0).clamp(0.0, 255.0);
+    let g = (wl * 48.0 + wm * 235.0 + wh * 185.0).clamp(0.0, 255.0);
+    let b = (wl * 64.0 + wm * 95.0 + wh * 255.0).clamp(0.0, 255.0);
+
+    let outer = Color32::from_rgba_unmultiplied(r as u8, g as u8, b as u8, 220);
+    // Hot core blends toward crisp white on mid/high transients
+    let core_boost = (wm * 0.45 + wh * 0.65).clamp(0.15, 0.82);
+    let cr = (r + (255.0 - r) * core_boost).clamp(0.0, 255.0) as u8;
+    let cg = (g + (255.0 - g) * core_boost).clamp(0.0, 255.0) as u8;
+    let cb = (b + (255.0 - b) * core_boost).clamp(0.0, 255.0) as u8;
+    let core = Color32::from_rgba_unmultiplied(cr, cg, cb, 235);
+    (outer, core)
+}
+
+fn cue_flag_color(slot: usize) -> Color32 {
+    match slot {
+        0 => Color32::from_rgb(239, 68, 68),
+        1 => Color32::from_rgb(245, 158, 11),
+        2 => Color32::from_rgb(34, 197, 94),
+        _ => Color32::from_rgb(56, 189, 248),
+    }
+}
+
 fn paint_vertical_lane(
     painter: &egui::Painter,
     rect: Rect,
@@ -529,53 +626,8 @@ fn paint_vertical_lane(
     let window_sec = 8.0_f64;
     // Time flows downward: future audio at the top, past at the bottom.
     let start_t = deck.position_seconds + window_sec * 0.5;
-    let rows = ((rect.height() / 3.0) as usize).clamp(48, 400);
-    let row_h = rect.height() / rows as f32;
-    let mid_x = rect.center().x;
-    let max_half_w = rect.width() * 0.44;
 
-    for row in 0..rows {
-        let frac = row as f64 / rows as f64;
-        let t = start_t - frac * window_sec;
-        if t < 0.0 || t > track.duration_seconds {
-            continue;
-        }
-        let (bass_amp, high_amp) = if let Some(wf) = waveform {
-            let (lo, hi) = wf.sample_at(t);
-            (
-                (lo as f64 * deck.eq_low).clamp(0.0, 1.0),
-                (hi as f64 * deck.eq_high.max(deck.eq_mid)).clamp(0.0, 1.0),
-            )
-        } else {
-            let beat_phase = ((t - deck.beatgrid_offset_sec).rem_euclid(beat_sec)) / beat_sec;
-            let kick = if beat_phase < 0.22 {
-                1.0 - beat_phase / 0.22
-            } else {
-                0.18
-            };
-            let mel = (t * 3.7).sin().abs() * 0.5 + (t * 7.3).cos().abs() * 0.5;
-            (
-                (kick * 0.7 + 0.3).clamp(0.0, 1.0),
-                (mel * 0.8 + 0.2).clamp(0.0, 1.0),
-            )
-        };
-        let y = rect.top() + row as f32 * row_h + row_h * 0.5;
-        let w_bass = bass_amp as f32 * max_half_w * deck.volume_fader as f32;
-        let w_high = high_amp as f32 * max_half_w * 0.65 * deck.volume_fader as f32;
-        painter.line_segment(
-            [Pos2::new(mid_x - w_bass, y), Pos2::new(mid_x + w_bass, y)],
-            Stroke::new(
-                2.0,
-                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 165),
-            ),
-        );
-        painter.line_segment(
-            [Pos2::new(mid_x - w_high, y), Pos2::new(mid_x + w_high, y)],
-            Stroke::new(1.3, Color32::from_rgb(236, 242, 248)),
-        );
-    }
-
-    // Beatgrid ticks (horizontal), bars brighter
+    // Subtle full-width beatgrid lines behind waveform
     let last_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
     let first_beat = ((start_t - window_sec - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
     for b in first_beat..=last_beat {
@@ -585,19 +637,89 @@ fn paint_vertical_lane(
         let t = deck.beatgrid_offset_sec + b as f64 * beat_sec;
         let y = rect.top() + ((start_t - t) / window_sec) as f32 * rect.height();
         let is_bar = b % 4 == 0;
-        let col = if is_bar {
-            Color32::from_rgb(248, 250, 252)
+        let grid_col = if is_bar {
+            Color32::from_rgba_unmultiplied(248, 250, 252, 68)
         } else {
-            Color32::from_rgb(100, 116, 139)
+            Color32::from_rgba_unmultiplied(148, 163, 184, 24)
         };
-        let len = if is_bar { 10.0 } else { 5.0 };
         painter.line_segment(
             [
                 Pos2::new(rect.left() + 1.0, y),
-                Pos2::new(rect.left() + len, y),
+                Pos2::new(rect.right() - 1.0, y),
             ],
-            Stroke::new(if is_bar { 1.6 } else { 1.0 }, col),
+            Stroke::new(if is_bar { 1.3 } else { 1.0 }, grid_col),
         );
+    }
+
+    // Active loop band highlight
+    if let Some(bars) = deck.loop_bars {
+        let loop_len = bars as f64 * 4.0 * beat_sec;
+        let loop_start = (deck.position_seconds / loop_len).floor() * loop_len;
+        let loop_end = loop_start + loop_len;
+        let y_top = rect.top()
+            + (((start_t - loop_end) / window_sec).clamp(0.0, 1.0)) as f32 * rect.height();
+        let y_bot = rect.top()
+            + (((start_t - loop_start) / window_sec).clamp(0.0, 1.0)) as f32 * rect.height();
+        if y_bot > y_top {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(rect.left(), y_top),
+                    Pos2::new(rect.right(), y_bot),
+                ),
+                CornerRadius::ZERO,
+                Color32::from_rgba_unmultiplied(34, 197, 94, 28),
+            );
+        }
+    }
+
+    let rows = ((rect.height() / 1.5) as usize).clamp(64, 600);
+    let row_h = rect.height() / rows as f32;
+    let mid_x = rect.center().x;
+    let max_half_w = rect.width() * 0.45;
+    let vol = deck.volume_fader as f32;
+
+    for row in 0..rows {
+        let frac = row as f64 / rows as f64;
+        let t = start_t - frac * window_sec;
+        if t < 0.0 || t > track.duration_seconds {
+            continue;
+        }
+        let (low, mid, high) = sample_waveform_3band(deck, waveform, t, beat_sec);
+        let peak = low.max(mid).max(high);
+        let core_amp = mid.max(high) * 0.55 + low * 0.25;
+        let (outer_col, core_col) = rgb_waveform_color(low, mid, high);
+
+        let y = rect.top() + row as f32 * row_h + row_h * 0.5;
+        let w_outer = peak * max_half_w * vol;
+        let w_core = (core_amp * max_half_w * vol).min(w_outer);
+
+        painter.line_segment(
+            [Pos2::new(mid_x - w_outer, y), Pos2::new(mid_x + w_outer, y)],
+            Stroke::new(1.7, outer_col),
+        );
+        if w_core > 1.0 {
+            painter.line_segment(
+                [Pos2::new(mid_x - w_core, y), Pos2::new(mid_x + w_core, y)],
+                Stroke::new(1.1, core_col),
+            );
+        }
+    }
+
+    // Hot cue markers
+    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate() {
+        if let Some(cue_t) = cue_opt {
+            if *cue_t <= start_t && *cue_t >= start_t - window_sec {
+                let y = rect.top() + ((start_t - *cue_t) / window_sec) as f32 * rect.height();
+                let col = cue_flag_color(slot);
+                painter.line_segment(
+                    [
+                        Pos2::new(rect.left() + 2.0, y),
+                        Pos2::new(rect.right() - 2.0, y),
+                    ],
+                    Stroke::new(1.5, col),
+                );
+            }
+        }
     }
 }
 
@@ -626,55 +748,7 @@ fn paint_waveform_lane(
     let window_sec = 8.0_f64;
     let start_t = deck.position_seconds - window_sec * 0.5;
 
-    let columns = ((rect.width() / 3.0) as usize).clamp(48, 320);
-    let col_w = rect.width() / columns as f32;
-    let max_half_h = rect.height() * 0.42;
-
-    for col in 0..columns {
-        let frac = col as f64 / columns as f64;
-        let t = start_t + frac * window_sec;
-        if t < 0.0 || t > track.duration_seconds {
-            continue;
-        }
-        let (bass_amp, high_amp) = if let Some(wf) = waveform {
-            let (lo, hi) = wf.sample_at(t);
-            (
-                (lo as f64 * deck.eq_low).clamp(0.0, 1.0),
-                (hi as f64 * deck.eq_high.max(deck.eq_mid)).clamp(0.0, 1.0),
-            )
-        } else {
-            let beat_phase = ((t - deck.beatgrid_offset_sec).rem_euclid(beat_sec)) / beat_sec;
-            let kick_env = if beat_phase < 0.22 {
-                1.0 - beat_phase / 0.22
-            } else {
-                0.18
-            };
-            let melodic =
-                ((t * 3.7).sin().abs() * 0.5 + (t * 7.3).cos().abs() * 0.5) * deck.stem_vocals_gain;
-            (
-                (kick_env * deck.stem_drums_gain * 0.7 + 0.3 * deck.stem_bass_gain).clamp(0.0, 1.0),
-                (melodic * 0.8 + 0.2 * deck.stem_other_gain).clamp(0.0, 1.0),
-            )
-        };
-
-        let x = rect.left() + col as f32 * col_w + col_w * 0.5;
-        let h_bass = (bass_amp as f32) * max_half_h * deck.volume_fader as f32;
-        let h_high = (high_amp as f32) * max_half_h * 0.65 * deck.volume_fader as f32;
-
-        painter.line_segment(
-            [Pos2::new(x, mid_y - h_bass), Pos2::new(x, mid_y + h_bass)],
-            Stroke::new(
-                2.0,
-                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 165),
-            ),
-        );
-        painter.line_segment(
-            [Pos2::new(x, mid_y - h_high), Pos2::new(x, mid_y + h_high)],
-            Stroke::new(1.3, Color32::from_rgb(236, 242, 248)),
-        );
-    }
-
-    // Beatgrid tick marks
+    // Subtle full-height beatgrid lines behind waveform
     let first_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
     let last_beat = ((start_t + window_sec - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
     for b in first_beat..=last_beat {
@@ -684,18 +758,88 @@ fn paint_waveform_lane(
         let t = deck.beatgrid_offset_sec + b as f64 * beat_sec;
         let x = rect.left() + ((t - start_t) / window_sec) as f32 * rect.width();
         let is_bar = b % 4 == 0;
-        let tick_color = if is_bar {
-            Color32::from_rgb(248, 250, 252)
+        let grid_col = if is_bar {
+            Color32::from_rgba_unmultiplied(248, 250, 252, 68)
         } else {
-            Color32::from_rgb(100, 116, 139)
+            Color32::from_rgba_unmultiplied(148, 163, 184, 24)
         };
         painter.line_segment(
             [
                 Pos2::new(x, rect.top() + 1.0),
-                Pos2::new(x, rect.top() + if is_bar { 10.0 } else { 5.0 }),
+                Pos2::new(x, rect.bottom() - 1.0),
             ],
-            Stroke::new(if is_bar { 1.6 } else { 1.0 }, tick_color),
+            Stroke::new(if is_bar { 1.3 } else { 1.0 }, grid_col),
         );
+    }
+
+    // Active loop band highlight
+    if let Some(bars) = deck.loop_bars {
+        let loop_len = bars as f64 * 4.0 * beat_sec;
+        let loop_start = (deck.position_seconds / loop_len).floor() * loop_len;
+        let loop_end = loop_start + loop_len;
+        let x_left = rect.left()
+            + (((loop_start - start_t) / window_sec).clamp(0.0, 1.0)) as f32 * rect.width();
+        let x_right = rect.left()
+            + (((loop_end - start_t) / window_sec).clamp(0.0, 1.0)) as f32 * rect.width();
+        if x_right > x_left {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(x_left, rect.top()),
+                    Pos2::new(x_right, rect.bottom()),
+                ),
+                CornerRadius::ZERO,
+                Color32::from_rgba_unmultiplied(34, 197, 94, 28),
+            );
+        }
+    }
+
+    let columns = ((rect.width() / 1.5) as usize).clamp(96, 900);
+    let col_w = rect.width() / columns as f32;
+    let max_half_h = rect.height() * 0.44;
+    let vol = deck.volume_fader as f32;
+
+    for col in 0..columns {
+        let frac = col as f64 / columns as f64;
+        let t = start_t + frac * window_sec;
+        if t < 0.0 || t > track.duration_seconds {
+            continue;
+        }
+        let (low, mid, high) = sample_waveform_3band(deck, waveform, t, beat_sec);
+        let peak = low.max(mid).max(high);
+        let core_amp = mid.max(high) * 0.55 + low * 0.25;
+        let (outer_col, core_col) = rgb_waveform_color(low, mid, high);
+
+        let x = rect.left() + col as f32 * col_w + col_w * 0.5;
+        let h_outer = peak * max_half_h * vol;
+        let h_core = (core_amp * max_half_h * vol).min(h_outer);
+
+        painter.line_segment(
+            [Pos2::new(x, mid_y - h_outer), Pos2::new(x, mid_y + h_outer)],
+            Stroke::new(1.7, outer_col),
+        );
+        if h_core > 1.0 {
+            painter.line_segment(
+                [Pos2::new(x, mid_y - h_core), Pos2::new(x, mid_y + h_core)],
+                Stroke::new(1.1, core_col),
+            );
+        }
+    }
+
+    // Hot cue markers
+    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate() {
+        if let Some(cue_t) = cue_opt {
+            if *cue_t >= start_t && *cue_t <= start_t + window_sec {
+                let x = rect.left() + ((*cue_t - start_t) / window_sec) as f32 * rect.width();
+                let col = cue_flag_color(slot);
+                painter.line_segment(
+                    [
+                        Pos2::new(x, rect.top() + 2.0),
+                        Pos2::new(x, rect.bottom() - 2.0),
+                    ],
+                    Stroke::new(1.5, col),
+                );
+            }
+        }
     }
 }
 

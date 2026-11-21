@@ -395,6 +395,7 @@ pub struct WaveformSummary {
     pub sample_rate: u32,
     pub hop_seconds: f64,
     pub low_peaks: Vec<f32>,
+    pub mid_peaks: Vec<f32>,
     pub high_peaks: Vec<f32>,
 }
 
@@ -405,25 +406,33 @@ impl WaveformSummary {
         let n = audio.len_frames();
         let bins = n.div_ceil(hop);
         let mut low_peaks = Vec::with_capacity(bins);
+        let mut mid_peaks = Vec::with_capacity(bins);
         let mut high_peaks = Vec::with_capacity(bins);
 
-        // Simple 1-pole lowpass (~250 Hz) split to color bass vs highs accurately
-        let alpha = (2.0 * std::f32::consts::PI * 250.0 / sr as f32).clamp(0.001, 0.99);
-        let mut lp = 0.0_f32;
+        // 3-band crossover: Low < 250 Hz, Mid 250-2500 Hz, High > 2500 Hz
+        let alpha_lo = (2.0 * std::f32::consts::PI * 250.0 / sr as f32).clamp(0.001, 0.99);
+        let alpha_hi = (2.0 * std::f32::consts::PI * 2500.0 / sr as f32).clamp(0.001, 0.99);
+        let mut lp_lo = 0.0_f32;
+        let mut lp_hi = 0.0_f32;
 
         for bin in 0..bins {
             let start = bin * hop;
             let end = (start + hop).min(n);
             let mut max_low = 0.0_f32;
+            let mut max_mid = 0.0_f32;
             let mut max_high = 0.0_f32;
             for i in start..end {
                 let m = 0.5 * (audio.left[i] + audio.right[i]);
-                lp += alpha * (m - lp);
-                let hi = m - lp;
-                max_low = max_low.max(lp.abs());
+                lp_lo += alpha_lo * (m - lp_lo);
+                lp_hi += alpha_hi * (m - lp_hi);
+                let mid = lp_hi - lp_lo;
+                let hi = m - lp_hi;
+                max_low = max_low.max(lp_lo.abs());
+                max_mid = max_mid.max(mid.abs());
                 max_high = max_high.max(hi.abs());
             }
             low_peaks.push(max_low.clamp(0.0, 1.0));
+            mid_peaks.push(max_mid.clamp(0.0, 1.0));
             high_peaks.push(max_high.clamp(0.0, 1.0));
         }
 
@@ -431,19 +440,29 @@ impl WaveformSummary {
             sample_rate: audio.sample_rate,
             hop_seconds: hop as f64 / sr as f64,
             low_peaks,
+            mid_peaks,
             high_peaks,
         }
     }
 
     pub fn sample_at(&self, time_sec: f64) -> (f32, f32) {
+        let (lo, mid, hi) = self.sample_3band_at(time_sec);
+        (lo, mid.max(hi))
+    }
+
+    pub fn sample_3band_at(&self, time_sec: f64) -> (f32, f32, f32) {
         if time_sec < 0.0 || self.low_peaks.is_empty() || self.hop_seconds <= 0.0 {
-            return (0.0, 0.0);
+            return (0.0, 0.0, 0.0);
         }
         let idx = (time_sec / self.hop_seconds) as usize;
         if idx >= self.low_peaks.len() {
-            return (0.0, 0.0);
+            return (0.0, 0.0, 0.0);
         }
-        (self.low_peaks[idx], self.high_peaks[idx])
+        (
+            self.low_peaks[idx],
+            self.mid_peaks.get(idx).copied().unwrap_or(0.0),
+            self.high_peaks[idx],
+        )
     }
 }
 
