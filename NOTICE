@@ -1,0 +1,8 @@
+DJCraft
+Copyright (c) 2026 the DJCraft contributors (sandraschi).
+Licensed under the MIT License or the Apache License, Version 2.0, at your option.
+
+DJCraft is a clean-room native Rust application in the Craft App ecosystem.
+DJCraft is not affiliated with, endorsed by, or sponsored by Serato, AlphaTheta/Pioneer DJ, Rane, VirtualDJ, Native Instruments, or Storytold.
+All third-party file formats and hardware MIDI controller names referenced in interoperability features remain the property of their respective owners.
+Per-file asset provenance and licences are recorded in ATTRIBUTION.md.

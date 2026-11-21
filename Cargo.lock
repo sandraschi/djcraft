@@ -789,28 +789,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c87e182de0887fd5361989c677c4e8f5000cd9491d6d563161a8f3a5519fc7f"
 
 [[package]]
-name = "databasecraft-core"
-version = "0.7.0"
-dependencies = [
- "chrono",
- "databasecraft-store",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "databasecraft-store"
-version = "0.7.0"
-dependencies = [
- "chrono",
- "rusqlite",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -874,8 +852,6 @@ name = "djcraft-core"
 version = "0.2.0"
 dependencies = [
  "chrono",
- "databasecraft-core",
- "databasecraft-store",
  "djcraft-audio",
  "midir",
  "rusqlite",
@@ -3776,7 +3752,6 @@ version = "1.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
 dependencies = [
- "getrandom 0.4.3",
  "js-sys",
  "serde_core",
  "wasm-bindgen",
@@ -4617,6 +4592,10 @@ name = "xml-rs"
 version = "0.8.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
 
 [[package]]
 name = "yoke"

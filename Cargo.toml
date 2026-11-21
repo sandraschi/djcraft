@@ -5,6 +5,7 @@ members = [
     "crates/djcraft-core",
     "crates/djcraft-mcp",
     "crates/djcraft-app",
+    "xtask",
 ]
 
 [workspace.package]
@@ -28,5 +29,3 @@ symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "aac", "
 rfd = "0.15"
 midir = "0.10"
 ureq = { version = "2", features = ["json"] }
-databasecraft-store = { path = "../databasecraft/crates/databasecraft-store" }
-databasecraft-core = { path = "../databasecraft/crates/databasecraft-core" }
