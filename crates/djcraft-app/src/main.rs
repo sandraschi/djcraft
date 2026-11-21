@@ -1449,39 +1449,52 @@ impl eframe::App for DjCraftApp {
         }
         ctx.set_zoom_factor(self.prefs.zoom_factor);
 
-        // Global shortcuts
-        ctx.input(|i| {
-            let cmd_mod = i.modifiers.ctrl || i.modifiers.command;
-            if cmd_mod && i.key_pressed(egui::Key::K) {
-                self.show_command_palette = !self.show_command_palette;
+        // Global shortcuts (NEVER call ctx.* inside ctx.input() -- egui RwLock deadlock!)
+        let wants_kb = ctx.egui_wants_keyboard_input();
+        let (k_palette, k_palette_shift, k_f1, k_undo, k_redo, k_new, k_zoom0, k_space, k_shift) =
+            ctx.input(|i| {
+                let cmd_mod = i.modifiers.ctrl || i.modifiers.command;
+                (
+                    cmd_mod && i.key_pressed(egui::Key::K),
+                    cmd_mod && i.modifiers.shift && i.key_pressed(egui::Key::P),
+                    i.key_pressed(egui::Key::F1),
+                    cmd_mod && i.key_pressed(egui::Key::Z),
+                    cmd_mod && i.key_pressed(egui::Key::Y),
+                    cmd_mod && i.key_pressed(egui::Key::N),
+                    cmd_mod && i.key_pressed(egui::Key::Num0),
+                    i.key_pressed(egui::Key::Space),
+                    i.modifiers.shift,
+                )
+            });
+        if k_palette {
+            self.show_command_palette = !self.show_command_palette;
+        }
+        if k_palette_shift {
+            self.show_command_palette = true;
+        }
+        if k_f1 {
+            self.show_shortcuts_dialog = !self.show_shortcuts_dialog;
+        }
+        if k_undo {
+            self.execute_catalog_id("edit.undo");
+        }
+        if k_redo {
+            self.execute_catalog_id("edit.redo");
+        }
+        if k_new {
+            self.execute_catalog_id("session.new");
+        }
+        if k_zoom0 {
+            self.prefs.zoom_factor = 1.0;
+            self.prefs.save();
+        }
+        if !wants_kb && k_space {
+            if k_shift {
+                self.execute_catalog_id("deck.play_pause.b");
+            } else {
+                self.execute_catalog_id("deck.play_pause.a");
             }
-            if cmd_mod && i.modifiers.shift && i.key_pressed(egui::Key::P) {
-                self.show_command_palette = true;
-            }
-            if i.key_pressed(egui::Key::F1) {
-                self.show_shortcuts_dialog = !self.show_shortcuts_dialog;
-            }
-            if cmd_mod && i.key_pressed(egui::Key::Z) {
-                self.execute_catalog_id("edit.undo");
-            }
-            if cmd_mod && i.key_pressed(egui::Key::Y) {
-                self.execute_catalog_id("edit.redo");
-            }
-            if cmd_mod && i.key_pressed(egui::Key::N) {
-                self.execute_catalog_id("session.new");
-            }
-            if cmd_mod && i.key_pressed(egui::Key::Num0) {
-                self.prefs.zoom_factor = 1.0;
-                self.prefs.save();
-            }
-            if !ctx.egui_wants_keyboard_input() && i.key_pressed(egui::Key::Space) {
-                if i.modifiers.shift {
-                    self.execute_catalog_id("deck.play_pause.b");
-                } else {
-                    self.execute_catalog_id("deck.play_pause.a");
-                }
-            }
-        });
+        }
 
         // Continuous playback tick (uses actual frame dt; skips decks currently being vinyl-scratched)
         let mut any_playing = false;
