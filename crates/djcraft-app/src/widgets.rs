@@ -195,8 +195,14 @@ pub fn vertical_fader(
             let y = track_top + (i as f32 / 8.0) * track_h;
             let len = if i == 4 { 7.0 } else { 4.0 };
             let col = if i == 4 { accent } else { palette.card_border };
-            painter.line_segment([Pos2::new(cx - 14.0, y), Pos2::new(cx - 14.0 + len, y)], Stroke::new(1.0, col));
-            painter.line_segment([Pos2::new(cx + 14.0 - len, y), Pos2::new(cx + 14.0, y)], Stroke::new(1.0, col));
+            painter.line_segment(
+                [Pos2::new(cx - 14.0, y), Pos2::new(cx - 14.0 + len, y)],
+                Stroke::new(1.0, col),
+            );
+            painter.line_segment(
+                [Pos2::new(cx + 14.0 - len, y), Pos2::new(cx + 14.0, y)],
+                Stroke::new(1.0, col),
+            );
         }
 
         // Recessed fader slot
@@ -219,7 +225,10 @@ pub fn vertical_fader(
             StrokeKind::Inside,
         );
         painter.line_segment(
-            [Pos2::new(cap.left() + 3.0, cap_y), Pos2::new(cap.right() - 3.0, cap_y)],
+            [
+                Pos2::new(cap.left() + 3.0, cap_y),
+                Pos2::new(cap.right() - 3.0, cap_y),
+            ],
             Stroke::new(2.0, palette.canvas),
         );
 
@@ -271,7 +280,10 @@ pub fn club_crossfader(
     let rail = Rect::from_center_size(rect.center(), Vec2::new(span + 8.0, 8.0));
     painter.rect_filled(rail, CornerRadius::same(4), palette.fader_slot);
     painter.line_segment(
-        [Pos2::new(rect.center().x, rect.top() + 3.0), Pos2::new(rect.center().x, rect.bottom() - 3.0)],
+        [
+            Pos2::new(rect.center().x, rect.top() + 3.0),
+            Pos2::new(rect.center().x, rect.bottom() - 3.0),
+        ],
         Stroke::new(1.5, palette.card_border),
     );
 
@@ -303,7 +315,10 @@ pub fn club_crossfader(
         StrokeKind::Inside,
     );
     painter.line_segment(
-        [Pos2::new(cap_x, cap.top() + 3.0), Pos2::new(cap_x, cap.bottom() - 3.0)],
+        [
+            Pos2::new(cap_x, cap.top() + 3.0),
+            Pos2::new(cap_x, cap.bottom() - 3.0),
+        ],
         Stroke::new(2.0, palette.canvas),
     );
 
@@ -403,13 +418,19 @@ pub fn paint_parallel_waveforms(
 
     // Divider between Deck A and Deck B lanes
     painter.line_segment(
-        [Pos2::new(rect.left(), rect.min.y + half_h), Pos2::new(rect.right(), rect.min.y + half_h)],
+        [
+            Pos2::new(rect.left(), rect.min.y + half_h),
+            Pos2::new(rect.right(), rect.min.y + half_h),
+        ],
         Stroke::new(1.0, palette.card_border),
     );
 
     // Shared center beatmatch playhead cursor
     painter.line_segment(
-        [Pos2::new(rect.center().x, rect.top()), Pos2::new(rect.center().x, rect.bottom())],
+        [
+            Pos2::new(rect.center().x, rect.top()),
+            Pos2::new(rect.center().x, rect.bottom()),
+        ],
         Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
     );
 }
@@ -441,11 +462,17 @@ pub fn paint_vertical_waveforms(
     paint_vertical_lane(&painter, rect_a, deck_a, wf_a, palette.deck_a, "A");
     paint_vertical_lane(&painter, rect_b, deck_b, wf_b, palette.deck_b, "B");
     painter.line_segment(
-        [Pos2::new(rect.min.x + half_w, rect.top()), Pos2::new(rect.min.x + half_w, rect.bottom())],
+        [
+            Pos2::new(rect.min.x + half_w, rect.top()),
+            Pos2::new(rect.min.x + half_w, rect.bottom()),
+        ],
         Stroke::new(1.0, palette.card_border),
     );
     painter.line_segment(
-        [Pos2::new(rect.left(), rect.center().y), Pos2::new(rect.right(), rect.center().y)],
+        [
+            Pos2::new(rect.left(), rect.center().y),
+            Pos2::new(rect.right(), rect.center().y),
+        ],
         Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
     );
 }
@@ -492,16 +519,26 @@ fn paint_vertical_lane(
             )
         } else {
             let beat_phase = ((t - deck.beatgrid_offset_sec).rem_euclid(beat_sec)) / beat_sec;
-            let kick = if beat_phase < 0.22 { 1.0 - beat_phase / 0.22 } else { 0.18 };
+            let kick = if beat_phase < 0.22 {
+                1.0 - beat_phase / 0.22
+            } else {
+                0.18
+            };
             let mel = (t * 3.7).sin().abs() * 0.5 + (t * 7.3).cos().abs() * 0.5;
-            ((kick * 0.7 + 0.3).clamp(0.0, 1.0), (mel * 0.8 + 0.2).clamp(0.0, 1.0))
+            (
+                (kick * 0.7 + 0.3).clamp(0.0, 1.0),
+                (mel * 0.8 + 0.2).clamp(0.0, 1.0),
+            )
         };
         let y = rect.top() + row as f32 * row_h + row_h * 0.5;
         let w_bass = bass_amp as f32 * max_half_w * deck.volume_fader as f32;
         let w_high = high_amp as f32 * max_half_w * 0.65 * deck.volume_fader as f32;
         painter.line_segment(
             [Pos2::new(mid_x - w_bass, y), Pos2::new(mid_x + w_bass, y)],
-            Stroke::new(2.0, Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 165)),
+            Stroke::new(
+                2.0,
+                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 165),
+            ),
         );
         painter.line_segment(
             [Pos2::new(mid_x - w_high, y), Pos2::new(mid_x + w_high, y)],
@@ -526,7 +563,10 @@ fn paint_vertical_lane(
         };
         let len = if is_bar { 10.0 } else { 5.0 };
         painter.line_segment(
-            [Pos2::new(rect.left() + 1.0, y), Pos2::new(rect.left() + len, y)],
+            [
+                Pos2::new(rect.left() + 1.0, y),
+                Pos2::new(rect.left() + len, y),
+            ],
             Stroke::new(if is_bar { 1.6 } else { 1.0 }, col),
         );
     }
@@ -594,7 +634,10 @@ fn paint_waveform_lane(
 
         painter.line_segment(
             [Pos2::new(x, mid_y - h_bass), Pos2::new(x, mid_y + h_bass)],
-            Stroke::new(2.0, Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 165)),
+            Stroke::new(
+                2.0,
+                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 165),
+            ),
         );
         painter.line_segment(
             [Pos2::new(x, mid_y - h_high), Pos2::new(x, mid_y + h_high)],
@@ -618,7 +661,10 @@ fn paint_waveform_lane(
             Color32::from_rgb(100, 116, 139)
         };
         painter.line_segment(
-            [Pos2::new(x, rect.top() + 1.0), Pos2::new(x, rect.top() + if is_bar { 10.0 } else { 5.0 })],
+            [
+                Pos2::new(x, rect.top() + 1.0),
+                Pos2::new(x, rect.top() + if is_bar { 10.0 } else { 5.0 }),
+            ],
             Stroke::new(if is_bar { 1.6 } else { 1.0 }, tick_color),
         );
     }
@@ -662,7 +708,11 @@ pub fn paint_platter(
     } else {
         Color32::from_rgb(72, 84, 108)
     };
-    painter.circle_stroke(center, radius, Stroke::new(if scratching { 3.6 } else { 2.8 }, ring_color));
+    painter.circle_stroke(
+        center,
+        radius,
+        Stroke::new(if scratching { 3.6 } else { 2.8 }, ring_color),
+    );
 
     for i in 0..24 {
         let a = angle * 0.5 + (i as f32) * std::f32::consts::TAU / 24.0;
@@ -712,11 +762,9 @@ pub fn paint_vu_meter(ui: &mut egui::Ui, deck: &DeckState) {
         StrokeKind::Inside,
     );
 
-    let stem_avg = (deck.stem_vocals_gain
-        + deck.stem_drums_gain
-        + deck.stem_bass_gain
-        + deck.stem_other_gain)
-        * 0.25;
+    let stem_avg =
+        (deck.stem_vocals_gain + deck.stem_drums_gain + deck.stem_bass_gain + deck.stem_other_gain)
+            * 0.25;
     let pulse = if deck.is_playing && deck.loaded_track.is_some() {
         let p = (deck.position_seconds * 8.0).sin().abs() * 0.25 + 0.72;
         (p * stem_avg * deck.volume_fader).clamp(0.0, 1.0)

@@ -236,7 +236,8 @@ fn render_procedural_rgb(phase: f32, accent: [f32; 3]) -> Vec<u8> {
             let dx = (x as f32 - cx) / cx;
             let dist = (dx * dx + dy * dy).sqrt();
             let rings = ((dist * 10.0 - phase * 4.0).sin() * 0.5 + 0.5).powf(2.0);
-            let wave = ((dx * 4.0 + phase * 2.0).sin() * (dy * 4.0 - phase * 1.5).cos()) * 0.5 + 0.5;
+            let wave =
+                ((dx * 4.0 + phase * 2.0).sin() * (dy * 4.0 - phase * 1.5).cos()) * 0.5 + 0.5;
             let energy = (rings * 0.65 + wave * 0.35).clamp(0.0, 1.0);
             let idx = (y * VIDEO_W + x) * 3;
             rgb[idx] = ((12.0 + accent[0] * energy * 240.0).clamp(0.0, 255.0)) as u8;
@@ -459,7 +460,8 @@ pub fn composite_video_frame(
                 }
                 VideoTransitionFx::GlitchSlice => {
                     let band = (y / 12) as f32;
-                    let hash = ((band * 12.9898 + (phase * 4.0).floor() * 78.233).sin() * 43_758.547)
+                    let hash = ((band * 12.9898 + (phase * 4.0).floor() * 78.233).sin()
+                        * 43_758.547)
                         .fract()
                         .abs();
                     if hash < t {

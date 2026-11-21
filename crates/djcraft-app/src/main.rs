@@ -1,27 +1,25 @@
 #![forbid(unsafe_code)]
 
+mod battle_mixer;
 mod crate_view;
+mod docks;
+mod fx_rack;
+mod performance_strips;
 mod skins;
 mod theme;
 mod video;
 mod widgets;
-mod battle_mixer;
-mod performance_strips;
-mod fx_rack;
-mod docks;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 use crate_view::{render_gig_prep_workspace, CrateAction, CrateUiState};
-use djcraft_audio::dsp::{
-    decode_audio_file, detect_beatgrid, load_sidecar_stems, WaveformSummary,
-};
+use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid, load_sidecar_stems, WaveformSummary};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{
-    fx_packs_dir, load_user_fx_presets_from_dir, AudioEngine, DeckId, FxPackPreset, RecordingFormat,
-    SamplePlayMode, TrackMeta, SAMPLER_BANKS, SAMPLER_SLOTS,
+    fx_packs_dir, load_user_fx_presets_from_dir, AudioEngine, DeckId, FxPackPreset,
+    RecordingFormat, SamplePlayMode, TrackMeta, SAMPLER_BANKS, SAMPLER_SLOTS,
 };
 use djcraft_core::i18n::{t, AppLocale, I18nKey};
 use djcraft_core::{
@@ -48,7 +46,7 @@ struct Args {
     /// Capture one rendered frame to a PPM image path and exit.
     #[arg(long)]
     screenshot: Option<PathBuf>,
-    /// Override initial skin (rane, pioneer, serato, vdj, pink, daylight).
+    /// Override initial skin (battle, club, midnight, carbon, pink, daylight).
     #[arg(long)]
     skin: Option<String>,
     /// Start in 4-deck layout.
@@ -164,14 +162,14 @@ struct UiPrefs {
 }
 
 fn default_last_dark() -> SkinId {
-    SkinId::RaneBattle
+    SkinId::BattleConsole
 }
 
 impl Default for UiPrefs {
     fn default() -> Self {
         Self {
-            skin: SkinId::RaneBattle,
-            last_dark_skin: SkinId::RaneBattle,
+            skin: SkinId::BattleConsole,
+            last_dark_skin: SkinId::BattleConsole,
             backdrop: BackdropStyle::SparkleClub,
             locale: AppLocale::En,
             four_deck_layout: false,
@@ -495,7 +493,12 @@ impl DjCraftApp {
                 let existing = self.orch.deck(deck).hot_cue_seconds[pad_idx];
                 if let Some(pos) = existing {
                     self.orch.deck_mut(deck).position_seconds = pos;
-                    self.status_msg = format!("{}: Jumped to Hot Cue {} ({:.1}s)", deck.label(), pad_idx + 1, pos);
+                    self.status_msg = format!(
+                        "{}: Jumped to Hot Cue {} ({:.1}s)",
+                        deck.label(),
+                        pad_idx + 1,
+                        pos
+                    );
                 } else {
                     self.dispatch_and_report(Command::SetHotCue {
                         deck,
@@ -568,9 +571,11 @@ impl DjCraftApp {
                 };
                 let deck_idx = deck_index(deck);
                 self.deck_waveforms[deck_idx] = Some(WaveformSummary::from_decoded(&decoded));
-                self.audio_out.set_deck_audio(deck_idx, Some(Arc::new(decoded)));
+                self.audio_out
+                    .set_deck_audio(deck_idx, Some(Arc::new(decoded)));
                 let stems_tag = if let Some(stems) = load_sidecar_stems(&path) {
-                    self.audio_out.set_deck_stems(deck_idx, Some(Arc::new(stems)));
+                    self.audio_out
+                        .set_deck_stems(deck_idx, Some(Arc::new(stems)));
                     " [4-STEMS LIVE]"
                 } else {
                     ""
@@ -790,7 +795,8 @@ impl DjCraftApp {
                                 match store.add_audio_files_to_crate(cid, &files) {
                                     Ok(n) => {
                                         self.crate_query.crate_id = Some(cid);
-                                        self.status_msg = format!("Added {n} audio file(s) to crate");
+                                        self.status_msg =
+                                            format!("Added {n} audio file(s) to crate");
                                         self.crate_dirty = true;
                                     }
                                     Err(e) => self.status_msg = format!("Add files error: {e}"),
@@ -848,7 +854,9 @@ impl DjCraftApp {
                         {
                             if let Some(ref store) = self.crate_store {
                                 match store.export_serato_crate(cid, &d) {
-                                    Ok(n) => self.status_msg = format!("Exported {n} tracks to Serato"),
+                                    Ok(n) => {
+                                        self.status_msg = format!("Exported {n} tracks to Serato")
+                                    }
                                     Err(e) => self.status_msg = format!("Serato export error: {e}"),
                                 }
                             }
@@ -885,7 +893,9 @@ impl DjCraftApp {
                         {
                             if let Some(ref store) = self.crate_store {
                                 match store.export_vdj_file(cid, &d) {
-                                    Ok(n) => self.status_msg = format!("Exported {n} tracks to VDJ"),
+                                    Ok(n) => {
+                                        self.status_msg = format!("Exported {n} tracks to VDJ")
+                                    }
                                     Err(e) => self.status_msg = format!("VDJ export error: {e}"),
                                 }
                             }
@@ -894,7 +904,8 @@ impl DjCraftApp {
                 }
                 CrateAction::BatchStemActiveCrate => {
                     if let Some(cid) = self.crate_query.crate_id {
-                        self.status_msg = "Batch stemming active crate in background...".to_string();
+                        self.status_msg =
+                            "Batch stemming active crate in background...".to_string();
                         let bg = Arc::clone(&self.bg_status);
                         std::thread::spawn(move || {
                             let msg = match CrateStore::open_default()
@@ -914,7 +925,8 @@ impl DjCraftApp {
                 }
                 CrateAction::BatchStemFolderDialog => {
                     if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                        self.status_msg = format!("Batch stemming {} in background...", dir.display());
+                        self.status_msg =
+                            format!("Batch stemming {} in background...", dir.display());
                         let bg = Arc::clone(&self.bg_status);
                         std::thread::spawn(move || {
                             let msg = match batch_stem_folder(&dir) {
@@ -947,7 +959,10 @@ impl DjCraftApp {
                     new_index,
                 } => {
                     if let Some(ref store) = self.crate_store {
-                        if store.reorder_crate_track(crate_id, track_id, new_index).is_ok() {
+                        if store
+                            .reorder_crate_track(crate_id, track_id, new_index)
+                            .is_ok()
+                        {
                             self.crate_query.sort_by = CrateSortField::ManualOrder;
                             self.crate_query.sort_asc = true;
                             self.status_msg = format!("Moved track to slot #{}", new_index + 1);
@@ -995,7 +1010,8 @@ impl DjCraftApp {
                     if let Some(ref store) = self.crate_store {
                         match store.analyze_track_builtin(track_id) {
                             Ok(up) => {
-                                self.status_msg = format!("Analyzed '{}': {:.1} BPM", up.title, up.bpm);
+                                self.status_msg =
+                                    format!("Analyzed '{}': {:.1} BPM", up.title, up.bpm);
                                 self.crate_dirty = true;
                             }
                             Err(e) => self.status_msg = format!("Analyze error: {e}"),
@@ -1031,14 +1047,18 @@ impl DjCraftApp {
             "session.new" => self.dispatch_and_report(Command::NewSession),
             "edit.undo" => self.dispatch_and_report(Command::Undo),
             "edit.redo" => self.dispatch_and_report(Command::Redo),
-            "deck.play_pause.a" => {
-                self.dispatch_and_report(Command::PlayPause { deck: DeckId::DeckA })
-            }
-            "deck.play_pause.b" => {
-                self.dispatch_and_report(Command::PlayPause { deck: DeckId::DeckB })
-            }
-            "deck.cue.a" => self.dispatch_and_report(Command::CueReturn { deck: DeckId::DeckA }),
-            "deck.cue.b" => self.dispatch_and_report(Command::CueReturn { deck: DeckId::DeckB }),
+            "deck.play_pause.a" => self.dispatch_and_report(Command::PlayPause {
+                deck: DeckId::DeckA,
+            }),
+            "deck.play_pause.b" => self.dispatch_and_report(Command::PlayPause {
+                deck: DeckId::DeckB,
+            }),
+            "deck.cue.a" => self.dispatch_and_report(Command::CueReturn {
+                deck: DeckId::DeckA,
+            }),
+            "deck.cue.b" => self.dispatch_and_report(Command::CueReturn {
+                deck: DeckId::DeckB,
+            }),
             "deck.stop_all" => self.dispatch_and_report(Command::StopAllDecks),
             "insert.load_crate_a" => {
                 let len = self.orch.crate_tracks.len().max(1);
@@ -1078,17 +1098,17 @@ impl DjCraftApp {
                 self.dispatch_and_report(Command::SetCrossfader { value: 0.0 })
             }
             "modify.toggle_mute" => self.dispatch_and_report(Command::ToggleMasterMute),
-            "modify.pfl_cue_a" => {
-                self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckA })
-            }
-            "modify.pfl_cue_b" => {
-                self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckB })
-            }
+            "modify.pfl_cue_a" => self.dispatch_and_report(Command::TogglePflCue {
+                deck: DeckId::DeckA,
+            }),
+            "modify.pfl_cue_b" => self.dispatch_and_report(Command::TogglePflCue {
+                deck: DeckId::DeckB,
+            }),
             "modify.toggle_fx1" => self.dispatch_and_report(Command::ToggleFxUnit { unit: 0 }),
             "modify.toggle_fx2" => self.dispatch_and_report(Command::ToggleFxUnit { unit: 1 }),
-            "modify.keylock_a" => {
-                self.dispatch_and_report(Command::ToggleKeylock { deck: DeckId::DeckA })
-            }
+            "modify.keylock_a" => self.dispatch_and_report(Command::ToggleKeylock {
+                deck: DeckId::DeckA,
+            }),
             "commands.auto_sync" => self.dispatch_and_report(Command::AutoSyncBeatgrid),
             "commands.phase_sync" => self.dispatch_and_report(Command::PhaseSyncBeatgrid),
             "commands.plan_transition" => self.dispatch_and_report(Command::PlanTransition),
@@ -1259,7 +1279,11 @@ impl DjCraftApp {
                     } else {
                         palette.card_fill
                     });
-                    if ui.add(pfl_btn).on_hover_text("Headphone PFL Pre-Cue").clicked() {
+                    if ui
+                        .add(pfl_btn)
+                        .on_hover_text("Headphone PFL Pre-Cue")
+                        .clicked()
+                    {
                         self.dispatch_and_report(Command::TogglePflCue { deck: deck_id });
                     }
                     let kl = if d.keylock { "KEYLOCK" } else { "VINYL" };
@@ -1394,10 +1418,18 @@ impl DjCraftApp {
                 let mut changed = false;
                 let mut committed = false;
                 ui.horizontal(|ui| {
-                    let r1 = widgets::rotary_knob(ui, "VOC", &mut v, 0.0, 1.0, 1.0, false, accent, palette);
-                    let r2 = widgets::rotary_knob(ui, "DRM", &mut dr, 0.0, 1.0, 1.0, false, accent, palette);
-                    let r3 = widgets::rotary_knob(ui, "BAS", &mut ba, 0.0, 1.0, 1.0, false, accent, palette);
-                    let r4 = widgets::rotary_knob(ui, "OTH", &mut ot, 0.0, 1.0, 1.0, false, accent, palette);
+                    let r1 = widgets::rotary_knob(
+                        ui, "VOC", &mut v, 0.0, 1.0, 1.0, false, accent, palette,
+                    );
+                    let r2 = widgets::rotary_knob(
+                        ui, "DRM", &mut dr, 0.0, 1.0, 1.0, false, accent, palette,
+                    );
+                    let r3 = widgets::rotary_knob(
+                        ui, "BAS", &mut ba, 0.0, 1.0, 1.0, false, accent, palette,
+                    );
+                    let r4 = widgets::rotary_knob(
+                        ui, "OTH", &mut ot, 0.0, 1.0, 1.0, false, accent, palette,
+                    );
                     changed = r1.changed || r2.changed || r3.changed || r4.changed;
                     committed = r1.committed || r2.committed || r3.committed || r4.committed;
                 });
@@ -1432,7 +1464,8 @@ fn deck_index(deck: DeckId) -> usize {
 }
 
 fn switch_on_hover(ctx: &egui::Context, titles: &[egui::Response]) {
-    let is_open = |t: &egui::Response| egui::Popup::is_id_open(ctx, egui::Popup::default_response_id(t));
+    let is_open =
+        |t: &egui::Response| egui::Popup::is_id_open(ctx, egui::Popup::default_response_id(t));
     if !titles.iter().any(is_open) {
         return;
     }
@@ -1464,8 +1497,15 @@ impl eframe::App for DjCraftApp {
         .into_iter()
         .filter(|&p| p)
         .count() as f32;
-        let energy = (active_decks * 0.35 + (self.backdrop_time * 3.0).sin().abs() * 0.25).clamp(0.15, 1.0);
-        paint_backdrop(&ctx, &palette, self.prefs.backdrop, self.backdrop_time, energy);
+        let energy =
+            (active_decks * 0.35 + (self.backdrop_time * 3.0).sin().abs() * 0.25).clamp(0.15, 1.0);
+        paint_backdrop(
+            &ctx,
+            &palette,
+            self.prefs.backdrop,
+            self.backdrop_time,
+            energy,
+        );
 
         // Handle OS drag-and-drop audio files / folders straight from Windows Explorer
         let dropped_paths: Vec<PathBuf> = ctx.input(|i| {
@@ -1525,7 +1565,11 @@ impl eframe::App for DjCraftApp {
             }
         });
         if scroll_delta.abs() > 0.1 {
-            let step = if scroll_delta > 0.0 { 1.1_f32 } else { 1.0 / 1.1_f32 };
+            let step = if scroll_delta > 0.0 {
+                1.1_f32
+            } else {
+                1.0 / 1.1_f32
+            };
             self.prefs.zoom_factor = (self.prefs.zoom_factor * step).clamp(0.75, 2.0);
             self.prefs.save();
         }
@@ -1605,12 +1649,24 @@ impl eframe::App for DjCraftApp {
             if any_playing {
                 self.video_phase += 0.03;
             }
-            let raw_a = self.video_deck_a.snapshot_rgb(self.video_phase, [0.22, 0.74, 0.97]);
+            let raw_a = self
+                .video_deck_a
+                .snapshot_rgb(self.video_phase, [0.22, 0.74, 0.97]);
             let raw_b = self
                 .video_deck_b
                 .snapshot_rgb(self.video_phase * 1.15 + 1.5, [0.94, 0.27, 0.27]);
-            let rgb_a = apply_deck_video_fx(&raw_a, self.video_fx_a, self.video_fx_a_amt, self.video_phase);
-            let rgb_b = apply_deck_video_fx(&raw_b, self.video_fx_b, self.video_fx_b_amt, self.video_phase);
+            let rgb_a = apply_deck_video_fx(
+                &raw_a,
+                self.video_fx_a,
+                self.video_fx_a_amt,
+                self.video_phase,
+            );
+            let rgb_b = apply_deck_video_fx(
+                &raw_b,
+                self.video_fx_b,
+                self.video_fx_b_amt,
+                self.video_phase,
+            );
 
             let img_a = rgb_to_color_image(&rgb_a);
             if let Some(tex) = self.video_tex_a.as_mut() {
@@ -1714,14 +1770,20 @@ impl eframe::App for DjCraftApp {
 
                 let r = ui.menu_button("Edit", |ui| {
                     if ui
-                        .add_enabled(self.orch.undo_depth() > 0, egui::Button::new("Undo (Ctrl+Z)"))
+                        .add_enabled(
+                            self.orch.undo_depth() > 0,
+                            egui::Button::new("Undo (Ctrl+Z)"),
+                        )
                         .clicked()
                     {
                         self.execute_catalog_id("edit.undo");
                         ui.close();
                     }
                     if ui
-                        .add_enabled(self.orch.redo_depth() > 0, egui::Button::new("Redo (Ctrl+Y)"))
+                        .add_enabled(
+                            self.orch.redo_depth() > 0,
+                            egui::Button::new("Redo (Ctrl+Y)"),
+                        )
                         .clicked()
                     {
                         self.execute_catalog_id("edit.redo");
@@ -1733,7 +1795,10 @@ impl eframe::App for DjCraftApp {
                 let r = ui.menu_button("View", |ui| {
                     ui.menu_button("Console Skin", |ui| {
                         for sk in SkinId::ALL {
-                            if ui.selectable_label(self.prefs.skin == sk, sk.label()).clicked() {
+                            if ui
+                                .selectable_label(self.prefs.skin == sk, sk.label())
+                                .clicked()
+                            {
                                 self.set_skin(sk);
                                 ui.close();
                             }
@@ -1742,11 +1807,16 @@ impl eframe::App for DjCraftApp {
                     ui.separator();
                     let mut dirty = false;
                     dirty |= ui
-                        .checkbox(&mut self.prefs.show_parallel_waveforms, "Parallel Waveforms")
+                        .checkbox(
+                            &mut self.prefs.show_parallel_waveforms,
+                            "Parallel Waveforms",
+                        )
                         .changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_deck_a, "Deck A").changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_deck_b, "Deck B").changed();
-                    dirty |= ui.checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Strip").changed();
+                    dirty |= ui
+                        .checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Strip")
+                        .changed();
                     if dirty {
                         self.prefs.save();
                     }
@@ -1894,7 +1964,8 @@ impl eframe::App for DjCraftApp {
                                 {
                                     self.prefs.locale = *loc_item;
                                     self.prefs.save();
-                                    self.status_msg = t(I18nKey::StatusReady, *loc_item).to_string();
+                                    self.status_msg =
+                                        t(I18nKey::StatusReady, *loc_item).to_string();
                                 }
                             }
                         });
@@ -1910,7 +1981,10 @@ impl eframe::App for DjCraftApp {
                         .selected_text(self.prefs.skin.label())
                         .show_ui(ui, |ui| {
                             for sk in SkinId::ALL {
-                                if ui.selectable_label(self.prefs.skin == sk, sk.label()).clicked() {
+                                if ui
+                                    .selectable_label(self.prefs.skin == sk, sk.label())
+                                    .clicked()
+                                {
                                     self.set_skin(sk);
                                 }
                             }
@@ -1997,19 +2071,28 @@ impl eframe::App for DjCraftApp {
 
                 ui.menu_button("Panels", |ui| {
                     if ui
-                        .checkbox(&mut self.prefs.show_live_video_strip, "Live Video Strip (A / Mix / B)")
+                        .checkbox(
+                            &mut self.prefs.show_live_video_strip,
+                            "Live Video Strip (A / Mix / B)",
+                        )
                         .changed()
                     {
                         self.prefs.save();
                     }
                     if ui
-                        .checkbox(&mut self.prefs.show_live_sampler_strip, "Live Sampler Strip (4x8)")
+                        .checkbox(
+                            &mut self.prefs.show_live_sampler_strip,
+                            "Live Sampler Strip (4x8)",
+                        )
                         .changed()
                     {
                         self.prefs.save();
                     }
                     if ui
-                        .checkbox(&mut self.prefs.show_parallel_waveforms, "Parallel Waveforms")
+                        .checkbox(
+                            &mut self.prefs.show_parallel_waveforms,
+                            "Parallel Waveforms",
+                        )
                         .changed()
                     {
                         self.prefs.save();
@@ -2067,11 +2150,14 @@ impl eframe::App for DjCraftApp {
                     &palette,
                 );
             }
-            if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_video_strip {
+            if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_video_strip
+            {
                 ui.add_space(4.0);
                 self.render_collapsible_live_video_strip(ui, &palette);
             }
-            if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_sampler_strip {
+            if self.workspace_mode == WorkspaceMode::LiveConsole
+                && self.prefs.show_live_sampler_strip
+            {
                 ui.add_space(4.0);
                 self.render_collapsible_sampler_strip(ui, &palette);
             }
@@ -2112,10 +2198,12 @@ impl eframe::App for DjCraftApp {
                 .resizable(false)
                 .show(ui, |ui| {
                     ui.columns(2, |cols| {
-                        for (col_idx, (deck_id, accent)) in
-                            [(DeckId::DeckC, palette.deck_c), (DeckId::DeckD, palette.deck_d)]
-                                .into_iter()
-                                .enumerate()
+                        for (col_idx, (deck_id, accent)) in [
+                            (DeckId::DeckC, palette.deck_c),
+                            (DeckId::DeckD, palette.deck_d),
+                        ]
+                        .into_iter()
+                        .enumerate()
                         {
                             let d = self.orch.deck(deck_id).clone();
                             theme::card_frame(&mut cols[col_idx], &palette, |ui| {
@@ -2124,7 +2212,10 @@ impl eframe::App for DjCraftApp {
                                     ui.strong(egui::RichText::new(deck_id.label()).color(accent));
                                     if let Some(t) = &d.loaded_track {
                                         ui.label(&t.title);
-                                        ui.monospace(format!("{} | {:.0} BPM", t.musical_key, t.bpm));
+                                        ui.monospace(format!(
+                                            "{} | {:.0} BPM",
+                                            t.musical_key, t.bpm
+                                        ));
                                     } else {
                                         ui.label("Empty");
                                     }
@@ -2142,13 +2233,13 @@ impl eframe::App for DjCraftApp {
                                                     deck: deck_id,
                                                 });
                                             }
-                                            let pfl_btn = egui::Button::new("PFL")
-                                                .small()
-                                                .fill(if d.pfl_cue {
+                                            let pfl_btn = egui::Button::new("PFL").small().fill(
+                                                if d.pfl_cue {
                                                     egui::Color32::from_rgb(245, 158, 11)
                                                 } else {
                                                     palette.card_fill
-                                                });
+                                                },
+                                            );
                                             if ui.add(pfl_btn).clicked() {
                                                 self.dispatch_and_report(Command::TogglePflCue {
                                                     deck: deck_id,
@@ -2246,7 +2337,9 @@ impl eframe::App for DjCraftApp {
                     LowerDockTab::MidiControllers => self.render_midi_dock(ui, &palette),
                     LowerDockTab::AiChatAndWorkflows => self.render_ai_chat_dock(ui, &palette),
                     LowerDockTab::FleetHub => self.render_fleet_hub_dock(ui, &palette),
-                    LowerDockTab::CamelotAndMixxxxx => self.render_camelot_mixxxxx_dock(ui, &palette),
+                    LowerDockTab::CamelotAndMixxxxx => {
+                        self.render_camelot_mixxxxx_dock(ui, &palette)
+                    }
                 }
             });
         });
@@ -2256,7 +2349,6 @@ impl eframe::App for DjCraftApp {
         self.maybe_capture_screenshot(&ctx);
     }
 }
-
 
 fn default_recording_path(format: RecordingFormat) -> PathBuf {
     let base = std::env::var("USERPROFILE")
@@ -2333,12 +2425,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = DjCraftApp::new();
     if let Some(sk) = args.skin.as_deref() {
         app.prefs.skin = match sk.to_lowercase().as_str() {
-            "pioneer" => SkinId::PioneerClub,
-            "serato" => SkinId::SeratoMidnight,
-            "vdj" => SkinId::VirtualDjCarbon,
+            "club" | "pioneer" => SkinId::ClubDark,
+            "midnight" | "serato" => SkinId::MidnightBooth,
+            "carbon" | "vdj" => SkinId::CarbonDeck,
             "pink" | "shocking_pink" => SkinId::ShockingPink,
             "daylight" | "light" => SkinId::DaylightBooth,
-            _ => SkinId::RaneBattle,
+            _ => SkinId::BattleConsole,
         };
     }
     if args.four_deck {
@@ -2370,7 +2462,10 @@ mod tests {
             ("docks.rs", include_str!("docks.rs")),
             ("fx_rack.rs", include_str!("fx_rack.rs")),
             ("main.rs", include_str!("main.rs")),
-            ("performance_strips.rs", include_str!("performance_strips.rs")),
+            (
+                "performance_strips.rs",
+                include_str!("performance_strips.rs"),
+            ),
             ("skins.rs", include_str!("skins.rs")),
             ("theme.rs", include_str!("theme.rs")),
             ("video.rs", include_str!("video.rs")),

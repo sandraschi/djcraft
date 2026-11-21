@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 //! Pro DJ Skin Engine for DJCraft.
 //!
-//! Ships 5 curated studio palettes (Rane Battle, Pioneer Club, Serato Midnight,
-//! VirtualDJ Carbon, Daylight Booth) and supports user-editable JSON skins in
+//! Ships 6 curated studio palettes (Battle Console, Club Dark, Midnight Booth,
+//! Carbon Deck, Shocking Pink Club, Daylight Booth) and supports user-editable JSON skins in
 //! `%LOCALAPPDATA%\djcraft\skins\`.
 
 use egui::{Color32, Stroke, Visuals};
@@ -11,30 +11,34 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SkinId {
     #[default]
-    RaneBattle,
-    PioneerClub,
-    SeratoMidnight,
-    VirtualDjCarbon,
+    #[serde(alias = "RaneBattle")]
+    BattleConsole,
+    #[serde(alias = "PioneerClub")]
+    ClubDark,
+    #[serde(alias = "SeratoMidnight")]
+    MidnightBooth,
+    #[serde(alias = "VirtualDjCarbon")]
+    CarbonDeck,
     ShockingPink,
     DaylightBooth,
 }
 
 impl SkinId {
     pub const ALL: [Self; 6] = [
-        Self::RaneBattle,
-        Self::PioneerClub,
-        Self::SeratoMidnight,
-        Self::VirtualDjCarbon,
+        Self::BattleConsole,
+        Self::ClubDark,
+        Self::MidnightBooth,
+        Self::CarbonDeck,
         Self::ShockingPink,
         Self::DaylightBooth,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::RaneBattle => "Rane Seventy-Two Battle",
-            Self::PioneerClub => "Pioneer Club Dark",
-            Self::SeratoMidnight => "Serato Midnight",
-            Self::VirtualDjCarbon => "VirtualDJ Carbon",
+            Self::BattleConsole => "Battle Console",
+            Self::ClubDark => "Club Dark",
+            Self::MidnightBooth => "Midnight Booth",
+            Self::CarbonDeck => "Carbon Deck",
             Self::ShockingPink => "Shocking Pink Club",
             Self::DaylightBooth => "Daylight Booth (Light)",
         }
@@ -42,7 +46,7 @@ impl SkinId {
 
     pub fn palette(self) -> SkinPalette {
         match self {
-            Self::RaneBattle => SkinPalette {
+            Self::BattleConsole => SkinPalette {
                 is_light: false,
                 canvas: Color32::from_rgb(9, 10, 14),
                 chassis: Color32::from_rgb(18, 20, 27),
@@ -50,10 +54,10 @@ impl SkinId {
                 card_border: Color32::from_rgb(54, 60, 78),
                 text_primary: Color32::from_rgb(244, 246, 250),
                 text_secondary: Color32::from_rgb(168, 176, 192),
-                deck_a: Color32::from_rgb(56, 189, 248),  // Electric Cyan
-                deck_b: Color32::from_rgb(239, 68, 68),   // Rane Crimson
-                deck_c: Color32::from_rgb(52, 211, 153),  // Emerald
-                deck_d: Color32::from_rgb(250, 204, 21),  // Gold
+                deck_a: Color32::from_rgb(56, 189, 248), // Electric Cyan
+                deck_b: Color32::from_rgb(239, 68, 68),  // Battle Crimson
+                deck_c: Color32::from_rgb(52, 211, 153), // Emerald
+                deck_d: Color32::from_rgb(250, 204, 21), // Gold
                 knob_body: Color32::from_rgb(28, 32, 42),
                 knob_track: Color32::from_rgb(48, 54, 70),
                 fader_slot: Color32::from_rgb(8, 9, 12),
@@ -69,7 +73,7 @@ impl SkinId {
                     Color32::from_rgb(236, 72, 153),
                 ],
             },
-            Self::PioneerClub => SkinPalette {
+            Self::ClubDark => SkinPalette {
                 is_light: false,
                 canvas: Color32::from_rgb(8, 12, 18),
                 chassis: Color32::from_rgb(15, 23, 38),
@@ -96,7 +100,7 @@ impl SkinId {
                     Color32::from_rgb(168, 85, 247),
                 ],
             },
-            Self::SeratoMidnight => SkinPalette {
+            Self::MidnightBooth => SkinPalette {
                 is_light: false,
                 canvas: Color32::from_rgb(6, 7, 10),
                 chassis: Color32::from_rgb(14, 16, 22),
@@ -123,7 +127,7 @@ impl SkinId {
                     Color32::from_rgb(248, 113, 113),
                 ],
             },
-            Self::VirtualDjCarbon => SkinPalette {
+            Self::CarbonDeck => SkinPalette {
                 is_light: false,
                 canvas: Color32::from_rgb(14, 16, 20),
                 chassis: Color32::from_rgb(24, 28, 34),
@@ -158,10 +162,10 @@ impl SkinId {
                 card_border: Color32::from_rgb(255, 46, 151),
                 text_primary: Color32::from_rgb(255, 245, 252),
                 text_secondary: Color32::from_rgb(255, 182, 224),
-                deck_a: Color32::from_rgb(255, 20, 147),  // Shocking Pink
-                deck_b: Color32::from_rgb(0, 245, 255),   // Electric Cyan
-                deck_c: Color32::from_rgb(163, 255, 18),  // Acid Lime
-                deck_d: Color32::from_rgb(255, 215, 0),   // Hot Gold
+                deck_a: Color32::from_rgb(255, 20, 147), // Shocking Pink
+                deck_b: Color32::from_rgb(0, 245, 255),  // Electric Cyan
+                deck_c: Color32::from_rgb(163, 255, 18), // Acid Lime
+                deck_d: Color32::from_rgb(255, 215, 0),  // Hot Gold
                 knob_body: Color32::from_rgb(56, 14, 48),
                 knob_track: Color32::from_rgb(122, 28, 88),
                 fader_slot: Color32::from_rgb(14, 2, 12),
@@ -388,7 +392,10 @@ pub fn paint_backdrop(
             while x < rect.right() + rect.height() {
                 let col = if idx.is_multiple_of(2) { col_a } else { col_b };
                 painter.line_segment(
-                    [egui::pos2(x, rect.top()), egui::pos2(x + rect.height(), rect.bottom())],
+                    [
+                        egui::pos2(x, rect.top()),
+                        egui::pos2(x + rect.height(), rect.bottom()),
+                    ],
                     Stroke::new(1.2, col),
                 );
                 x += step;
@@ -400,9 +407,11 @@ pub fn paint_backdrop(
             for i in 0..6u32 {
                 let fi = i as f32;
                 let px = rect.left()
-                    + rect.width() * (0.12 + 0.76 * ((fi * 0.37 + time_sec * 0.03).sin() * 0.5 + 0.5));
+                    + rect.width()
+                        * (0.12 + 0.76 * ((fi * 0.37 + time_sec * 0.03).sin() * 0.5 + 0.5));
                 let py = rect.top()
-                    + rect.height() * (0.15 + 0.70 * ((fi * 0.53 + time_sec * 0.025).cos() * 0.5 + 0.5));
+                    + rect.height()
+                        * (0.15 + 0.70 * ((fi * 0.53 + time_sec * 0.025).cos() * 0.5 + 0.5));
                 let base = if i % 2 == 0 {
                     palette.deck_a
                 } else {

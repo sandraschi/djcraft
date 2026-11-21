@@ -31,10 +31,20 @@ pub struct CrateUiState {
 
 pub enum CrateAction {
     SelectCrate(Option<i64>),
-    CreateCrate { parent_id: Option<i64>, name: String },
-    RenameCrate { crate_id: i64, new_name: String },
-    DuplicateCrate { crate_id: i64 },
-    DeleteCrate { crate_id: i64 },
+    CreateCrate {
+        parent_id: Option<i64>,
+        name: String,
+    },
+    RenameCrate {
+        crate_id: i64,
+        new_name: String,
+    },
+    DuplicateCrate {
+        crate_id: i64,
+    },
+    DeleteCrate {
+        crate_id: i64,
+    },
     AddFilesDialog,
     ScanFolderDialog,
     ImportSeratoDialog,
@@ -43,15 +53,41 @@ pub enum CrateAction {
     ExportVdjDialog,
     BatchStemActiveCrate,
     BatchStemFolderDialog,
-    LoadToDeck { deck: DeckId, track: CrateTrack },
-    CopyTrackToCrate { crate_id: i64, track_id: i64 },
-    ReorderTrack { crate_id: i64, track_id: i64, new_index: usize },
-    MoveTrackBy { crate_id: i64, track_id: i64, delta: isize },
-    RemoveTrackFromCrate { crate_id: i64, track_id: i64 },
-    DeleteTrack { track_id: i64 },
-    SetRating { track_id: i64, rating: i32 },
-    AnalyzeBuiltin { track_id: i64 },
-    AnalyzeDettato { track_id: i64 },
+    LoadToDeck {
+        deck: DeckId,
+        track: CrateTrack,
+    },
+    CopyTrackToCrate {
+        crate_id: i64,
+        track_id: i64,
+    },
+    ReorderTrack {
+        crate_id: i64,
+        track_id: i64,
+        new_index: usize,
+    },
+    MoveTrackBy {
+        crate_id: i64,
+        track_id: i64,
+        delta: isize,
+    },
+    RemoveTrackFromCrate {
+        crate_id: i64,
+        track_id: i64,
+    },
+    DeleteTrack {
+        track_id: i64,
+    },
+    SetRating {
+        track_id: i64,
+        rating: i32,
+    },
+    AnalyzeBuiltin {
+        track_id: i64,
+    },
+    AnalyzeDettato {
+        track_id: i64,
+    },
     QueryChanged,
 }
 

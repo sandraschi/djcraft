@@ -16,7 +16,11 @@ impl super::DjCraftApp {
             ui.horizontal(|ui| {
                 ui.strong(t(I18nKey::BattleMixer, self.locale));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mute_lbl = if self.orch.master_muted { "UNMUTE" } else { "MUTE" };
+                    let mute_lbl = if self.orch.master_muted {
+                        "UNMUTE"
+                    } else {
+                        "MUTE"
+                    };
                     if ui.small_button(mute_lbl).clicked() {
                         self.execute_catalog_id("modify.toggle_mute");
                     }
@@ -40,9 +44,39 @@ impl super::DjCraftApp {
                     let mut mi = da.eq_mid;
                     let mut lo = da.eq_low;
                     let mut flt = da.color_filter;
-                    let r1 = widgets::rotary_knob(ui, "A HI", &mut hi, 0.0, 2.0, 1.0, true, palette.deck_a, palette);
-                    let r2 = widgets::rotary_knob(ui, "A MID", &mut mi, 0.0, 2.0, 1.0, true, palette.deck_a, palette);
-                    let r3 = widgets::rotary_knob(ui, "A LOW", &mut lo, 0.0, 2.0, 1.0, true, palette.deck_a, palette);
+                    let r1 = widgets::rotary_knob(
+                        ui,
+                        "A HI",
+                        &mut hi,
+                        0.0,
+                        2.0,
+                        1.0,
+                        true,
+                        palette.deck_a,
+                        palette,
+                    );
+                    let r2 = widgets::rotary_knob(
+                        ui,
+                        "A MID",
+                        &mut mi,
+                        0.0,
+                        2.0,
+                        1.0,
+                        true,
+                        palette.deck_a,
+                        palette,
+                    );
+                    let r3 = widgets::rotary_knob(
+                        ui,
+                        "A LOW",
+                        &mut lo,
+                        0.0,
+                        2.0,
+                        1.0,
+                        true,
+                        palette.deck_a,
+                        palette,
+                    );
                     let r4 = widgets::rotary_knob(
                         ui,
                         "A FLT",
@@ -80,7 +114,17 @@ impl super::DjCraftApp {
 
                 // Deck A Channel Volume Fader + VU
                 let mut vol_a = da.volume_fader;
-                let fa = widgets::vertical_fader(ui, "CH A", &mut vol_a, 0.0, 1.0, 1.0, 150.0, palette.deck_a, palette);
+                let fa = widgets::vertical_fader(
+                    ui,
+                    "CH A",
+                    &mut vol_a,
+                    0.0,
+                    1.0,
+                    1.0,
+                    150.0,
+                    palette.deck_a,
+                    palette,
+                );
                 if fa.changed {
                     self.orch.deck_a.volume_fader = vol_a;
                 }
@@ -141,7 +185,17 @@ impl super::DjCraftApp {
                 // Deck B VU + Channel Volume Fader
                 widgets::paint_vu_meter(ui, &db);
                 let mut vol_b = db.volume_fader;
-                let fb = widgets::vertical_fader(ui, "CH B", &mut vol_b, 0.0, 1.0, 1.0, 150.0, palette.deck_b, palette);
+                let fb = widgets::vertical_fader(
+                    ui,
+                    "CH B",
+                    &mut vol_b,
+                    0.0,
+                    1.0,
+                    1.0,
+                    150.0,
+                    palette.deck_b,
+                    palette,
+                );
                 if fb.changed {
                     self.orch.deck_b.volume_fader = vol_b;
                 }
@@ -158,9 +212,39 @@ impl super::DjCraftApp {
                     let mut mi = db.eq_mid;
                     let mut lo = db.eq_low;
                     let mut flt = db.color_filter;
-                    let r1 = widgets::rotary_knob(ui, "B HI", &mut hi, 0.0, 2.0, 1.0, true, palette.deck_b, palette);
-                    let r2 = widgets::rotary_knob(ui, "B MID", &mut mi, 0.0, 2.0, 1.0, true, palette.deck_b, palette);
-                    let r3 = widgets::rotary_knob(ui, "B LOW", &mut lo, 0.0, 2.0, 1.0, true, palette.deck_b, palette);
+                    let r1 = widgets::rotary_knob(
+                        ui,
+                        "B HI",
+                        &mut hi,
+                        0.0,
+                        2.0,
+                        1.0,
+                        true,
+                        palette.deck_b,
+                        palette,
+                    );
+                    let r2 = widgets::rotary_knob(
+                        ui,
+                        "B MID",
+                        &mut mi,
+                        0.0,
+                        2.0,
+                        1.0,
+                        true,
+                        palette.deck_b,
+                        palette,
+                    );
+                    let r3 = widgets::rotary_knob(
+                        ui,
+                        "B LOW",
+                        &mut lo,
+                        0.0,
+                        2.0,
+                        1.0,
+                        true,
+                        palette.deck_b,
+                        palette,
+                    );
                     let r4 = widgets::rotary_knob(
                         ui,
                         "B FLT",
@@ -217,16 +301,28 @@ impl super::DjCraftApp {
                 } else {
                     palette.card_fill
                 });
-                if ui.add(pfl_a).on_hover_text("Pre-Fader Listen Deck A").clicked() {
-                    self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckA });
+                if ui
+                    .add(pfl_a)
+                    .on_hover_text("Pre-Fader Listen Deck A")
+                    .clicked()
+                {
+                    self.dispatch_and_report(Command::TogglePflCue {
+                        deck: DeckId::DeckA,
+                    });
                 }
                 let pfl_b = egui::Button::new("PFL B").small().fill(if db.pfl_cue {
                     palette.deck_b
                 } else {
                     palette.card_fill
                 });
-                if ui.add(pfl_b).on_hover_text("Pre-Fader Listen Deck B").clicked() {
-                    self.dispatch_and_report(Command::TogglePflCue { deck: DeckId::DeckB });
+                if ui
+                    .add(pfl_b)
+                    .on_hover_text("Pre-Fader Listen Deck B")
+                    .clicked()
+                {
+                    self.dispatch_and_report(Command::TogglePflCue {
+                        deck: DeckId::DeckB,
+                    });
                 }
                 let split_btn = egui::Button::new(if self.orch.headphone_split_cue {
                     "SPLIT: ON"
@@ -288,13 +384,17 @@ impl super::DjCraftApp {
                     .width(150.0)
                     .show_ui(ui, |ui| {
                         if ui
-                            .selectable_label(self.selected_headphone_device.is_none(), "Off / Split Cue")
+                            .selectable_label(
+                                self.selected_headphone_device.is_none(),
+                                "Off / Split Cue",
+                            )
                             .clicked()
                         {
                             next_dev = Some(None);
                         }
                         for dev in &self.audio_output_devices {
-                            let is_sel = self.selected_headphone_device.as_deref() == Some(dev.as_str());
+                            let is_sel =
+                                self.selected_headphone_device.as_deref() == Some(dev.as_str());
                             if ui.selectable_label(is_sel, dev).clicked() {
                                 next_dev = Some(Some(dev.clone()));
                             }
@@ -311,7 +411,11 @@ impl super::DjCraftApp {
                         }
                     }
                 }
-                if ui.small_button("Scan").on_hover_text("Refresh WASAPI devices").clicked() {
+                if ui
+                    .small_button("Scan")
+                    .on_hover_text("Refresh WASAPI devices")
+                    .clicked()
+                {
                     self.audio_output_devices = AudioOutput::list_output_devices();
                     self.status_msg = format!(
                         "Found {} WASAPI output device(s)",
@@ -375,7 +479,10 @@ impl super::DjCraftApp {
                         .fill(egui::Color32::from_rgb(153, 27, 27));
                     if ui.add(rec_btn).clicked() {
                         let out_path = default_recording_path(self.recording_format);
-                        match self.audio_out.start_recording(out_path.clone(), self.recording_format) {
+                        match self
+                            .audio_out
+                            .start_recording(out_path.clone(), self.recording_format)
+                        {
                             Ok(p) => {
                                 self.status_msg = format!(
                                     "Recording {} -> {}",

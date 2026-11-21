@@ -10,7 +10,11 @@ use super::theme;
 use super::video::{DeckVideoFx, VideoTransitionFx};
 
 impl super::DjCraftApp {
-    pub(super) fn render_collapsible_sampler_strip(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+    pub(super) fn render_collapsible_sampler_strip(
+        &mut self,
+        ui: &mut egui::Ui,
+        palette: &SkinPalette,
+    ) {
         let bank = self.sampler_bank;
         let active_mask = self.audio_out.sampler_active_mask(bank);
         theme::card_frame(ui, palette, |ui| {
@@ -109,7 +113,10 @@ impl super::DjCraftApp {
                                 .clicked()
                             {
                                 if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Audio Samples", &["wav", "mp3", "flac", "ogg", "m4a"])
+                                    .add_filter(
+                                        "Audio Samples",
+                                        &["wav", "mp3", "flac", "ogg", "m4a"],
+                                    )
                                     .pick_file()
                                 {
                                     match decode_audio_file(&path) {
@@ -148,7 +155,11 @@ impl super::DjCraftApp {
         });
     }
 
-    pub(super) fn render_collapsible_live_video_strip(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
+    pub(super) fn render_collapsible_live_video_strip(
+        &mut self,
+        ui: &mut egui::Ui,
+        palette: &SkinPalette,
+    ) {
         theme::card_frame(ui, palette, |ui| {
             ui.columns(3, |cols| {
                 // LEFT: Deck A Video Box + Individual FX Dropdown

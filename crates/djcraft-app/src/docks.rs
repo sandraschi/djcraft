@@ -53,7 +53,10 @@ impl super::DjCraftApp {
                             match store.import_serato_crate(&f) {
                                 Ok(s) => {
                                     self.crate_query.crate_id = Some(s.crate_id);
-                                    self.status_msg = format!("Imported {} -> '{}'", s.imported_tracks, s.crate_path);
+                                    self.status_msg = format!(
+                                        "Imported {} -> '{}'",
+                                        s.imported_tracks, s.crate_path
+                                    );
                                     self.crate_dirty = true;
                                 }
                                 Err(e) => self.status_msg = format!("Serato error: {e}"),
@@ -70,7 +73,9 @@ impl super::DjCraftApp {
                         {
                             if let Some(ref store) = self.crate_store {
                                 match store.export_serato_crate(cid, &d) {
-                                    Ok(n) => self.status_msg = format!("Exported {n} tracks to Serato"),
+                                    Ok(n) => {
+                                        self.status_msg = format!("Exported {n} tracks to Serato")
+                                    }
                                     Err(e) => self.status_msg = format!("Export error: {e}"),
                                 }
                             }
@@ -86,7 +91,10 @@ impl super::DjCraftApp {
                             match store.import_vdj_file(&f) {
                                 Ok(s) => {
                                     self.crate_query.crate_id = Some(s.crate_id);
-                                    self.status_msg = format!("Imported {} -> '{}'", s.imported_tracks, s.crate_path);
+                                    self.status_msg = format!(
+                                        "Imported {} -> '{}'",
+                                        s.imported_tracks, s.crate_path
+                                    );
                                     self.crate_dirty = true;
                                 }
                                 Err(e) => self.status_msg = format!("VDJ error: {e}"),
@@ -104,7 +112,9 @@ impl super::DjCraftApp {
                         {
                             if let Some(ref store) = self.crate_store {
                                 match store.export_vdj_file(cid, &d) {
-                                    Ok(n) => self.status_msg = format!("Exported {n} tracks to VDJ"),
+                                    Ok(n) => {
+                                        self.status_msg = format!("Exported {n} tracks to VDJ")
+                                    }
                                     Err(e) => self.status_msg = format!("Export error: {e}"),
                                 }
                             }
@@ -117,7 +127,8 @@ impl super::DjCraftApp {
                     .clicked()
                 {
                     if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                        self.status_msg = format!("Batch stemming {} in background...", dir.display());
+                        self.status_msg =
+                            format!("Batch stemming {} in background...", dir.display());
                         let bg = Arc::clone(&self.bg_status);
                         std::thread::spawn(move || {
                             let msg = match batch_stem_folder(&dir) {
@@ -152,13 +163,16 @@ impl super::DjCraftApp {
                 }
                 if ui
                     .add_enabled(
-                        self.crate_query.crate_id.is_some() && !self.crate_new_name.trim().is_empty(),
+                        self.crate_query.crate_id.is_some()
+                            && !self.crate_new_name.trim().is_empty(),
                         egui::Button::new("+ Subcrate").small(),
                     )
                     .clicked()
                 {
                     if let Some(ref store) = self.crate_store {
-                        if let Ok(cid) = store.create_subcrate(self.crate_query.crate_id, &self.crate_new_name) {
+                        if let Ok(cid) =
+                            store.create_subcrate(self.crate_query.crate_id, &self.crate_new_name)
+                        {
                             self.crate_query.crate_id = Some(cid);
                             self.crate_new_name.clear();
                             self.crate_dirty = true;
@@ -168,7 +182,10 @@ impl super::DjCraftApp {
             });
 
             ui.horizontal_wrapped(|ui| {
-                if ui.selectable_label(self.crate_query.crate_id.is_none(), "All").clicked() {
+                if ui
+                    .selectable_label(self.crate_query.crate_id.is_none(), "All")
+                    .clicked()
+                {
                     self.crate_query.crate_id = None;
                     self.crate_dirty = true;
                 }
@@ -215,23 +232,36 @@ impl super::DjCraftApp {
                 {
                     self.crate_dirty = true;
                 }
-                if ui.checkbox(&mut self.crate_harmonic_deck_a, "Harmonic A").changed() {
+                if ui
+                    .checkbox(&mut self.crate_harmonic_deck_a, "Harmonic A")
+                    .changed()
+                {
                     self.crate_dirty = true;
                 }
-                if ui.checkbox(&mut self.crate_query.include_subcrates, "Subcrates").changed() {
+                if ui
+                    .checkbox(&mut self.crate_query.include_subcrates, "Subcrates")
+                    .changed()
+                {
                     self.crate_dirty = true;
                 }
                 egui::ComboBox::from_id_salt("crate_sort")
                     .selected_text(self.crate_query.sort_by.label())
                     .show_ui(ui, |ui| {
                         for f in CrateSortField::ALL {
-                            if ui.selectable_value(&mut self.crate_query.sort_by, f, f.label()).changed() {
+                            if ui
+                                .selectable_value(&mut self.crate_query.sort_by, f, f.label())
+                                .changed()
+                            {
                                 self.crate_dirty = true;
                             }
                         }
                     });
                 if ui
-                    .small_button(if self.crate_query.sort_asc { "ASC" } else { "DESC" })
+                    .small_button(if self.crate_query.sort_asc {
+                        "ASC"
+                    } else {
+                        "DESC"
+                    })
                     .clicked()
                 {
                     self.crate_query.sort_asc = !self.crate_query.sort_asc;
@@ -240,50 +270,67 @@ impl super::DjCraftApp {
             });
 
             ui.separator();
-            egui::ScrollArea::vertical().max_height(190.0).show(ui, |ui| {
-                for t in self.crate_results.clone() {
-                    ui.horizontal(|ui| {
-                        let key = if t.musical_key.is_empty() { "--" } else { t.musical_key.as_str() };
-                        let bpm = if t.bpm > 0.0 {
-                            format!("{:.1}", t.bpm)
-                        } else {
-                            "---".to_string()
-                        };
-                        ui.label(format!("{} - {} | {} | {} BPM", t.artist, t.title, key, bpm));
-                        for (lbl, deck_id) in [
-                            ("A", DeckId::DeckA),
-                            ("B", DeckId::DeckB),
-                            ("C", DeckId::DeckC),
-                            ("D", DeckId::DeckD),
-                        ] {
-                            if ui.small_button(lbl).clicked() {
-                                self.load_crate_track_to_deck(deck_id, &t);
-                            }
-                        }
-                        if !t.path.starts_with("demo://") {
-                            if ui.small_button("BPM").clicked() {
-                                if let Some(ref store) = self.crate_store {
-                                    if let Ok(up) = store.analyze_track_builtin(t.id) {
-                                        self.status_msg = format!("Analyzed '{}': {:.1} BPM", up.title, up.bpm);
-                                        self.crate_dirty = true;
-                                    }
+            egui::ScrollArea::vertical()
+                .max_height(190.0)
+                .show(ui, |ui| {
+                    for t in self.crate_results.clone() {
+                        ui.horizontal(|ui| {
+                            let key = if t.musical_key.is_empty() {
+                                "--"
+                            } else {
+                                t.musical_key.as_str()
+                            };
+                            let bpm = if t.bpm > 0.0 {
+                                format!("{:.1}", t.bpm)
+                            } else {
+                                "---".to_string()
+                            };
+                            ui.label(format!(
+                                "{} - {} | {} | {} BPM",
+                                t.artist, t.title, key, bpm
+                            ));
+                            for (lbl, deck_id) in [
+                                ("A", DeckId::DeckA),
+                                ("B", DeckId::DeckB),
+                                ("C", DeckId::DeckC),
+                                ("D", DeckId::DeckD),
+                            ] {
+                                if ui.small_button(lbl).clicked() {
+                                    self.load_crate_track_to_deck(deck_id, &t);
                                 }
                             }
-                            if ui.small_button("Dettato").clicked() {
-                                if let Some(ref store) = self.crate_store {
-                                    match store.analyze_track_dettato(t.id) {
-                                        Ok(up) => {
-                                            self.status_msg = format!("Dettato '{}': {:?}", up.title, up.tuning_cents);
+                            if !t.path.starts_with("demo://") {
+                                if ui.small_button("BPM").clicked() {
+                                    if let Some(ref store) = self.crate_store {
+                                        if let Ok(up) = store.analyze_track_builtin(t.id) {
+                                            self.status_msg = format!(
+                                                "Analyzed '{}': {:.1} BPM",
+                                                up.title, up.bpm
+                                            );
                                             self.crate_dirty = true;
                                         }
-                                        Err(e) => self.status_msg = format!("Dettato error: {e}"),
+                                    }
+                                }
+                                if ui.small_button("Dettato").clicked() {
+                                    if let Some(ref store) = self.crate_store {
+                                        match store.analyze_track_dettato(t.id) {
+                                            Ok(up) => {
+                                                self.status_msg = format!(
+                                                    "Dettato '{}': {:?}",
+                                                    up.title, up.tuning_cents
+                                                );
+                                                self.crate_dirty = true;
+                                            }
+                                            Err(e) => {
+                                                self.status_msg = format!("Dettato error: {e}")
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-                    });
-                }
-            });
+                        });
+                    }
+                });
         });
     }
 
@@ -389,8 +436,11 @@ impl super::DjCraftApp {
                 ui.strong("MIDI Learn:");
                 if let Some(target) = self.midi.learn_target {
                     ui.label(
-                        egui::RichText::new(format!("Move hardware control for '{}'...", target.label()))
-                            .color(egui::Color32::from_rgb(250, 204, 21)),
+                        egui::RichText::new(format!(
+                            "Move hardware control for '{}'...",
+                            target.label()
+                        ))
+                        .color(egui::Color32::from_rgb(250, 204, 21)),
                     );
                     if ui.small_button("Cancel").clicked() {
                         self.midi.learn_target = None;
@@ -473,13 +523,15 @@ impl super::DjCraftApp {
                 ui.add(egui::TextEdit::singleline(&mut self.ai_cfg.endpoint).desired_width(260.0));
             });
 
-            egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
-                if let Ok(log) = self.ai_log.lock() {
-                    for (who, msg) in log.iter() {
-                        ui.label(format!("[{who}] {msg}"));
+            egui::ScrollArea::vertical()
+                .max_height(140.0)
+                .show(ui, |ui| {
+                    if let Ok(log) = self.ai_log.lock() {
+                        for (who, msg) in log.iter() {
+                            ui.label(format!("[{who}] {msg}"));
+                        }
                     }
-                }
-            });
+                });
 
             ui.horizontal(|ui| {
                 let enter = ui
@@ -505,8 +557,16 @@ impl super::DjCraftApp {
                         let cfg = self.ai_cfg.clone();
                         let ctx_str = format!(
                             "Deck A: {:?}, Deck B: {:?}, Crossfader: {:+.2}",
-                            self.orch.deck_a.loaded_track.as_ref().map(|t| (&t.title, t.bpm, &t.musical_key)),
-                            self.orch.deck_b.loaded_track.as_ref().map(|t| (&t.title, t.bpm, &t.musical_key)),
+                            self.orch.deck_a.loaded_track.as_ref().map(|t| (
+                                &t.title,
+                                t.bpm,
+                                &t.musical_key
+                            )),
+                            self.orch.deck_b.loaded_track.as_ref().map(|t| (
+                                &t.title,
+                                t.bpm,
+                                &t.musical_key
+                            )),
                             self.orch.crossfader
                         );
                         let log_arc = Arc::clone(&self.ai_log);
@@ -532,22 +592,48 @@ impl super::DjCraftApp {
     pub(super) fn render_fleet_hub_dock(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
         theme::card_frame(ui, palette, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.strong("Fleet Audio/Visual Hub");
-                if ui.small_button("Probe Fleet").clicked() {
-                    self.fleet_health = probe_fleet_health(&self.fleet_endpoints);
-                    self.fleet_last_output = "Probed local fleet endpoints.".to_string();
+                ui.strong("External Bridges (Optional)");
+                let changed = ui
+                    .checkbox(
+                        &mut self.fleet_endpoints.enabled,
+                        "Enable local bridge probing",
+                    )
+                    .changed();
+                if changed && !self.fleet_endpoints.enabled {
+                    self.fleet_health = Default::default();
+                    self.fleet_last_output = "External local bridges disabled.".to_string();
                 }
-                theme::status_dot(ui, self.fleet_health.speechcraft_up);
-                ui.monospace("SpeechCraft:14132");
-                theme::status_dot(ui, self.fleet_health.sfx_up);
-                ui.monospace("SFX:11120");
-                theme::status_dot(ui, self.fleet_health.vfx_up);
-                ui.monospace("VFX:11122");
-                theme::status_dot(ui, self.fleet_health.butterchurn_up);
-                ui.monospace("Butterchurn:10878");
-                theme::status_dot(ui, self.fleet_health.ollama_up);
-                ui.monospace("Ollama:11434");
+                if self.fleet_endpoints.enabled {
+                    if ui.small_button("Probe Bridges").clicked() {
+                        self.fleet_health = probe_fleet_health(&self.fleet_endpoints);
+                        self.fleet_last_output = "Probed configured local endpoints.".to_string();
+                    }
+                    theme::status_dot(ui, self.fleet_health.speechcraft_up);
+                    ui.monospace(format!("Speech:{}", self.fleet_endpoints.speechcraft_port));
+                    theme::status_dot(ui, self.fleet_health.sfx_up);
+                    ui.monospace(format!("SFX:{}", self.fleet_endpoints.sfx_port));
+                    theme::status_dot(ui, self.fleet_health.vfx_up);
+                    ui.monospace(format!("VFX:{}", self.fleet_endpoints.vfx_port));
+                    theme::status_dot(ui, self.fleet_health.butterchurn_up);
+                    ui.monospace(format!(
+                        "Visualizer:{}",
+                        self.fleet_endpoints.butterchurn_port
+                    ));
+                    theme::status_dot(ui, self.fleet_health.ollama_up);
+                    ui.monospace(format!("LLM:{}", self.fleet_endpoints.ollama_port));
+                }
             });
+
+            if !self.fleet_endpoints.enabled {
+                ui.label(
+                    egui::RichText::new(
+                        "Disabled by default so standalone runs make zero localhost connections. Enable above if you run optional local Speech/SFX/VFX/Visualizer/LLM bridges.",
+                    )
+                    .small()
+                    .color(palette.text_secondary),
+                );
+                return;
+            }
 
             ui.separator();
             // SpeechCraft / SAPI DJ Vocal Drop -> Deck C
@@ -560,7 +646,8 @@ impl super::DjCraftApp {
                         Ok(path) => {
                             if let Ok(decoded) = decode_audio_file(&path) {
                                 let dur = decoded.duration_seconds;
-                                self.deck_waveforms[2] = Some(WaveformSummary::from_decoded(&decoded));
+                                self.deck_waveforms[2] =
+                                    Some(WaveformSummary::from_decoded(&decoded));
                                 self.audio_out.set_deck_audio(2, Some(Arc::new(decoded)));
                                 let meta = TrackMeta {
                                     title: self.speech_drop_text.clone(),
@@ -573,8 +660,11 @@ impl super::DjCraftApp {
                                     deck: DeckId::DeckC,
                                     track: meta,
                                 });
-                                self.dispatch_and_report(Command::PlayPause { deck: DeckId::DeckC });
-                                self.fleet_last_output = format!("Played vocal drop on Deck C ({dur:.1}s)");
+                                self.dispatch_and_report(Command::PlayPause {
+                                    deck: DeckId::DeckC,
+                                });
+                                self.fleet_last_output =
+                                    format!("Played vocal drop on Deck C ({dur:.1}s)");
                             }
                         }
                         Err(e) => self.fleet_last_output = format!("Speech drop error: {e}"),
@@ -584,7 +674,10 @@ impl super::DjCraftApp {
 
             // Butterchurn BPM sync + SFX + VFX triggers
             ui.horizontal_wrapped(|ui| {
-                if ui.small_button("Sync BPM -> Butterchurn (:10878)").clicked() {
+                if ui
+                    .small_button("Sync BPM -> Butterchurn (:10878)")
+                    .clicked()
+                {
                     let bpm = self
                         .orch
                         .deck_a
@@ -635,8 +728,18 @@ impl super::DjCraftApp {
     pub(super) fn render_camelot_mixxxxx_dock(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
         theme::card_frame(ui, palette, |ui| {
             ui.horizontal(|ui| {
-                let key_a = self.orch.deck_a.loaded_track.as_ref().map(|t| t.musical_key.as_str());
-                let key_b = self.orch.deck_b.loaded_track.as_ref().map(|t| t.musical_key.as_str());
+                let key_a = self
+                    .orch
+                    .deck_a
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| t.musical_key.as_str());
+                let key_b = self
+                    .orch
+                    .deck_b
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| t.musical_key.as_str());
                 widgets::paint_camelot_wheel_mini(ui, key_a, key_b, palette);
                 ui.add_space(8.0);
                 ui.vertical(|ui| {
@@ -645,7 +748,10 @@ impl super::DjCraftApp {
                         ui.label(format!("{} -> {}", plan.from_track, plan.to_track));
                         ui.monospace(format!(
                             "BPM {:.1} -> {:.1} (Delta {:+.2}) | {} bars",
-                            plan.from_bpm, plan.to_bpm, plan.bpm_delta, plan.recommended_transition_bars
+                            plan.from_bpm,
+                            plan.to_bpm,
+                            plan.bpm_delta,
+                            plan.recommended_transition_bars
                         ));
                         ui.label(&plan.suggested_eq_strategy);
                     }
@@ -717,13 +823,15 @@ impl super::DjCraftApp {
                             trigger_id = Some(first.id);
                         }
                     }
-                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                        for s in matches {
-                            if ui.button(format!("[{}] {}", s.category, s.label)).clicked() {
-                                trigger_id = Some(s.id);
+                    egui::ScrollArea::vertical()
+                        .max_height(260.0)
+                        .show(ui, |ui| {
+                            for s in matches {
+                                if ui.button(format!("[{}] {}", s.category, s.label)).clicked() {
+                                    trigger_id = Some(s.id);
+                                }
                             }
-                        }
-                    });
+                        });
                 });
             self.show_command_palette = open;
             if let Some(id) = trigger_id {
@@ -774,7 +882,7 @@ impl super::DjCraftApp {
                         HelpTab::GetStarted => {
                             ui.strong("1. Starting Playback on Deck A, B, C, or D");
                             ui.label("- Click the highlighted PLAY button on any deck (or press Space for Deck A, Shift+Space for Deck B).");
-                            ui.label("- Check the Battle Mixer: make sure the deck's CH A / CH B vertical volume fader is up, MST loudness is > 0%, MUTE is off, and the MAG FOUR crossfader is centered (0.0) or toward the playing deck.");
+                            ui.label("- Check the Battle Mixer: make sure the deck's CH A / CH B vertical volume fader is up, MST loudness is > 0%, MUTE is off, and the Magnetic crossfader is centered (0.0) or toward the playing deck.");
                             ui.add_space(6.0);
                             ui.strong("2. Switching Decks & 2-Deck vs 4-Deck Layout");
                             ui.label("- Click 2-DECK or 4-DECK in the top bar right next to CRATES & GIG PREP.");
@@ -782,7 +890,7 @@ impl super::DjCraftApp {
                             ui.label("- In 4-DECK mode: the left column stacks full Deck A + Deck C, and the right column stacks full Deck B + Deck D.");
                             ui.add_space(6.0);
                             ui.strong("3. Skins, Textured & Sparkly Underlay, and Language (i18n)");
-                            ui.label("- Top-right bar: pick from 6 skins (Rane Seventy-Two Battle, Pioneer Club Dark, Serato Midnight, VirtualDJ Carbon, Shocking Pink Club, Daylight Booth Light).");
+                            ui.label("- Top-right bar: pick from 6 skins (Battle Console, Club Dark, Midnight Booth, Carbon Deck, Shocking Pink Club, Daylight Booth (Light)).");
                             ui.label("- Next to Skin: choose Backdrop Underlay (Solid, Brushed Metal, Carbon Weave, Sparkle Club).");
                             ui.label("- Next to Backdrop: switch UI language (EN, DE, FR, ES, JA, KO, ZH). All preferences save automatically to %LOCALAPPDATA%\\djcraft\\ui.json.");
                         }
@@ -802,7 +910,7 @@ impl super::DjCraftApp {
                             ui.label("- Transparent Sidecar Stems: Batch Stem Crate / Folder writes <parent>/.djcraft-stems/<track>/{vocals,drums,bass,other}.wav (hidden from scanners) and loads live into VOC/DRM/BAS/OTH rotary knobs.");
                             ui.label("- Native FFmpeg Video Mixer + Detachable Projector + Mixxxxx OSC 1.0 (UDP 11119).");
                             ui.label("- USB MIDI (midir): Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer DDJ-FLX4, Hercules DJControl + persistent MIDI Learn.");
-                            ui.label("- AI Booth Chat (Ollama :11434 / LM Studio :1234), Camelot harmonic setlists, SpeechCraft vocal drops, sfx-mcp, vfx-mcp, butterchurn-mcp.");
+                            ui.label("- Optional AI Booth Chat (user-configured OpenAI-compatible endpoint) & Camelot harmonic setlists.");
                         }
                         HelpTab::Usage => {
                             ui.strong("Desktop Controls & Shortcuts");
@@ -836,9 +944,9 @@ impl super::DjCraftApp {
                             ui.label("- Future roadmap ideas: DVS timecode vinyl input, Ableton Link sync, VST3 FX rack.");
                         }
                         HelpTab::OtherCrafts => {
-                            ui.label("- mixxxxx: Video-extended Mixxx fork (UDP OSC 11119 in / 11118 out).");
-                            ui.label("- speechcraft (:14132): Local TTS vocal drops routed onto Deck C.");
-                            ui.label("- sfx-mcp (:11120) | vfx-mcp (:11122) | butterchurn-mcp (:10878) | reaper-mcp (shared dettato).");
+                            ui.label("- Optional external bridges (disabled by default in External Bridges panel):");
+                            ui.label("  - Video-extended OSC 1.0 bridge (user-configured UDP host/port).");
+                            ui.label("  - Local TTS vocal drops, SFX/VFX/Visualizer HTTP bridges, and offline dettato CLI (via DETTATO_BIN or PATH).");
                         }
                         HelpTab::ProjectDocs => {
                             ui.label("See README.md, HELP.md, CHANGELOG.md, BUILD_LOG.md, and docs/TIERED_PLAN.md in the DJCraft repository.");
@@ -855,7 +963,9 @@ impl super::DjCraftApp {
                 .collapsible(false)
                 .show(ctx, |ui| {
                     ui.label("DJCraft: Dual-licensed MIT OR Apache-2.0 (#![forbid(unsafe_code)]).");
-                    ui.label("Crates: egui, eframe, cpal, symphonia, midir, rusqlite, rfd, clap, serde.");
+                    ui.label(
+                        "Crates: egui, eframe, cpal, symphonia, midir, rusqlite, rfd, clap, serde.",
+                    );
                 });
             self.show_licenses_dialog = open;
         }
@@ -868,7 +978,9 @@ impl super::DjCraftApp {
                 .show(ctx, |ui| {
                     ui.heading(format!("DJCraft Pro v{APP_VERSION}"));
                     ui.label("100% Safe Rust 4-Deck Audio + Video DJ Workstation.");
-                    ui.label("Rane Twelve MKII / Seventy-Two MKII MIDI | Serato & VirtualDJ Crates.");
+                    ui.label(
+                        "Rane Twelve MKII / Seventy-Two MKII MIDI | Serato & VirtualDJ Crates.",
+                    );
                 });
             self.show_about_dialog = open;
         }
