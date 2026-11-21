@@ -2,6 +2,18 @@
 
 All notable changes to DJCraft are documented in this file.
 
+## [0.2.2] - 2026-11-22
+
+### Added
+- **DVS Timecode Vinyl (`djcraft-audio/src/dvs.rs`, `docks.rs`)**:
+  - Added 100% Safe Rust (`#![forbid(unsafe_code)]`) quadrature stereo timecode decoder (`DvsDecoder` for `1000 Hz` / `2000 Hz` control vinyl) and live `cpal` audio input (`DvsInputStream`, `list_input_devices`).
+  - Exposes audio input picker, carrier selector, Deck A/B routing, and live `LOCKED / NO SIGNAL` speed/pitch/dBFS telemetry in the MIDI & DVS dock.
+- **Pure-Rust UDP Multicast Beat & Tempo Link (`djcraft-core/src/link.rs`, `main.rs`)**:
+  - Added clean-room MIT/Apache-2.0 UDP multicast beat/tempo clock (`224.76.78.75:20808`, zero GPL) with `LinkEngine` and `LinkBeacon`, plus a top-bar `LINK` toggle pill showing peer count.
+- **Daylight Booth Black Text & Visible Backdrops (`skins.rs`)**:
+  - Set `DaylightBooth` `text_primary` to pure black (`#000000`) and `text_secondary` to `#0F1218`.
+  - Upgraded `BrushedMetal` and `CarbonWeave` backdrop contrast/alpha so both textures remain clearly visible behind translucent panels.
+
 ## [0.2.1] - 2026-11-21
 
 ### Added

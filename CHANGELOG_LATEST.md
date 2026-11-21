@@ -1,6 +1,7 @@
-## [0.2.1] - 2026-11-21
+## [0.2.2] - 2026-11-22
 
 ### Highlights
-- **Per-File Autosaved Hot Cues (`crates.db`)**: Hot cues (slots 1-4) are now persisted per audio track path in SQLite (`track_cues` table) when set and automatically restored whenever that track is loaded onto any deck.
-- **Booth + Crate Split Workspace (`--booth-crate`)**: Upper performance booth with center vertical waveforms, compact `78px` platters, and hideable `FX Rack` / `Sampler` / `Video` strip, paired with a lower 2-pane crate browser that auto-selects the prepared gig crate.
-- **Cross-Platform & Storytold Beta Polish**: Verified `xtask ci` green across `ubuntu-latest`, `macos-latest`, and `windows-latest`, scrubbed RFC-0029 UI/i18n naming, gated external bridges opt-in, added AccessKit `Role::Slider` + keyboard nudge on rotary knobs, and fixed light-mode contrast + header truncation.
+- **DVS Timecode Vinyl (`djcraft-audio/src/dvs.rs`)**: 100% Safe Rust quadrature stereo decoder (`1000 Hz` / `2000 Hz` control vinyl) + live `cpal` audio input routing speed, direction, and pitch directly to Deck A/B.
+- **Pure-Rust UDP Multicast Link (`djcraft-core/src/link.rs`)**: Clean-room beat & tempo sync (`224.76.78.75:20808`, zero GPL) with a top-bar `LINK` toggle pill and peer counter.
+- **3-Band RGB Spectral Waveforms (`dsp.rs`, `widgets.rs`)**: `<250 Hz` Crimson/Red, `250-2500 Hz` Emerald/Lime, `>2500 Hz` Electric Cyan with white-hot transient cores, beatgrid lines, loop highlights, and colored cue flags.
+- **Daylight Black Text & Visible Backdrops (`skins.rs`)**: Pure black (`#000000`) primary text in Daylight Booth mode and high-contrast `BrushedMetal` / `CarbonWeave` textures.
