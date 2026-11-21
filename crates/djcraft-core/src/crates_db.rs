@@ -6,7 +6,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use djcraft_audio::dsp::{decode_audio_file, detect_beatgrid, has_sidecar_stems, stem_dir_for_audio};
+use djcraft_audio::dsp::{
+    decode_audio_file, detect_beatgrid, has_sidecar_stems, stem_dir_for_audio,
+};
 use djcraft_audio::AudioEngine;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -221,10 +223,42 @@ impl CrateStore {
         }
         let crate_id = self.ensure_crate_path("Demo Crate")?;
         let demos = [
-            ("demo://subterranean_dub", "Subterranean Dub", "Resonant Swarm", "Dub Techno", 126.0, "8A", 384.0),
-            ("demo://solaris_flare", "Solaris Flare", "Antigravity Sound", "Melodic Techno", 128.0, "9A", 412.0),
-            ("demo://danube_midnight", "Danube Midnight", "Vienna Modular", "Deep House", 126.0, "8B", 356.0),
-            ("demo://velvet_acid_pulse", "Velvet Acid Pulse", "Klangwerk", "Acid House", 132.0, "7A", 398.0),
+            (
+                "demo://subterranean_dub",
+                "Subterranean Dub",
+                "Resonant Swarm",
+                "Dub Techno",
+                126.0,
+                "8A",
+                384.0,
+            ),
+            (
+                "demo://solaris_flare",
+                "Solaris Flare",
+                "Antigravity Sound",
+                "Melodic Techno",
+                128.0,
+                "9A",
+                412.0,
+            ),
+            (
+                "demo://danube_midnight",
+                "Danube Midnight",
+                "Vienna Modular",
+                "Deep House",
+                126.0,
+                "8B",
+                356.0,
+            ),
+            (
+                "demo://velvet_acid_pulse",
+                "Velvet Acid Pulse",
+                "Klangwerk",
+                "Acid House",
+                132.0,
+                "7A",
+                398.0,
+            ),
         ];
         for (path, title, artist, genre, bpm, key, dur) in demos {
             let tid = self.upsert_track(path, title, artist, genre, bpm, key, dur)?;
@@ -361,9 +395,11 @@ impl CrateStore {
             )
             .map_err(|e| DjError::Deck(format!("Upsert track failed: {e}")))?;
         self.conn
-            .query_row("SELECT id FROM tracks WHERE path = ?1", params![path], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT id FROM tracks WHERE path = ?1",
+                params![path],
+                |r| r.get(0),
+            )
             .map_err(|e| DjError::Deck(format!("Lookup track id failed: {e}")))
     }
 
@@ -580,7 +616,8 @@ impl CrateStore {
         let Some(old_idx) = tids.iter().position(|&id| id == track_id) else {
             return Ok(());
         };
-        let target = (old_idx as isize + delta).clamp(0, tids.len().saturating_sub(1) as isize) as usize;
+        let target =
+            (old_idx as isize + delta).clamp(0, tids.len().saturating_sub(1) as isize) as usize;
         self.reorder_crate_track(crate_id, track_id, target)
     }
 
@@ -596,15 +633,8 @@ impl CrateStore {
                 added += self.scan_audio_folder(crate_id, p)?;
             } else if p.is_file() && is_supported_audio(p) {
                 let (artist, title) = infer_artist_title(p);
-                let tid = self.upsert_track(
-                    &p.to_string_lossy(),
-                    &title,
-                    &artist,
-                    "",
-                    0.0,
-                    "",
-                    0.0,
-                )?;
+                let tid =
+                    self.upsert_track(&p.to_string_lossy(), &title, &artist, "", 0.0, "", 0.0)?;
                 self.add_track_to_crate(crate_id, tid)?;
                 added += 1;
             }
@@ -745,7 +775,10 @@ impl CrateStore {
 
         tracks.sort_by(|a, b| {
             let ord = match q.sort_by {
-                CrateSortField::ManualOrder => a.crate_position.cmp(&b.crate_position).then(a.id.cmp(&b.id)),
+                CrateSortField::ManualOrder => a
+                    .crate_position
+                    .cmp(&b.crate_position)
+                    .then(a.id.cmp(&b.id)),
                 CrateSortField::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
                 CrateSortField::Artist => a.artist.to_lowercase().cmp(&b.artist.to_lowercase()),
                 CrateSortField::Bpm => a.bpm.total_cmp(&b.bpm),
@@ -872,15 +905,8 @@ impl CrateStore {
                     }
                 } else if is_supported_audio(&p) {
                     let (artist, title) = infer_artist_title(&p);
-                    let tid = self.upsert_track(
-                        &p.to_string_lossy(),
-                        &title,
-                        &artist,
-                        "",
-                        0.0,
-                        "",
-                        0.0,
-                    )?;
+                    let tid =
+                        self.upsert_track(&p.to_string_lossy(), &title, &artist, "", 0.0, "", 0.0)?;
                     self.add_track_to_crate(crate_id, tid)?;
                     imported += 1;
                 }
@@ -1243,7 +1269,9 @@ fn encode_utf16be(s: &str) -> Vec<u8> {
 
 fn decode_utf16be(bytes: &[u8]) -> Result<String, DjError> {
     if !bytes.len().is_multiple_of(2) {
-        return Err(DjError::Deck("Odd UTF-16BE byte length in Serato crate".to_string()));
+        return Err(DjError::Deck(
+            "Odd UTF-16BE byte length in Serato crate".to_string(),
+        ));
     }
     let units: Vec<u16> = bytes
         .as_chunks::<2>()
@@ -1301,7 +1329,9 @@ pub fn parse_serato_crate_bytes(
         ]) as usize;
         pos += 8;
         if pos + len > bytes.len() {
-            return Err(DjError::Deck("Truncated Serato .crate TLV record".to_string()));
+            return Err(DjError::Deck(
+                "Truncated Serato .crate TLV record".to_string(),
+            ));
         }
         let body = &bytes[pos..pos + len];
         pos += len;
@@ -1359,7 +1389,9 @@ fn xml_unescape(s: &str) -> String {
 
 /// Encode tracks as a VirtualDJ `.vdjfolder` XML file.
 pub fn encode_vdj_folder_xml(tracks: &[CrateTrack]) -> String {
-    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VirtualFolder noDuplicates=\"yes\">\n");
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VirtualFolder noDuplicates=\"yes\">\n",
+    );
     for t in tracks {
         xml.push_str(&format!("  <song path=\"{}\" />\n", xml_escape(&t.path)));
     }
@@ -1396,7 +1428,10 @@ pub fn encode_m3u(tracks: &[CrateTrack]) -> String {
     let mut out = String::from("#EXTM3U\n");
     for t in tracks {
         let dur = t.duration_seconds.round() as i64;
-        out.push_str(&format!("#EXTINF:{dur},{} - {}\n{}\n", t.artist, t.title, t.path));
+        out.push_str(&format!(
+            "#EXTINF:{dur},{} - {}\n{}\n",
+            t.artist, t.title, t.path
+        ));
     }
     out
 }

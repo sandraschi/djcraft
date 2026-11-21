@@ -159,11 +159,21 @@ pub fn t(key: I18nKey, locale: AppLocale) -> &'static str {
         (I18nKey::HotCue, AppLocale::Ko) => "핫 큐",
         (I18nKey::HotCue, AppLocale::Zh) => "快捷定位点 (Hot Cue)",
 
-        (I18nKey::StemSeparation, AppLocale::En) => "AI Stem Separation (Vocals, Drums, Bass, Melodic)",
-        (I18nKey::StemSeparation, AppLocale::De) => "KI-Stemtrennung (Gesang, Drums, Bass, Melodie)",
-        (I18nKey::StemSeparation, AppLocale::Fr) => "Séparation des pistes IA (Voix, Batterie, Basse)",
-        (I18nKey::StemSeparation, AppLocale::Es) => "Separación de pistas por IA (Voces, Batería, Bajo)",
-        (I18nKey::StemSeparation, AppLocale::Ja) => "AI音源分離 (ボーカル・ドラム・ベース・メロディ)",
+        (I18nKey::StemSeparation, AppLocale::En) => {
+            "AI Stem Separation (Vocals, Drums, Bass, Melodic)"
+        }
+        (I18nKey::StemSeparation, AppLocale::De) => {
+            "KI-Stemtrennung (Gesang, Drums, Bass, Melodie)"
+        }
+        (I18nKey::StemSeparation, AppLocale::Fr) => {
+            "Séparation des pistes IA (Voix, Batterie, Basse)"
+        }
+        (I18nKey::StemSeparation, AppLocale::Es) => {
+            "Separación de pistas por IA (Voces, Batería, Bajo)"
+        }
+        (I18nKey::StemSeparation, AppLocale::Ja) => {
+            "AI音源分離 (ボーカル・ドラム・ベース・メロディ)"
+        }
         (I18nKey::StemSeparation, AppLocale::Ko) => "AI 파트 분리 (보컬, 드럼, 베이스, 멜로디)",
         (I18nKey::StemSeparation, AppLocale::Zh) => "AI 分轨拆分 (人声、鼓点、贝斯、旋律)",
 
@@ -207,11 +217,19 @@ pub fn t(key: I18nKey, locale: AppLocale) -> &'static str {
         (I18nKey::CratesGigPrep, AppLocale::Ko) => "CRATES & GIG PREP (KR)",
         (I18nKey::CratesGigPrep, AppLocale::Zh) => "CRATES & GIG PREP (ZH)",
 
-        (I18nKey::BattleMixer, AppLocale::En) => "Battle Mixer (3-Band EQ, Faders, MAG FOUR Crossfader)",
-        (I18nKey::BattleMixer, AppLocale::De) => "Battle-Mixer (3-Band-EQ, Fader, MAG FOUR Crossfader)",
-        (I18nKey::BattleMixer, AppLocale::Fr) => "Mixeur Battle (EQ 3 Bandes, Faders, MAG FOUR)",
-        (I18nKey::BattleMixer, AppLocale::Es) => "Mezclador Battle (EQ 3 Bandas, Faders, MAG FOUR)",
-        (I18nKey::BattleMixer, _) => "Battle Mixer (3-Band EQ, Faders, MAG FOUR)",
+        (I18nKey::BattleMixer, AppLocale::En) => {
+            "Battle Mixer (3-Band EQ, Faders, Magnetic Crossfader)"
+        }
+        (I18nKey::BattleMixer, AppLocale::De) => {
+            "Battle-Mixer (3-Band-EQ, Fader, Magnetic Crossfader)"
+        }
+        (I18nKey::BattleMixer, AppLocale::Fr) => {
+            "Mixeur Battle (EQ 3 Bandes, Faders, Crossfader Magnetique)"
+        }
+        (I18nKey::BattleMixer, AppLocale::Es) => {
+            "Mezclador Battle (EQ 3 Bandas, Faders, Crossfader Magnetico)"
+        }
+        (I18nKey::BattleMixer, _) => "Battle Mixer (3-Band EQ, Faders, Magnetic Crossfader)",
 
         (I18nKey::HeadphonePfl, AppLocale::En) => "Headphone PFL:",
         (I18nKey::HeadphonePfl, AppLocale::De) => "Kopfhoerer PFL:",

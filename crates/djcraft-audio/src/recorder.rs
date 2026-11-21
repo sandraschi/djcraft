@@ -104,8 +104,12 @@ impl ActiveRecording {
             RecordingFormat::Flac => output_path.with_extension("tmp.wav"),
         };
 
-        let file = File::create(&wav_path)
-            .map_err(|e| format!("Failed to create recording file {}: {e}", wav_path.display()))?;
+        let file = File::create(&wav_path).map_err(|e| {
+            format!(
+                "Failed to create recording file {}: {e}",
+                wav_path.display()
+            )
+        })?;
         let mut writer = BufWriter::with_capacity(64 * 1024, file);
         write_wav_header(&mut writer, sample_rate, 0)
             .map_err(|e| format!("Failed to write WAV header: {e}"))?;
@@ -287,6 +291,8 @@ pub fn write_wav_frames(
             .write_all(&ri.to_le_bytes())
             .map_err(|e| format!("WAV write error: {e}"))?;
     }
-    writer.flush().map_err(|e| format!("WAV flush error: {e}"))?;
+    writer
+        .flush()
+        .map_err(|e| format!("WAV flush error: {e}"))?;
     Ok(frames.len())
 }

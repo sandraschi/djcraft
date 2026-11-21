@@ -437,8 +437,7 @@ pub fn run_dettato_sidecar(
     }
     let bin = resolve_dettato_binary().ok_or_else(|| {
         DjError::Sidecar(
-            "dettato CLI not found. Set DETTATO_BIN or install into D:\\Dev\\tools\\dettato\\.venv."
-                .to_string(),
+            "dettato CLI not found. Set DETTATO_BIN or install dettato on PATH.".to_string(),
         )
     })?;
 
@@ -477,10 +476,7 @@ pub fn run_dettato_sidecar(
         )));
     }
 
-    let stem = src
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("output");
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
     let midi_path = out_dir.join(format!("{stem}.mid"));
     let json_path = out_dir.join(format!("{stem}.json"));
     if !midi_path.is_file() {
@@ -619,11 +615,10 @@ impl DjOrchestrator {
                 })
             }
             Command::LoadDemoCrateTrack { deck, index } => {
-                let track = self
-                    .crate_tracks
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| DjError::Deck(format!("Crate index {index} out of range")))?;
+                let track =
+                    self.crate_tracks.get(index).cloned().ok_or_else(|| {
+                        DjError::Deck(format!("Crate index {index} out of range"))
+                    })?;
                 self.dispatch(Command::LoadTrack { deck, track })
             }
             Command::SetCrossfader { value } => {
@@ -692,7 +687,11 @@ impl DjOrchestrator {
                         "Headphone Cue Vol {:.0}% | Cue/PGM {:.0}% | Split {}",
                         self.headphone_volume * 100.0,
                         self.headphone_cue_mix * 100.0,
-                        if self.headphone_split_cue { "ON" } else { "OFF" }
+                        if self.headphone_split_cue {
+                            "ON"
+                        } else {
+                            "OFF"
+                        }
                     ),
                     data: json!({
                         "headphone_volume": self.headphone_volume,
@@ -764,7 +763,10 @@ impl DjOrchestrator {
                 }
                 let state = self.deck_mut(deck);
                 let Some(track) = state.loaded_track.as_ref() else {
-                    return Err(DjError::Deck(format!("{} has no loaded track", deck.label())));
+                    return Err(DjError::Deck(format!(
+                        "{} has no loaded track",
+                        deck.label()
+                    )));
                 };
                 let new_bpm = (track.bpm * multiplier).clamp(40.0, 240.0);
                 self.push_undo();
@@ -785,7 +787,8 @@ impl DjOrchestrator {
                 let Some(track_b) = self.deck_b.loaded_track.as_ref() else {
                     return Err(DjError::Deck("Deck B has no loaded track".to_string()));
                 };
-                let eff_bpm_a = (track_a.bpm * (1.0 + self.deck_a.pitch_bend_pct / 100.0)).max(20.0);
+                let eff_bpm_a =
+                    (track_a.bpm * (1.0 + self.deck_a.pitch_bend_pct / 100.0)).max(20.0);
                 let beat_sec_a = 60.0 / eff_bpm_a;
                 let phase_a = (self.deck_a.position_seconds - self.deck_a.beatgrid_offset_sec)
                     .rem_euclid(beat_sec_a);
@@ -795,10 +798,9 @@ impl DjOrchestrator {
                 let current_beats_b =
                     ((self.deck_b.position_seconds - self.deck_b.beatgrid_offset_sec) / beat_sec_a)
                         .floor();
-                let aligned_pos_b = (self.deck_b.beatgrid_offset_sec
-                    + current_beats_b * beat_sec_a
-                    + phase_a)
-                    .max(0.0);
+                let aligned_pos_b =
+                    (self.deck_b.beatgrid_offset_sec + current_beats_b * beat_sec_a + phase_a)
+                        .max(0.0);
 
                 self.push_undo();
                 self.deck_b.pitch_bend_pct = needed_pct;
@@ -1038,7 +1040,8 @@ impl DjOrchestrator {
                     return Err(DjError::Deck("Deck B BPM must be positive".to_string()));
                 }
                 self.push_undo();
-                let needed_pct = (((target_bpm / deck_b_base_bpm) - 1.0) * 100.0).clamp(-16.0, 16.0);
+                let needed_pct =
+                    (((target_bpm / deck_b_base_bpm) - 1.0) * 100.0).clamp(-16.0, 16.0);
                 self.deck_b.pitch_bend_pct = needed_pct;
                 Ok(DispatchOutcome {
                     ok: true,
@@ -1112,11 +1115,8 @@ impl DjOrchestrator {
                 output_dir,
                 device,
             } => {
-                let analysis = run_dettato_sidecar(
-                    &audio_path,
-                    output_dir.as_deref(),
-                    device.as_deref(),
-                )?;
+                let analysis =
+                    run_dettato_sidecar(&audio_path, output_dir.as_deref(), device.as_deref())?;
                 let data = serde_json::to_value(&analysis)
                     .map_err(|e| DjError::Sidecar(format!("Serialize error: {e}")))?;
                 Ok(DispatchOutcome {

@@ -162,7 +162,10 @@ fn main() {
             }),
             "tools/call" => {
                 let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                let args = params
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
                 let tool_output = match name {
                     "djcraft_status" => match orch.dispatch(Command::Status) {
                         Ok(out) => out.data,
@@ -191,7 +194,10 @@ fn main() {
                         serde_json::to_value(Command::catalog()).unwrap_or_else(|_| json!([]))
                     }
                     "djcraft_analyze_dettato" => {
-                        let audio_path = args.get("audio_path").and_then(|v| v.as_str()).unwrap_or("");
+                        let audio_path = args
+                            .get("audio_path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
                         if audio_path.trim().is_empty() {
                             json!({ "error": "audio_path is required" })
                         } else {
@@ -241,9 +247,18 @@ fn main() {
                         let controls = MixxxxxVideoControls {
                             enabled: args.get("enabled").and_then(|v| v.as_bool()),
                             fullscreen: args.get("fullscreen").and_then(|v| v.as_bool()),
-                            brightness: args.get("brightness").and_then(|v| v.as_f64()).map(|v| v as f32),
-                            contrast: args.get("contrast").and_then(|v| v.as_f64()).map(|v| v as f32),
-                            saturation: args.get("saturation").and_then(|v| v.as_f64()).map(|v| v as f32),
+                            brightness: args
+                                .get("brightness")
+                                .and_then(|v| v.as_f64())
+                                .map(|v| v as f32),
+                            contrast: args
+                                .get("contrast")
+                                .and_then(|v| v.as_f64())
+                                .map(|v| v as f32),
+                            saturation: args
+                                .get("saturation")
+                                .and_then(|v| v.as_f64())
+                                .map(|v| v as f32),
                         };
                         match orch.dispatch(Command::MixxxxxVideo { deck, controls }) {
                             Ok(out) => out.data,
@@ -254,7 +269,9 @@ fn main() {
                         Ok(store) => {
                             let _ = store.seed_demo_if_empty();
                             match store.list_crates() {
-                                Ok(list) => serde_json::to_value(list).unwrap_or_else(|_| json!([])),
+                                Ok(list) => {
+                                    serde_json::to_value(list).unwrap_or_else(|_| json!([]))
+                                }
                                 Err(e) => json!({ "error": e.to_string() }),
                             }
                         }
@@ -273,7 +290,9 @@ fn main() {
                                     ))),
                                 };
                                 match res {
-                                    Ok(sum) => serde_json::to_value(sum).unwrap_or_else(|_| json!({})),
+                                    Ok(sum) => {
+                                        serde_json::to_value(sum).unwrap_or_else(|_| json!({}))
+                                    }
                                     Err(e) => json!({ "error": e.to_string() }),
                                 }
                             }
@@ -287,7 +306,9 @@ fn main() {
                         match CrateStore::open_default() {
                             Ok(store) => {
                                 let res = match fmt {
-                                    "serato" => store.export_serato_crate(crate_id, Path::new(dest)),
+                                    "serato" => {
+                                        store.export_serato_crate(crate_id, Path::new(dest))
+                                    }
                                     "vdj" => store.export_vdj_file(crate_id, Path::new(dest)),
                                     _ => Err(djcraft_core::DjError::Deck(format!(
                                         "Unsupported format '{fmt}'. Expected serato or vdj."

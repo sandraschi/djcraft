@@ -2,18 +2,18 @@ use std::net::UdpSocket;
 use std::path::Path;
 use std::time::Duration;
 
-use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
 use djcraft_audio::dsp::{
     detect_beatgrid, has_sidecar_stems, sample_varispeed, stem_dir_for_audio, DecodedAudio,
     ThreeBandEq, WaveformSummary, WsolaDeckState,
 };
+use djcraft_audio::{AudioEngine, DeckId, TrackMeta};
 use djcraft_core::{
     action_to_command, builtin_profile_rules, encode_m3u, encode_osc_message,
     encode_serato_crate_bytes, encode_vdj_folder_xml, parse_dettato_json, parse_m3u,
-    parse_natural_language_command, parse_raw_midi, parse_serato_crate_bytes,
-    parse_vdj_folder_xml, plan_harmonic_setlist, send_deck_video_controls, Command,
-    ControllerProfileId, CrateQuery, CrateSortField, CrateStore, CrateTrack, DjOrchestrator,
-    MidiTargetAction, MixxxxxConfig, MixxxxxVideoControls, OscArg,
+    parse_natural_language_command, parse_raw_midi, parse_serato_crate_bytes, parse_vdj_folder_xml,
+    plan_harmonic_setlist, send_deck_video_controls, Command, ControllerProfileId, CrateQuery,
+    CrateSortField, CrateStore, CrateTrack, DjOrchestrator, MidiTargetAction, MixxxxxConfig,
+    MixxxxxVideoControls, OscArg,
 };
 
 #[test]
@@ -669,24 +669,39 @@ fn test_vdj_folder_xml_and_m3u_roundtrip() {
 
     let m3u = encode_m3u(&tracks);
     let parsed_m3u = parse_m3u(&m3u);
-    assert_eq!(parsed_m3u, vec![tracks[0].path.clone(), tracks[1].path.clone()]);
+    assert_eq!(
+        parsed_m3u,
+        vec![tracks[0].path.clone(), tracks[1].path.clone()]
+    );
 }
 
 #[test]
 fn test_crate_store_subcrates_filtering_and_sorting() {
     let store = CrateStore::open_in_memory().expect("in memory db");
     let house_id = store.ensure_crate_path("House").expect("house");
-    let deep_id = store.create_subcrate(Some(house_id), "Deep House").expect("deep");
+    let deep_id = store
+        .create_subcrate(Some(house_id), "Deep House")
+        .expect("deep");
     let tech_id = store.ensure_crate_path("Techno").expect("tech");
 
     let t1 = store
         .upsert_track("D:/a.mp3", "Alpha", "Artist A", "House", 124.0, "8A", 300.0)
         .expect("t1");
     let t2 = store
-        .upsert_track("D:/b.mp3", "Beta", "Artist B", "Deep House", 128.0, "9A", 360.0)
+        .upsert_track(
+            "D:/b.mp3",
+            "Beta",
+            "Artist B",
+            "Deep House",
+            128.0,
+            "9A",
+            360.0,
+        )
         .expect("t2");
     let t3 = store
-        .upsert_track("D:/c.mp3", "Gamma", "Artist C", "Techno", 138.0, "3B", 400.0)
+        .upsert_track(
+            "D:/c.mp3", "Gamma", "Artist C", "Techno", 138.0, "3B", 400.0,
+        )
         .expect("t3");
 
     store.add_track_to_crate(house_id, t1).expect("add t1");
@@ -750,7 +765,9 @@ fn test_crate_store_serato_and_vdj_file_import_export() {
     let raw = encode_serato_crate_bytes(&[r"D:\Sets\DJ X - Peak Anthem.mp3".to_string()]);
     std::fs::write(&serato_in, raw).expect("write serato");
 
-    let summary = store.import_serato_crate(&serato_in).expect("import serato");
+    let summary = store
+        .import_serato_crate(&serato_in)
+        .expect("import serato");
     assert_eq!(summary.crate_path, "Club/Peak Hour");
     assert_eq!(summary.imported_tracks, 1);
 
@@ -788,7 +805,9 @@ fn test_midi_rane_twelve_and_seventy_two_profiles_and_autodetect() {
 
     let r72 = builtin_profile_rules(ControllerProfileId::RaneSeventyTwoMk2);
     assert!(r72.iter().any(|r| r.action == MidiTargetAction::Crossfader));
-    assert!(r72.iter().any(|r| r.action == MidiTargetAction::MasterVolume));
+    assert!(r72
+        .iter()
+        .any(|r| r.action == MidiTargetAction::MasterVolume));
 
     // Parse MAG FOUR crossfader CC 0x0B on channel 0 at value 127 (+1.0 full Deck B)
     let ev = parse_raw_midi(&[0xB0, 0x0B, 127]).expect("parse CC");
@@ -919,7 +938,9 @@ fn test_dual_bus_pfl_pre_cue_and_split_mono_routing() {
     })
     .expect("vol 0");
     let pfl_res = orch
-        .dispatch(Command::TogglePflCue { deck: DeckId::DeckA })
+        .dispatch(Command::TogglePflCue {
+            deck: DeckId::DeckA,
+        })
         .expect("toggle pfl");
     assert!(pfl_res.ok);
     assert!(orch.deck_a.pfl_cue);
@@ -1044,7 +1065,10 @@ fn test_deck_b_start_seek_gen_vinyl_scratch_and_i18n() {
     for i in 0..200_u64 {
         energy += AudioEngine::sample_deck_frame(&orch.deck_b, 1.0 + i as f64 / 44100.0, i).abs();
     }
-    assert!(energy > 1.0, "Vinyl scratching must produce audio even when paused");
+    assert!(
+        energy > 1.0,
+        "Vinyl scratching must produce audio even when paused"
+    );
 
     // i18n checks
     assert_eq!(t(I18nKey::LiveConsole, AppLocale::De), "LIVE-KONSOLE");
@@ -1123,7 +1147,10 @@ fn test_all_12_fx_algorithms_and_3_packs_produce_finite_stereo() {
         for i in 0..1024 {
             let s = (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 44100.0).sin() * 0.5;
             let (ol, or) = dsp.process_stereo(s, s, &params, 128.0);
-            assert!(ol.is_finite() && or.is_finite(), "Non-finite output for {kind:?}");
+            assert!(
+                ol.is_finite() && or.is_finite(),
+                "Non-finite output for {kind:?}"
+            );
             energy += ol.abs() + or.abs();
         }
         assert!(energy > 1.0, "FX {kind:?} produced silent output");

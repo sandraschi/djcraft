@@ -198,10 +198,7 @@ impl WsolaDeckState {
         let hop_out = grain_len / 2;
         let search_radius = ((sample_rate as usize) * 8 / 1000).clamp(64, 512);
         let window: Vec<f32> = (0..grain_len)
-            .map(|i| {
-                0.5 * (1.0
-                    - (2.0 * std::f32::consts::PI * i as f32 / grain_len as f32).cos())
-            })
+            .map(|i| 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / grain_len as f32).cos()))
             .collect();
         Self {
             grain_len,

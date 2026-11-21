@@ -29,6 +29,8 @@ impl Default for AiChatConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FleetEndpoints {
+    #[serde(default)]
+    pub enabled: bool,
     pub speechcraft_port: u16,
     pub sfx_port: u16,
     pub vfx_port: u16,
@@ -39,6 +41,7 @@ pub struct FleetEndpoints {
 impl Default for FleetEndpoints {
     fn default() -> Self {
         Self {
+            enabled: false,
             speechcraft_port: 14132,
             sfx_port: 11120,
             vfx_port: 11122,
@@ -63,6 +66,9 @@ fn tcp_alive(port: u16) -> bool {
 }
 
 pub fn probe_fleet_health(ep: &FleetEndpoints) -> FleetHealthReport {
+    if !ep.enabled {
+        return FleetHealthReport::default();
+    }
     FleetHealthReport {
         speechcraft_up: tcp_alive(ep.speechcraft_port),
         sfx_up: tcp_alive(ep.sfx_port),
@@ -212,7 +218,11 @@ pub fn chat_with_booth_ai(
 }
 
 /// Push live master BPM & optional preset hint to `butterchurn-mcp` (:10878).
-pub fn butterchurn_sync_bpm(port: u16, bpm: f64, preset_hint: Option<&str>) -> Result<String, DjError> {
+pub fn butterchurn_sync_bpm(
+    port: u16,
+    bpm: f64,
+    preset_hint: Option<&str>,
+) -> Result<String, DjError> {
     let url = format!("http://127.0.0.1:{port}/api/bpm");
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(3))
@@ -223,7 +233,11 @@ pub fn butterchurn_sync_bpm(port: u16, bpm: f64, preset_hint: Option<&str>) -> R
         "source": "djcraft"
     });
     match agent.post(&url).send_json(payload) {
-        Ok(resp) => Ok(format!("Butterchurn synced at {:.1} BPM (HTTP {})", bpm, resp.status())),
+        Ok(resp) => Ok(format!(
+            "Butterchurn synced at {:.1} BPM (HTTP {})",
+            bpm,
+            resp.status()
+        )),
         Err(e) => Err(DjError::Sidecar(format!(
             "butterchurn-mcp unreachable on :{port} ({e})"
         ))),
@@ -264,7 +278,10 @@ pub fn vfx_apply_preset(port: u16, video_path: &str, preset: &str) -> Result<Str
         "source": "djcraft"
     });
     match agent.post(&url).send_json(payload) {
-        Ok(resp) => Ok(format!("vfx-mcp queued '{preset}' (HTTP {})", resp.status())),
+        Ok(resp) => Ok(format!(
+            "vfx-mcp queued '{preset}' (HTTP {})",
+            resp.status()
+        )),
         Err(e) => Err(DjError::Sidecar(format!(
             "vfx-mcp unreachable on :{port} ({e})"
         ))),
@@ -275,27 +292,27 @@ pub fn vfx_apply_preset(port: u16, video_path: &str, preset: &str) -> Result<Str
 pub fn generate_speech_drop(text: &str, out_wav: &Path) -> Result<PathBuf, DjError> {
     let clean = text.trim();
     if clean.is_empty() {
-        return Err(DjError::Sidecar("Speech drop text cannot be empty".to_string()));
+        return Err(DjError::Sidecar(
+            "Speech drop text cannot be empty".to_string(),
+        ));
     }
     if let Some(parent) = out_wav.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    // 1. Try local SpeechCraft CLI if installed
-    for candidate in [
-        r"D:\Dev\repos\speechcraft\target\release\speechcraft-cli.exe",
-        r"D:\Dev\repos\speechcraft\target\debug\speechcraft-cli.exe",
-    ] {
-        let p = Path::new(candidate);
-        if p.is_file() {
-            if let Ok(out) = std::process::Command::new(p)
-                .args(["speak", "--text", clean, "--output"])
-                .arg(out_wav)
-                .output()
-            {
-                if out.status.success() && out_wav.is_file() {
-                    return Ok(out_wav.to_path_buf());
-                }
+    // 1. Try optional SPEECHCRAFT_BIN or speechcraft-cli on PATH if installed
+    if let Some(bin) = std::env::var_os("SPEECHCRAFT_BIN")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .or_else(|| Some(PathBuf::from("speechcraft-cli")))
+    {
+        if let Ok(out) = std::process::Command::new(&bin)
+            .args(["speak", "--text", clean, "--output"])
+            .arg(out_wav)
+            .output()
+        {
+            if out.status.success() && out_wav.is_file() {
+                return Ok(out_wav.to_path_buf());
             }
         }
     }

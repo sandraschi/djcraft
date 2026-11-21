@@ -71,7 +71,7 @@ pub struct DeckState {
     pub eq_mid: f64,           // 0.0 (kill) to 2.0 (boost), 1.0 = flat
     pub eq_high: f64,          // 0.0 (kill) to 2.0 (boost), 1.0 = flat
     #[serde(default)]
-    pub color_filter: f64,     // -1.0 (LPF) .. 0.0 (flat) .. +1.0 (HPF)
+    pub color_filter: f64, // -1.0 (LPF) .. 0.0 (flat) .. +1.0 (HPF)
     pub hot_cue_seconds: [Option<f64>; 4],
     pub loop_bars: Option<u32>,
     #[serde(default)]
@@ -251,7 +251,11 @@ impl AudioEngine {
 
     /// Generates 16-bit PCM stereo audio buffer synthesized for a given time window (seconds).
     /// Used for actual audio playback and wav generation.
-    pub fn synthesize_deck_audio(deck: &DeckState, duration_sec: f64, sample_rate: u32) -> Vec<i16> {
+    pub fn synthesize_deck_audio(
+        deck: &DeckState,
+        duration_sec: f64,
+        sample_rate: u32,
+    ) -> Vec<i16> {
         let total_samples = (duration_sec.max(0.0) * sample_rate as f64) as usize;
         let mut buffer = Vec::with_capacity(total_samples * 2);
 

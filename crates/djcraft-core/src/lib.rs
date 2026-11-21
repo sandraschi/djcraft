@@ -81,11 +81,11 @@ pub struct DjOrchestrator {
     pub deck_b: DeckState,
     pub deck_c: DeckState,
     pub deck_d: DeckState,
-    pub crossfader: f64,          // -1.0 (full Deck A) to +1.0 (full Deck B)
-    pub master_volume: f64,       // 0.0 to 1.0
+    pub crossfader: f64,    // -1.0 (full Deck A) to +1.0 (full Deck B)
+    pub master_volume: f64, // 0.0 to 1.0
     pub master_muted: bool,
-    pub headphone_volume: f64,    // 0.0 to 1.0 (Cue bus level)
-    pub headphone_cue_mix: f64,   // 0.0 (100% PFL) to 1.0 (100% Master PGM)
+    pub headphone_volume: f64,     // 0.0 to 1.0 (Cue bus level)
+    pub headphone_cue_mix: f64,    // 0.0 (100% PFL) to 1.0 (100% Master PGM)
     pub headphone_split_cue: bool, // Single-device Split Mono Cue (L=Cue, R=Master)
     pub fx_units: [FxUnitParams; 2],
     pub crate_tracks: Vec<TrackMeta>,
@@ -258,7 +258,8 @@ impl DjOrchestrator {
 
         let eff_bpm_a = track_a.bpm * (1.0 + self.deck_a.pitch_bend_pct / 100.0);
         let eff_bpm_b = track_b.bpm * (1.0 + self.deck_b.pitch_bend_pct / 100.0);
-        let harmonic = AudioEngine::is_camelot_compatible(&track_a.musical_key, &track_b.musical_key);
+        let harmonic =
+            AudioEngine::is_camelot_compatible(&track_a.musical_key, &track_b.musical_key);
         let bpm_delta = eff_bpm_b - eff_bpm_a;
 
         let strategy = if harmonic {
