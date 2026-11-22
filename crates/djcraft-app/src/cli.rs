@@ -155,6 +155,32 @@ enum Commands {
         #[arg(long, default_value_t = 1.0)]
         speed: f64,
     },
+    /// Control in-app live macro recording (start, stop [--save <file>], status)
+    MacroRec {
+        action: String,
+        #[arg(long)]
+        save: Option<String>,
+    },
+    /// Control the non-blocking in-app Set Player (start [--path <file>] [--speed <f64>], stop, status)
+    SetPlay {
+        action: String,
+        #[arg(long)]
+        path: Option<String>,
+        #[arg(long)]
+        speed: Option<f64>,
+    },
+    /// Control Two-Room Setup Room 2 prepared autoplay (status, configure, play, pause, stop, next)
+    Room2 {
+        action: String,
+        #[arg(long)]
+        device: Option<String>,
+        #[arg(long)]
+        crate_id: Option<i64>,
+        #[arg(long)]
+        volume: Option<f32>,
+        #[arg(long)]
+        shuffle: Option<bool>,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -631,6 +657,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let script: SetScript = serde_json::from_str(&raw)?;
             let summary = run_set_script(&script, speed)?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Commands::MacroRec { action, save } => {
+            let resp = send_ipc_request(&IpcRequest::MacroControl {
+                action,
+                save_path: save,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::SetPlay {
+            action,
+            path,
+            speed,
+        } => {
+            let resp = send_ipc_request(&IpcRequest::SetPlayback {
+                action,
+                path,
+                speed,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Room2 {
+            action,
+            device,
+            crate_id,
+            volume,
+            shuffle,
+        } => {
+            let resp = send_ipc_request(&IpcRequest::Room2Control {
+                action,
+                device,
+                crate_id,
+                volume,
+                shuffle,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
         }
     }
     Ok(())

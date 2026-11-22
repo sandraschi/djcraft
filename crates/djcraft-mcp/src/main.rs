@@ -368,6 +368,46 @@ fn main() {
                                 },
                                 "required": ["path"]
                             }
+                        },
+                        {
+                            "name": "djcraft_macro_record",
+                            "description": "Control live macro recording in djcraft.exe (start, stop with optional save_path, or status).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "action": { "type": "string", "enum": ["start", "stop", "status"] },
+                                    "save_path": { "type": "string" }
+                                },
+                                "required": ["action"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_set_playback",
+                            "description": "Control the in-app Set Player in djcraft.exe (start with optional path/speed, stop, or status).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "action": { "type": "string", "enum": ["start", "stop", "status"] },
+                                    "path": { "type": "string" },
+                                    "speed": { "type": "number" }
+                                },
+                                "required": ["action"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_room2",
+                            "description": "Control Two-Room Setup Room 2 prepared autoplay (status, configure, play, pause, stop, next) with independent output device and crate.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "action": { "type": "string", "enum": ["status", "configure", "play", "pause", "stop", "next"] },
+                                    "device": { "type": "string" },
+                                    "crate_id": { "type": "integer" },
+                                    "volume": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+                                    "shuffle": { "type": "boolean" }
+                                },
+                                "required": ["action"]
+                            }
                         }
                     ]
                 }
@@ -938,6 +978,77 @@ fn main() {
                             .and_then(|script| run_set_script(&script, speed))
                         {
                             Ok(v) => v,
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_macro_record" => {
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("status")
+                            .to_string();
+                        let save_path = args
+                            .get("save_path")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string);
+                        match send_ipc_request(&IpcRequest::MacroControl { action, save_path }) {
+                            Ok(r) if r.ok => r.data,
+                            Ok(r) => {
+                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                            }
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_set_playback" => {
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("status")
+                            .to_string();
+                        let path = args
+                            .get("path")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string);
+                        let speed = args.get("speed").and_then(|v| v.as_f64());
+                        match send_ipc_request(&IpcRequest::SetPlayback {
+                            action,
+                            path,
+                            speed,
+                        }) {
+                            Ok(r) if r.ok => r.data,
+                            Ok(r) => {
+                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                            }
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_room2" => {
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("status")
+                            .to_string();
+                        let device = args
+                            .get("device")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string);
+                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
+                        let volume = args
+                            .get("volume")
+                            .and_then(|v| v.as_f64())
+                            .map(|v| v as f32);
+                        let shuffle = args.get("shuffle").and_then(|v| v.as_bool());
+                        match send_ipc_request(&IpcRequest::Room2Control {
+                            action,
+                            device,
+                            crate_id,
+                            volume,
+                            shuffle,
+                        }) {
+                            Ok(r) if r.ok => r.data,
+                            Ok(r) => {
+                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                            }
                             Err(e) => json!({ "error": e }),
                         }
                     }

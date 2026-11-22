@@ -159,6 +159,9 @@ When `djcraft.exe` is running, it binds a loopback TCP listener (`127.0.0.1:<eph
 | `mute` | - | Toggle master mute |
 | `load-video` | `<deck> <path>` | Load a video file onto Video Deck `a` or `b` and show Live Video Strip |
 | `run-set` | `<path> [--speed <f64>]` | Play back a timed `.djset.json` set script (tracks, FX, transitions, video) in real time |
+| `macro-rec` | `<start\|stop\|status> [--save <path>]` | Start/stop/inspect in-app live macro recording and optionally save to `.djset.json` |
+| `set-play` | `<start\|stop\|status> [--path <file>] [--speed <f64>]` | Control the non-blocking in-app Set Player (`Set & Two-Room` dock tab) |
+| `room2` | `<status\|configure\|play\|pause\|stop\|next> [--device <name\|off>] [--crate-id <id>] [--volume <0..1>] [--shuffle <bool>]` | Control Two-Room Setup Room 2 prepared autoplay (independent output device & crate) |
 
 ```powershell
 djcraft-cli live-status
@@ -172,7 +175,7 @@ djcraft-cli stop-all
 
 ---
 
-## 3. MCP Server (`djcraft-mcp`) - 30 Tools (100% CLI & Live Remote Parity)
+## 3. MCP Server (`djcraft-mcp`) - 34 Tools (100% CLI & Live Remote Parity)
 
 - **Transport**: line-delimited JSON-RPC 2.0 over stdio (`protocolVersion: "2024-11-05"`).
 - Every `djcraft-cli` command has a direct MCP tool equivalent:
@@ -210,3 +213,6 @@ djcraft-cli stop-all
 | `djcraft_deck_control` | `play` / `cue` / `stop-all` / `sync` / `pfl` / `volume` | `deck`, `action?`, `volume?`, `pitch_bend?` |
 | `djcraft_mixer_control` | `crossfader` / `master` / `mute` | `crossfader?`, `master_volume?`, `mute?` |
 | `djcraft_run_set` | `run-set` | `path` (`.djset.json`), `speed?` |
+| `djcraft_macro_record` | `macro-rec` | `action` (`start` \| `stop` \| `status`), `save_path?` |
+| `djcraft_set_playback` | `set-play` | `action` (`start` \| `stop` \| `status`), `path?`, `speed?` |
+| `djcraft_room2` | `room2` | `action` (`status` \| `configure` \| `play` \| `pause` \| `stop` \| `next`), `device?`, `crate_id?`, `volume?`, `shuffle?` |

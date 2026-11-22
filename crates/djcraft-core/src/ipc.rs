@@ -52,6 +52,29 @@ pub enum IpcRequest {
         #[serde(default)]
         show_strip: Option<bool>,
     },
+    MacroControl {
+        action: String,
+        #[serde(default)]
+        save_path: Option<String>,
+    },
+    SetPlayback {
+        action: String,
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        speed: Option<f64>,
+    },
+    Room2Control {
+        action: String,
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default)]
+        crate_id: Option<i64>,
+        #[serde(default)]
+        volume: Option<f32>,
+        #[serde(default)]
+        shuffle: Option<bool>,
+    },
     LiveStatus,
 }
 

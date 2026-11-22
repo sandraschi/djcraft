@@ -198,6 +198,203 @@ impl super::DjCraftApp {
         self.room2_play_index(next);
     }
 
+    pub(crate) fn handle_macro_ipc(
+        &mut self,
+        action: &str,
+        save_path: Option<&str>,
+    ) -> djcraft_core::IpcResponse {
+        match action.trim().to_lowercase().as_str() {
+            "start" => {
+                self.set_auto.recorded_steps.clear();
+                self.set_auto.record_started_at = Some(Instant::now());
+                self.set_auto.recording = true;
+                self.set_auto.last_step_label =
+                    "Recording live deck, FX, and mixer actions...".to_string();
+                djcraft_core::IpcResponse::ok(serde_json::json!({
+                    "recording": true,
+                    "steps": 0
+                }))
+            }
+            "stop" => {
+                self.set_auto.recording = false;
+                let steps = std::mem::take(&mut self.set_auto.recorded_steps);
+                let sc = SetScript {
+                    name: "Recorded DJCraft Set".to_string(),
+                    description: Some("Recorded live in DJCraft".to_string()),
+                    steps,
+                };
+                if let Some(p) = save_path.filter(|s| !s.trim().is_empty()) {
+                    if let Ok(json) = serde_json::to_string_pretty(&sc) {
+                        if let Err(e) = std::fs::write(p, json) {
+                            return djcraft_core::IpcResponse::err(format!(
+                                "Failed to write macro to '{p}': {e}"
+                            ));
+                        }
+                    }
+                }
+                let step_count = sc.steps.len();
+                let sc_json = serde_json::to_value(&sc).unwrap_or(serde_json::Value::Null);
+                self.set_auto.script = Some(sc);
+                self.set_auto.next_step = 0;
+                djcraft_core::IpcResponse::ok(serde_json::json!({
+                    "recording": false,
+                    "steps": step_count,
+                    "saved_to": save_path,
+                    "script": sc_json
+                }))
+            }
+            "status" => djcraft_core::IpcResponse::ok(serde_json::json!({
+                "recording": self.set_auto.recording,
+                "steps": self.set_auto.recorded_steps.len()
+            })),
+            other => djcraft_core::IpcResponse::err(format!(
+                "Unknown macro action '{other}' (expected start, stop, status)"
+            )),
+        }
+    }
+
+    pub(crate) fn handle_set_playback_ipc(
+        &mut self,
+        action: &str,
+        path: Option<&str>,
+        speed: Option<f64>,
+    ) -> djcraft_core::IpcResponse {
+        if let Some(spd) = speed {
+            self.set_auto.speed = spd.clamp(0.25, 10.0);
+        }
+        match action.trim().to_lowercase().as_str() {
+            "start" => {
+                if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
+                    match std::fs::read_to_string(p)
+                        .map_err(|e| e.to_string())
+                        .and_then(|raw| {
+                            serde_json::from_str::<SetScript>(&raw).map_err(|e| e.to_string())
+                        }) {
+                        Ok(mut sc) => {
+                            sc.steps.sort_by_key(|s| s.at_ms);
+                            self.set_auto.script_path = p.to_string();
+                            self.set_auto.script = Some(sc);
+                        }
+                        Err(e) => {
+                            return djcraft_core::IpcResponse::err(format!(
+                                "Failed to load set '{p}': {e}"
+                            ));
+                        }
+                    }
+                }
+                let Some(ref sc) = self.set_auto.script else {
+                    return djcraft_core::IpcResponse::err(
+                        "No set loaded; pass --path <file.djset.json>".to_string(),
+                    );
+                };
+                self.set_auto.next_step = 0;
+                self.set_auto.started_at = Some(Instant::now());
+                self.set_auto.playing = true;
+                djcraft_core::IpcResponse::ok(serde_json::json!({
+                    "playing": true,
+                    "name": sc.name,
+                    "total_steps": sc.steps.len(),
+                    "speed": self.set_auto.speed
+                }))
+            }
+            "stop" => {
+                self.set_auto.playing = false;
+                djcraft_core::IpcResponse::ok(serde_json::json!({
+                    "playing": false,
+                    "next_step": self.set_auto.next_step
+                }))
+            }
+            "status" => djcraft_core::IpcResponse::ok(serde_json::json!({
+                "playing": self.set_auto.playing,
+                "speed": self.set_auto.speed,
+                "next_step": self.set_auto.next_step,
+                "total_steps": self.set_auto.script.as_ref().map_or(0, |s| s.steps.len()),
+                "name": self.set_auto.script.as_ref().map(|s| s.name.clone()),
+                "last_step_label": self.set_auto.last_step_label
+            })),
+            other => djcraft_core::IpcResponse::err(format!(
+                "Unknown set-play action '{other}' (expected start, stop, status)"
+            )),
+        }
+    }
+
+    pub(crate) fn handle_room2_ipc(
+        &mut self,
+        action: &str,
+        device: Option<&str>,
+        crate_id: Option<i64>,
+        volume: Option<f32>,
+        shuffle: Option<bool>,
+    ) -> djcraft_core::IpcResponse {
+        if let Some(dev) = device {
+            let target = if dev.trim().is_empty() || dev.eq_ignore_ascii_case("off") {
+                None
+            } else {
+                Some(dev)
+            };
+            match self.room2.out.set_device(target) {
+                Ok(msg) => {
+                    self.room2.selected_device = target.map(ToString::to_string);
+                    self.room2.status = msg;
+                }
+                Err(e) => return djcraft_core::IpcResponse::err(e),
+            }
+        }
+        if let Some(cid) = crate_id {
+            self.room2_load_crate_tracks(cid);
+        }
+        if let Some(vol) = volume {
+            self.room2.volume = vol.clamp(0.0, 1.0);
+            self.room2.out.set_volume(self.room2.volume);
+        }
+        if let Some(shuf) = shuffle {
+            self.room2.shuffle = shuf;
+        }
+
+        match action.trim().to_lowercase().as_str() {
+            "configure" | "status" => {}
+            "play" => {
+                let (_, _, _, dur_sec) = self.room2.out.snapshot();
+                if dur_sec > 0.0 && crate_id.is_none() {
+                    self.room2.out.set_playing(true);
+                    self.room2.enabled = true;
+                } else {
+                    self.room2_play_index(self.room2.current_idx);
+                }
+            }
+            "pause" => {
+                self.room2.out.set_playing(false);
+                self.room2.enabled = false;
+            }
+            "stop" => {
+                self.room2.out.stop();
+                self.room2.enabled = false;
+            }
+            "next" => self.room2_play_next(),
+            other => {
+                return djcraft_core::IpcResponse::err(format!(
+                    "Unknown room2 action '{other}' (expected status, configure, play, pause, stop, next)"
+                ));
+            }
+        }
+
+        let (playing, finished, pos_sec, dur_sec) = self.room2.out.snapshot();
+        djcraft_core::IpcResponse::ok(serde_json::json!({
+            "enabled": self.room2.enabled,
+            "playing": playing,
+            "finished": finished,
+            "pos_sec": pos_sec,
+            "dur_sec": dur_sec,
+            "device": self.room2.selected_device,
+            "crate_id": self.room2.crate_id,
+            "tracks_count": self.room2.tracks.len(),
+            "current_idx": self.room2.current_idx,
+            "volume": self.room2.volume,
+            "shuffle": self.room2.shuffle,
+            "status": self.room2.status
+        }))
+    }
+
     pub(super) fn render_set_and_rooms_dock(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
         ui.columns(2, |cols| {
             // Left: Set Script Player & Macro Recorder

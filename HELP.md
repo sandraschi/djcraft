@@ -77,9 +77,9 @@ DJCraft Pro is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck 
   - **Audio & Probes**: `audio-list`, `dvs-probe [--device] [--carrier 1k|2k] [--ms]`, `link-probe [--bpm] [--ms]`
   - **MIDI**: `midi-list`, `midi-connect [query]`, `midi-profile <profile>`, `midi-import-xml <path>`, `midi-rules`
   - **Crates & Hot Cues**: `crate-list`, `crate-create <name> [--parent-id]`, `crate-scan <folder> [--crate-id]`, `crate-import-serato`, `crate-export-serato`, `crate-import-vdj`, `crate-export-vdj`, `crate-cues <track>`, `crate-set-cue <track> <slot> <sec|clear>`
-  - **Live Remote Control (IPC)**: `live-status`, `dispatch <json>`, `load <deck> <path>`, `play <deck>`, `cue <deck>`, `stop-all`, `sync`, `crossfader <val>`, `volume <deck> <val>`, `master <val>`, `pfl <deck>`, `mute`
+  - **Live Remote Control (IPC)**: `live-status`, `dispatch <json>`, `load <deck> <path>`, `load-video <deck> <path>`, `play <deck>`, `cue <deck>`, `stop-all`, `sync`, `crossfader <val>`, `volume <deck> <val>`, `master <val>`, `pfl <deck>`, `mute`, `run-set <path>`, `set-play <start|stop|status>`, `macro-rec <start|stop|status>`, `room2 <status|configure|play|pause|stop|next>`
   - **Analysis & OSC**: `status`, `transition`, `camelot <a> <b>`, `commands`, `analyze-dettato <audio>`, `mixxxxx-ping`, `mixxxxx-video`
-- **MCP (`djcraft-mcp`)**: stdio JSON-RPC 2.0 server exposing **30 tools** with 100% CLI & live remote-control parity. See [docs/CLI_AND_MCP.md](docs/CLI_AND_MCP.md) for the complete command & tool reference.
+- **MCP (`djcraft-mcp`)**: stdio JSON-RPC 2.0 server exposing **34 tools** with 100% CLI & live remote-control parity. See [docs/CLI_AND_MCP.md](docs/CLI_AND_MCP.md) for the complete command & tool reference.
 
 ---
 

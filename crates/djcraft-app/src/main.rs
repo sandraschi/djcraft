@@ -734,6 +734,21 @@ impl DjCraftApp {
                     "transition": self.video_transition.label()
                 }))
             }
+            djcraft_core::IpcRequest::MacroControl { action, save_path } => {
+                self.handle_macro_ipc(&action, save_path.as_deref())
+            }
+            djcraft_core::IpcRequest::SetPlayback {
+                action,
+                path,
+                speed,
+            } => self.handle_set_playback_ipc(&action, path.as_deref(), speed),
+            djcraft_core::IpcRequest::Room2Control {
+                action,
+                device,
+                crate_id,
+                volume,
+                shuffle,
+            } => self.handle_room2_ipc(&action, device.as_deref(), crate_id, volume, shuffle),
             djcraft_core::IpcRequest::LiveStatus => match self.orch.dispatch(Command::Status) {
                 Ok(outcome) => djcraft_core::IpcResponse::ok(serde_json::json!({
                     "orchestrator": outcome.data,
