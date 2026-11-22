@@ -9,6 +9,7 @@ pub mod config;
 pub mod crates_db;
 pub mod fleet_ai;
 pub mod i18n;
+pub mod ipc;
 pub mod link;
 pub mod midi;
 pub mod mixxxxx_osc;
@@ -28,6 +29,10 @@ pub use fleet_ai::{
     butterchurn_sync_bpm, chat_with_booth_ai, generate_speech_drop, parse_natural_language_command,
     plan_harmonic_setlist, probe_fleet_health, sfx_search, vfx_apply_preset, AiChatConfig,
     FleetEndpoints, FleetHealthReport,
+};
+pub use ipc::{
+    live_port_path, send_ipc_request, send_ipc_request_to_port, start_ipc_server, IpcReceiver,
+    IpcRequest, IpcResponse,
 };
 pub use link::{LinkBeacon, LinkEngine};
 pub use midi::{

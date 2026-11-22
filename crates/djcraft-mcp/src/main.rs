@@ -11,6 +11,7 @@ use std::time::Duration;
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{list_input_devices, DeckId, DvsCarrier, DvsInputStream};
 use djcraft_core::{
+    ipc::{parse_deck, send_ipc_request, IpcRequest},
     AppConfig, Command, ControllerProfileId, CrateStore, DjOrchestrator, LinkEngine,
     MidiControllerManager, MixxxxxVideoControls,
 };
@@ -299,6 +300,60 @@ fn main() {
                                 "properties": {
                                     "bpm": { "type": "number" },
                                     "ms": { "type": "integer", "minimum": 100, "maximum": 5000 }
+                                }
+                            }
+                        },
+                        {
+                            "name": "djcraft_live_status",
+                            "description": "Query live 4-deck, mixer, audio, MIDI, DVS, and Link state from the running djcraft.exe GUI.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_dispatch",
+                            "description": "Dispatch any serialized L1 Command JSON object to the running djcraft.exe GUI (full remote control).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "command": { "type": "object" }
+                                },
+                                "required": ["command"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_load_file",
+                            "description": "Decode and load a local audio file onto a deck (a/b/c/d) in the running djcraft.exe GUI.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "deck": { "type": "string", "enum": ["a", "b", "c", "d"] },
+                                    "path": { "type": "string" }
+                                },
+                                "required": ["deck", "path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_deck_control",
+                            "description": "Control deck transport/pitch/PFL/sync in the running djcraft.exe GUI.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "deck": { "type": "string", "enum": ["a", "b", "c", "d"] },
+                                    "action": { "type": "string", "enum": ["play_pause", "cue_return", "stop_all", "sync", "pfl", "keylock", "slip"] },
+                                    "volume": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+                                    "pitch_bend": { "type": "number" }
+                                },
+                                "required": ["deck"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_mixer_control",
+                            "description": "Control crossfader, master volume, or master mute in the running djcraft.exe GUI.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "crossfader": { "type": "number", "minimum": -1.0, "maximum": 1.0 },
+                                    "master_volume": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+                                    "mute": { "type": "boolean" }
                                 }
                             }
                         }
@@ -740,6 +795,124 @@ fn main() {
                             "beat_phase": link.beat_phase,
                             "peers": link.peer_count()
                         })
+                    }
+                    "djcraft_live_status" => match send_ipc_request(&IpcRequest::LiveStatus) {
+                        Ok(r) if r.ok => r.data,
+                        Ok(r) => {
+                            json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                        }
+                        Err(e) => json!({ "error": e }),
+                    },
+                    "djcraft_dispatch" => {
+                        let cmd_val = args.get("command").cloned().unwrap_or(Value::Null);
+                        match serde_json::from_value::<Command>(cmd_val) {
+                            Ok(command) => match send_ipc_request(&IpcRequest::Command { command })
+                            {
+                                Ok(r) if r.ok => r.data,
+                                Ok(r) => {
+                                    json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                                }
+                                Err(e) => json!({ "error": e }),
+                            },
+                            Err(e) => json!({ "error": format!("Invalid Command JSON: {e}") }),
+                        }
+                    }
+                    "djcraft_load_file" => {
+                        let deck_str = args.get("deck").and_then(|v| v.as_str()).unwrap_or("");
+                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                        match parse_deck(deck_str) {
+                            Ok(deck) => match send_ipc_request(&IpcRequest::LoadFile {
+                                deck,
+                                path: path.to_string(),
+                            }) {
+                                Ok(r) if r.ok => r.data,
+                                Ok(r) => {
+                                    json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                                }
+                                Err(e) => json!({ "error": e }),
+                            },
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_deck_control" => {
+                        let deck_str = args.get("deck").and_then(|v| v.as_str()).unwrap_or("");
+                        match parse_deck(deck_str) {
+                            Ok(deck) => {
+                                let mut results = Vec::new();
+                                if let Some(action) = args.get("action").and_then(|v| v.as_str()) {
+                                    let cmd = match action {
+                                        "play_pause" => Some(Command::PlayPause { deck }),
+                                        "cue_return" => Some(Command::CueReturn { deck }),
+                                        "stop_all" => Some(Command::StopAllDecks),
+                                        "sync" => Some(Command::PhaseSyncBeatgrid),
+                                        "pfl" => Some(Command::TogglePflCue { deck }),
+                                        "keylock" => Some(Command::ToggleKeylock { deck }),
+                                        "slip" => Some(Command::ToggleSlipMode { deck }),
+                                        _ => None,
+                                    };
+                                    if let Some(command) = cmd {
+                                        match send_ipc_request(&IpcRequest::Command { command }) {
+                                            Ok(r) if r.ok => results.push(r.data),
+                                            Ok(r) => results.push(json!({ "error": r.error })),
+                                            Err(e) => results.push(json!({ "error": e })),
+                                        }
+                                    } else {
+                                        results.push(json!({ "error": format!("Unknown action '{action}'") }));
+                                    }
+                                }
+                                if let Some(vol) = args.get("volume").and_then(|v| v.as_f64()) {
+                                    match send_ipc_request(&IpcRequest::Command {
+                                        command: Command::SetDeckVolume { deck, volume: vol },
+                                    }) {
+                                        Ok(r) if r.ok => results.push(r.data),
+                                        Ok(r) => results.push(json!({ "error": r.error })),
+                                        Err(e) => results.push(json!({ "error": e })),
+                                    }
+                                }
+                                if let Some(pct) = args.get("pitch_bend").and_then(|v| v.as_f64()) {
+                                    match send_ipc_request(&IpcRequest::Command {
+                                        command: Command::SetPitchBend { deck, pct },
+                                    }) {
+                                        Ok(r) if r.ok => results.push(r.data),
+                                        Ok(r) => results.push(json!({ "error": r.error })),
+                                        Err(e) => results.push(json!({ "error": e })),
+                                    }
+                                }
+                                json!({ "results": results })
+                            }
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_mixer_control" => {
+                        let mut results = Vec::new();
+                        if let Some(xf) = args.get("crossfader").and_then(|v| v.as_f64()) {
+                            match send_ipc_request(&IpcRequest::Command {
+                                command: Command::SetCrossfader { value: xf },
+                            }) {
+                                Ok(r) if r.ok => results.push(r.data),
+                                Ok(r) => results.push(json!({ "error": r.error })),
+                                Err(e) => results.push(json!({ "error": e })),
+                            }
+                        }
+                        if let Some(mv) = args.get("master_volume").and_then(|v| v.as_f64()) {
+                            match send_ipc_request(&IpcRequest::Command {
+                                command: Command::SetMasterVolume { volume: mv },
+                            }) {
+                                Ok(r) if r.ok => results.push(r.data),
+                                Ok(r) => results.push(json!({ "error": r.error })),
+                                Err(e) => results.push(json!({ "error": e })),
+                            }
+                        }
+                        if args.get("mute").and_then(|v| v.as_bool()) == Some(true) {
+                            match send_ipc_request(&IpcRequest::Command {
+                                command: Command::ToggleMasterMute,
+                            }) {
+                                Ok(r) if r.ok => results.push(r.data),
+                                Ok(r) => results.push(json!({ "error": r.error })),
+                                Err(e) => results.push(json!({ "error": e })),
+                            }
+                        }
+                        json!({ "results": results })
                     }
                     _ => json!({ "error": format!("Unknown tool: {name}") }),
                 };

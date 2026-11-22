@@ -387,6 +387,7 @@ pub struct DjCraftApp {
     screenshot_out: Option<PathBuf>,
     screenshot_frames: u32,
     screenshot_requested: bool,
+    ipc_rx: Option<djcraft_core::IpcReceiver>,
 }
 
 impl Default for DjCraftApp {
@@ -553,6 +554,7 @@ impl DjCraftApp {
             screenshot_out: None,
             screenshot_frames: 0,
             screenshot_requested: false,
+            ipc_rx: None,
         }
     }
 
@@ -578,6 +580,84 @@ impl DjCraftApp {
     fn open_help_tab(&mut self, tab: HelpTab) {
         self.help_tab = tab;
         self.show_help_center = true;
+    }
+
+    fn start_live_ipc(&mut self, ctx: egui::Context) {
+        if self.ipc_rx.is_some() {
+            return;
+        }
+        if let Ok((rx, port)) = djcraft_core::start_ipc_server(move || ctx.request_repaint()) {
+            self.ipc_rx = Some(rx);
+            let _ = port;
+        }
+    }
+
+    fn poll_live_ipc(&mut self) {
+        let mut pending = Vec::new();
+        if let Some(ref rx) = self.ipc_rx {
+            while let Ok(item) = rx.try_recv() {
+                pending.push(item);
+            }
+        }
+        for (req, reply) in pending {
+            let resp = match req {
+                djcraft_core::IpcRequest::Command { command } => {
+                    match self.orch.dispatch(command) {
+                        Ok(outcome) => {
+                            if outcome.command == "mixxxxx_ping" {
+                                self.mixxxxx_last_pong = outcome
+                                    .data
+                                    .get("pong_received")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                            }
+                            self.status_msg = outcome.message.clone();
+                            djcraft_core::IpcResponse::ok(
+                                serde_json::to_value(&outcome).unwrap_or(serde_json::Value::Null),
+                            )
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Error: {e}");
+                            djcraft_core::IpcResponse::err(e.to_string())
+                        }
+                    }
+                }
+                djcraft_core::IpcRequest::LoadFile { deck, path } => {
+                    match self.load_audio_file_to_deck(deck, std::path::Path::new(&path)) {
+                        Ok(msg) => {
+                            self.status_msg = msg.clone();
+                            djcraft_core::IpcResponse::ok(serde_json::json!({
+                                "loaded": true,
+                                "deck": deck.label(),
+                                "path": path,
+                                "message": msg
+                            }))
+                        }
+                        Err(e) => {
+                            self.status_msg = e.clone();
+                            djcraft_core::IpcResponse::err(e)
+                        }
+                    }
+                }
+                djcraft_core::IpcRequest::LiveStatus => match self.orch.dispatch(Command::Status) {
+                    Ok(outcome) => djcraft_core::IpcResponse::ok(serde_json::json!({
+                        "orchestrator": outcome.data,
+                        "audio_active": self.audio_out.active,
+                        "audio_device": self.audio_out.device_name,
+                        "headphone_device": self.selected_headphone_device,
+                        "split_cue": self.orch.headphone_split_cue,
+                        "auto_dj_enabled": self.auto_dj_enabled,
+                        "midi_connected": self.midi.connected_port,
+                        "midi_profile": self.midi.active_profile.label(),
+                        "dvs_device": self.dvs_selected_device,
+                        "link_bpm": self.link_engine.bpm,
+                        "link_peers": self.link_engine.peer_count()
+                    })),
+                    Err(e) => djcraft_core::IpcResponse::err(e.to_string()),
+                },
+            };
+            let _ = reply.send(resp);
+        }
     }
 
     fn dispatch_and_report(&mut self, cmd: Command) {
@@ -686,6 +766,61 @@ impl DjCraftApp {
         }
     }
 
+    fn load_audio_file_to_deck(
+        &mut self,
+        deck: DeckId,
+        path: &std::path::Path,
+    ) -> Result<String, String> {
+        let decoded =
+            decode_audio_file(path).map_err(|err| format!("Audio decode failed: {err}"))?;
+        let grid = detect_beatgrid(&decoded);
+        let title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Audio Track")
+            .to_string();
+        let meta = TrackMeta {
+            title: title.clone(),
+            artist: "Local Audio".to_string(),
+            bpm: grid.bpm,
+            musical_key: "8A".to_string(),
+            duration_seconds: decoded.duration_seconds,
+        };
+        let deck_idx = deck_index(deck);
+        self.deck_waveforms[deck_idx] = Some(WaveformSummary::from_decoded(&decoded));
+        let arc_audio = Arc::new(decoded);
+        self.deck_decoded[deck_idx] = Some(Arc::clone(&arc_audio));
+        self.audio_out.set_deck_audio(deck_idx, Some(arc_audio));
+        let stems_tag = if let Some(stems) = load_sidecar_stems(path) {
+            self.audio_out
+                .set_deck_stems(deck_idx, Some(Arc::new(stems)));
+            " [4-STEMS LIVE]"
+        } else {
+            ""
+        };
+        self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
+        let st = self.orch.deck_mut(deck);
+        st.beatgrid_offset_sec = grid.first_beat_sec;
+        let path_str = path.to_string_lossy().to_string();
+        st.audio_path = Some(path_str.clone());
+        self.restore_hot_cues_for_deck(deck, &path_str);
+        if let Some(vid_path) = find_companion_video(path) {
+            let _ = match deck {
+                DeckId::DeckA => self.video_deck_a.load_file(&vid_path),
+                DeckId::DeckB => self.video_deck_b.load_file(&vid_path),
+                _ => Ok(()),
+            };
+        }
+        Ok(format!(
+            "Loaded '{}' to {} ({:.1} BPM, beat 1 at {:.2}s){}",
+            title,
+            deck.label(),
+            grid.bpm,
+            grid.first_beat_sec,
+            stems_tag
+        ))
+    }
+
     fn load_audio_file_dialog(&mut self, deck: DeckId) {
         let Some(path) = rfd::FileDialog::new()
             .add_filter("Audio Files", &["mp3", "wav", "flac", "ogg", "m4a", "aac"])
@@ -693,56 +828,9 @@ impl DjCraftApp {
         else {
             return;
         };
-        match decode_audio_file(&path) {
-            Ok(decoded) => {
-                let grid = detect_beatgrid(&decoded);
-                let title = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Audio Track")
-                    .to_string();
-                let meta = TrackMeta {
-                    title: title.clone(),
-                    artist: "Local Audio".to_string(),
-                    bpm: grid.bpm,
-                    musical_key: "8A".to_string(),
-                    duration_seconds: decoded.duration_seconds,
-                };
-                let deck_idx = deck_index(deck);
-                self.deck_waveforms[deck_idx] = Some(WaveformSummary::from_decoded(&decoded));
-                let arc_audio = Arc::new(decoded);
-                self.deck_decoded[deck_idx] = Some(Arc::clone(&arc_audio));
-                self.audio_out.set_deck_audio(deck_idx, Some(arc_audio));
-                let stems_tag = if let Some(stems) = load_sidecar_stems(&path) {
-                    self.audio_out
-                        .set_deck_stems(deck_idx, Some(Arc::new(stems)));
-                    " [4-STEMS LIVE]"
-                } else {
-                    ""
-                };
-                self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
-                let st = self.orch.deck_mut(deck);
-                st.beatgrid_offset_sec = grid.first_beat_sec;
-                let path_str = path.to_string_lossy().to_string();
-                st.audio_path = Some(path_str.clone());
-                self.restore_hot_cues_for_deck(deck, &path_str);
-                if let Some(vid_path) = find_companion_video(&path) {
-                    let _ = match deck {
-                        DeckId::DeckA => self.video_deck_a.load_file(&vid_path),
-                        DeckId::DeckB => self.video_deck_b.load_file(&vid_path),
-                        _ => Ok(()),
-                    };
-                }
-                self.status_msg = format!(
-                    "Loaded '{}' to {} ({:.1} BPM, beat 1 at {:.2}s){}",
-                    title,
-                    deck.label(),
-                    grid.bpm,
-                    grid.first_beat_sec,
-                    stems_tag
-                );
-            }
-            Err(err) => self.status_msg = format!("Audio decode failed: {err}"),
+        match self.load_audio_file_to_deck(deck, &path) {
+            Ok(msg) => self.status_msg = msg,
+            Err(err) => self.status_msg = err,
         }
     }
 
@@ -2050,6 +2138,7 @@ fn switch_on_hover(ctx: &egui::Context, titles: &[egui::Response]) {
 
 impl eframe::App for DjCraftApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.poll_live_ipc();
         let ctx = ui.ctx().clone();
         let palette = self.prefs.skin.palette();
         if !self.typography_applied {
@@ -3247,7 +3336,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    eframe::run_native("DJCraft", native_options, Box::new(|_cc| Ok(Box::new(app))))?;
+    eframe::run_native(
+        "DJCraft",
+        native_options,
+        Box::new(|cc| {
+            app.start_live_ipc(cc.egui_ctx.clone());
+            Ok(Box::new(app))
+        }),
+    )?;
     Ok(())
 }
 

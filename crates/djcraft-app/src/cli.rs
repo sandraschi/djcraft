@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{list_input_devices, DeckId, DvsCarrier, DvsInputStream};
 use djcraft_core::{
+    ipc::{parse_deck, send_ipc_request, IpcRequest},
     AppConfig, Command, ControllerProfileId, CrateStore, DjOrchestrator, LinkEngine,
     MidiControllerManager, MixxxxxVideoControls,
 };
@@ -122,6 +123,30 @@ enum Commands {
         #[arg(long, default_value_t = 600)]
         ms: u64,
     },
+    /// Query live playback, deck, mixer, audio, and MIDI state from running djcraft.exe
+    LiveStatus,
+    /// Dispatch any raw Command JSON to the running djcraft.exe GUI
+    Dispatch { json: String },
+    /// Load a local audio file onto a deck (a/b/c/d) in the running djcraft.exe GUI
+    Load { deck: String, path: String },
+    /// Toggle play/pause on a deck (a/b/c/d) in the running djcraft.exe GUI
+    Play { deck: String },
+    /// Cue return on a deck (a/b/c/d) in the running djcraft.exe GUI
+    Cue { deck: String },
+    /// Stop all 4 decks in the running djcraft.exe GUI
+    StopAll,
+    /// Phase-sync Deck B to Deck A beatgrid in the running djcraft.exe GUI
+    Sync,
+    /// Set crossfader (-1.0..=1.0) in the running djcraft.exe GUI
+    Crossfader { value: f64 },
+    /// Set channel volume (0.0..=1.0) on a deck (a/b/c/d) in the running djcraft.exe GUI
+    Volume { deck: String, value: f64 },
+    /// Set master output volume (0.0..=1.0) in the running djcraft.exe GUI
+    Master { value: f64 },
+    /// Toggle headphone PFL cue on a deck (a/b/c/d) in the running djcraft.exe GUI
+    Pfl { deck: String },
+    /// Toggle master mute in the running djcraft.exe GUI
+    Mute,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -466,6 +491,122 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "peers": link.peer_count()
                 }))?
             );
+        }
+        Commands::LiveStatus => {
+            let resp = send_ipc_request(&IpcRequest::LiveStatus)?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Dispatch { json } => {
+            let command: Command = serde_json::from_str(&json)?;
+            let resp = send_ipc_request(&IpcRequest::Command { command })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Load { deck, path } => {
+            let deck_id = parse_deck(&deck)?;
+            let resp = send_ipc_request(&IpcRequest::LoadFile {
+                deck: deck_id,
+                path,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Play { deck } => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::PlayPause {
+                    deck: parse_deck(&deck)?,
+                },
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Cue { deck } => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::CueReturn {
+                    deck: parse_deck(&deck)?,
+                },
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::StopAll => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::StopAllDecks,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Sync => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::PhaseSyncBeatgrid,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Crossfader { value } => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::SetCrossfader { value },
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Volume { deck, value } => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::SetDeckVolume {
+                    deck: parse_deck(&deck)?,
+                    volume: value,
+                },
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Master { value } => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::SetMasterVolume { volume: value },
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Pfl { deck } => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::TogglePflCue {
+                    deck: parse_deck(&deck)?,
+                },
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Mute => {
+            let resp = send_ipc_request(&IpcRequest::Command {
+                command: Command::ToggleMasterMute,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
         }
     }
     Ok(())
