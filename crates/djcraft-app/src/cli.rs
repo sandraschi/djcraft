@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{list_input_devices, DeckId, DvsCarrier, DvsInputStream};
 use djcraft_core::{
-    ipc::{parse_deck, send_ipc_request, IpcRequest},
+    ipc::{parse_deck, run_set_script, send_ipc_request, IpcRequest, SetScript},
     AppConfig, Command, ControllerProfileId, CrateStore, DjOrchestrator, LinkEngine,
     MidiControllerManager, MixxxxxVideoControls,
 };
@@ -147,6 +147,14 @@ enum Commands {
     Pfl { deck: String },
     /// Toggle master mute in the running djcraft.exe GUI
     Mute,
+    /// Load a video file onto Video Deck A or B in the running djcraft.exe GUI
+    LoadVideo { deck: String, path: String },
+    /// Play back a timed .djset.json set script (tracks, FX, transitions, video) in the running djcraft.exe GUI
+    RunSet {
+        path: String,
+        #[arg(long, default_value_t = 1.0)]
+        speed: f64,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -607,6 +615,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
             }
             println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::LoadVideo { deck, path } => {
+            let resp = send_ipc_request(&IpcRequest::LoadVideo {
+                deck: parse_deck(&deck)?,
+                path,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::RunSet { path, speed } => {
+            let raw = std::fs::read_to_string(&path)?;
+            let script: SetScript = serde_json::from_str(&raw)?;
+            let summary = run_set_script(&script, speed)?;
+            println!("{}", serde_json::to_string_pretty(&summary)?);
         }
     }
     Ok(())

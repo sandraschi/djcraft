@@ -157,6 +157,8 @@ When `djcraft.exe` is running, it binds a loopback TCP listener (`127.0.0.1:<eph
 | `master` | `<value>` | Set master output volume (`0.0..=1.0`) |
 | `pfl` | `<deck>` | Toggle headphone PFL cue on Deck `a`/`b`/`c`/`d` |
 | `mute` | - | Toggle master mute |
+| `load-video` | `<deck> <path>` | Load a video file onto Video Deck `a` or `b` and show Live Video Strip |
+| `run-set` | `<path> [--speed <f64>]` | Play back a timed `.djset.json` set script (tracks, FX, transitions, video) in real time |
 
 ```powershell
 djcraft-cli live-status
@@ -207,3 +209,4 @@ djcraft-cli stop-all
 | `djcraft_load_file` | `load` | `deck` (`a`/`b`/`c`/`d`), `path` |
 | `djcraft_deck_control` | `play` / `cue` / `stop-all` / `sync` / `pfl` / `volume` | `deck`, `action?`, `volume?`, `pitch_bend?` |
 | `djcraft_mixer_control` | `crossfader` / `master` / `mute` | `crossfader?`, `master_volume?`, `mute?` |
+| `djcraft_run_set` | `run-set` | `path` (`.djset.json`), `speed?` |

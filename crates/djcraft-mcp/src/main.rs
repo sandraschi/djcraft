@@ -11,7 +11,7 @@ use std::time::Duration;
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{list_input_devices, DeckId, DvsCarrier, DvsInputStream};
 use djcraft_core::{
-    ipc::{parse_deck, send_ipc_request, IpcRequest},
+    ipc::{parse_deck, run_set_script, send_ipc_request, IpcRequest, SetScript},
     AppConfig, Command, ControllerProfileId, CrateStore, DjOrchestrator, LinkEngine,
     MidiControllerManager, MixxxxxVideoControls,
 };
@@ -355,6 +355,18 @@ fn main() {
                                     "master_volume": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
                                     "mute": { "type": "boolean" }
                                 }
+                            }
+                        },
+                        {
+                            "name": "djcraft_run_set",
+                            "description": "Play back a timed .djset.json set script (tracks, FX, transitions, video) in the running djcraft.exe GUI.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "path": { "type": "string" },
+                                    "speed": { "type": "number" }
+                                },
+                                "required": ["path"]
                             }
                         }
                     ]
@@ -913,6 +925,21 @@ fn main() {
                             }
                         }
                         json!({ "results": results })
+                    }
+                    "djcraft_run_set" => {
+                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                        let speed = args.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                        match std::fs::read_to_string(path)
+                            .map_err(|e| format!("Read set script failed: {e}"))
+                            .and_then(|raw| {
+                                serde_json::from_str::<SetScript>(&raw)
+                                    .map_err(|e| format!("Parse set script failed: {e}"))
+                            })
+                            .and_then(|script| run_set_script(&script, speed))
+                        {
+                            Ok(v) => v,
+                            Err(e) => json!({ "error": e }),
+                        }
                     }
                     _ => json!({ "error": format!("Unknown tool: {name}") }),
                 };

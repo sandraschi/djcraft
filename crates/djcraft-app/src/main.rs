@@ -639,6 +639,89 @@ impl DjCraftApp {
                         }
                     }
                 }
+                djcraft_core::IpcRequest::LoadVideo { deck, path } => {
+                    let p = std::path::Path::new(&path);
+                    let res = match deck {
+                        DeckId::DeckA => self.video_deck_a.load_file(p),
+                        DeckId::DeckB => self.video_deck_b.load_file(p),
+                        _ => Err("Video decks only support Deck A and Deck B".to_string()),
+                    };
+                    match res {
+                        Ok(()) => {
+                            self.prefs.show_live_video_strip = true;
+                            self.status_msg =
+                                format!("Loaded video '{}' to {}", path, deck.label());
+                            djcraft_core::IpcResponse::ok(serde_json::json!({
+                                "loaded_video": true,
+                                "deck": deck.label(),
+                                "path": path
+                            }))
+                        }
+                        Err(e) => {
+                            self.status_msg = e.clone();
+                            djcraft_core::IpcResponse::err(e)
+                        }
+                    }
+                }
+                djcraft_core::IpcRequest::VideoState {
+                    deck,
+                    fx,
+                    amount,
+                    transition,
+                    show_strip,
+                } => {
+                    if let Some(show) = show_strip {
+                        self.prefs.show_live_video_strip = show;
+                    }
+                    if let Some(ref fx_name) = fx {
+                        let parsed = match fx_name.trim().to_lowercase().as_str() {
+                            "none" | "off" => DeckVideoFx::None,
+                            "rgb" | "rgbsplit" | "rgb_split" => DeckVideoFx::RgbSplit,
+                            "invert" => DeckVideoFx::Invert,
+                            "posterize" => DeckVideoFx::Posterize,
+                            "scanlines" => DeckVideoFx::Scanlines,
+                            "mirror" => DeckVideoFx::Mirror,
+                            "strobe" => DeckVideoFx::Strobe,
+                            "neon" | "neonedge" | "neon_edge" => DeckVideoFx::NeonEdge,
+                            _ => DeckVideoFx::None,
+                        };
+                        match deck {
+                            DeckId::DeckA => self.video_fx_a = parsed,
+                            DeckId::DeckB => self.video_fx_b = parsed,
+                            _ => {}
+                        }
+                    }
+                    if let Some(amt) = amount {
+                        let c = amt.clamp(0.0, 1.0);
+                        match deck {
+                            DeckId::DeckA => self.video_fx_a_amt = c,
+                            DeckId::DeckB => self.video_fx_b_amt = c,
+                            _ => {}
+                        }
+                    }
+                    if let Some(ref tr) = transition {
+                        self.video_transition = match tr.trim().to_lowercase().as_str() {
+                            "crossfade" => VideoTransitionFx::Crossfade,
+                            "glow" | "additive" | "additiveglow" | "additive_glow" => {
+                                VideoTransitionFx::AdditiveGlow
+                            }
+                            "wipe" | "wipeleftright" | "wipe_left_right" => {
+                                VideoTransitionFx::WipeLeftRight
+                            }
+                            "iris" | "iriscircle" | "iris_circle" => VideoTransitionFx::IrisCircle,
+                            "luma" | "lumakey" | "luma_key" => VideoTransitionFx::LumaKey,
+                            "zoom" | "zoomcut" | "zoom_cut" => VideoTransitionFx::ZoomCut,
+                            "glitch" | "glitchslice" | "glitch_slice" => {
+                                VideoTransitionFx::GlitchSlice
+                            }
+                            _ => VideoTransitionFx::Crossfade,
+                        };
+                    }
+                    djcraft_core::IpcResponse::ok(serde_json::json!({
+                        "video_strip": self.prefs.show_live_video_strip,
+                        "transition": self.video_transition.label()
+                    }))
+                }
                 djcraft_core::IpcRequest::LiveStatus => match self.orch.dispatch(Command::Status) {
                     Ok(outcome) => djcraft_core::IpcResponse::ok(serde_json::json!({
                         "orchestrator": outcome.data,

@@ -30,9 +30,47 @@ pub fn parse_deck(s: &str) -> Result<DeckId, String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum IpcRequest {
-    Command { command: Command },
-    LoadFile { deck: DeckId, path: String },
+    Command {
+        command: Command,
+    },
+    LoadFile {
+        deck: DeckId,
+        path: String,
+    },
+    LoadVideo {
+        deck: DeckId,
+        path: String,
+    },
+    VideoState {
+        deck: DeckId,
+        #[serde(default)]
+        fx: Option<String>,
+        #[serde(default)]
+        amount: Option<f32>,
+        #[serde(default)]
+        transition: Option<String>,
+        #[serde(default)]
+        show_strip: Option<bool>,
+    },
     LiveStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetStep {
+    /// Timestamp in milliseconds from start of set.
+    pub at_ms: u64,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(flatten)]
+    pub request: IpcRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetScript {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub steps: Vec<SetStep>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +222,43 @@ pub fn send_ipc_request_to_port(port: u16, req: &IpcRequest) -> Result<IpcRespon
         .map_err(|e| format!("IPC read failed: {e}"))?;
     serde_json::from_str::<IpcResponse>(line.trim())
         .map_err(|e| format!("Invalid IPC response JSON: {e}"))
+}
+
+/// Execute a `SetScript` timeline against the running `djcraft.exe` GUI.
+pub fn run_set_script(script: &SetScript, speed: f64) -> Result<Value, String> {
+    let rate = speed.clamp(0.25, 10.0);
+    let mut steps = script.steps.clone();
+    steps.sort_by_key(|s| s.at_ms);
+
+    let start = std::time::Instant::now();
+    let mut executed = Vec::with_capacity(steps.len());
+    for step in steps {
+        let target_ms = (step.at_ms as f64 / rate).round() as u64;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        if target_ms > elapsed_ms {
+            std::thread::sleep(Duration::from_millis(target_ms - elapsed_ms));
+        }
+        let resp = send_ipc_request(&step.request)?;
+        if !resp.ok {
+            return Err(format!(
+                "Set step at {}ms failed: {}",
+                step.at_ms,
+                resp.error.unwrap_or_else(|| "IPC error".to_string())
+            ));
+        }
+        executed.push(serde_json::json!({
+            "at_ms": step.at_ms,
+            "label": step.label,
+            "ok": true
+        }));
+    }
+
+    Ok(serde_json::json!({
+        "set_name": script.name,
+        "steps_executed": executed.len(),
+        "speed": rate,
+        "timeline": executed
+    }))
 }
 
 #[cfg(test)]

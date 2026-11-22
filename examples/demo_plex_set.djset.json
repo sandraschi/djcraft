@@ -1,0 +1,130 @@
+{
+  "name": "Plex Demo Set (Audio + Video + FX + Transition)",
+  "description": "Choreographed 2-deck set using Plex local audio tracks, Music Video / AI Video clips, FX, filter sweeps, and crossfader transition.",
+  "steps": [
+    {
+      "at_ms": 0,
+      "label": "Load Deck A audio (ABBA - Gimme! Gimme! Gimme!)",
+      "op": "load_file",
+      "deck": "DeckA",
+      "path": "E:\\Multimedia Files\\Music - Pop\\Abba\\Abba - Gimme! Gimme! Gimme! (A Man After Midnight).mp3"
+    },
+    {
+      "at_ms": 200,
+      "label": "Load Deck B audio (ABBA - Lay All Your Love On Me)",
+      "op": "load_file",
+      "deck": "DeckB",
+      "path": "E:\\Multimedia Files\\Music - Pop\\Abba\\Abba - Lay All Your Love On Me.mp3"
+    },
+    {
+      "at_ms": 400,
+      "label": "Load Video Deck A (Boston 168 - Oblivion And Vapor)",
+      "op": "load_video",
+      "deck": "DeckA",
+      "path": "F:\\Multimedia Files\\Video\\Music Videos\\Boston 168 - Oblivion And Vapor.mp4"
+    },
+    {
+      "at_ms": 600,
+      "label": "Load Video Deck B (AI Video)",
+      "op": "load_video",
+      "deck": "DeckB",
+      "path": "E:\\Multimedia Files\\AI Video\\20241101010432.mp4"
+    },
+    {
+      "at_ms": 800,
+      "label": "Enable Live Video Strip + RGB Split on Deck A + Additive Glow transition",
+      "op": "video_state",
+      "deck": "DeckA",
+      "fx": "rgb_split",
+      "amount": 0.45,
+      "transition": "additive_glow",
+      "show_strip": true
+    },
+    {
+      "at_ms": 1000,
+      "label": "Crossfader full left (Deck A)",
+      "op": "command",
+      "command": { "type": "set_crossfader", "value": -1.0 }
+    },
+    {
+      "at_ms": 1100,
+      "label": "Start Deck A",
+      "op": "command",
+      "command": { "type": "play_pause", "deck": "DeckA" }
+    },
+    {
+      "at_ms": 4000,
+      "label": "HPF filter sweep on Deck A",
+      "op": "command",
+      "command": { "type": "set_deck_filter", "deck": "DeckA", "value": 0.35 }
+    },
+    {
+      "at_ms": 6000,
+      "label": "Reset Deck A filter + start Deck B + Phase Sync",
+      "op": "command",
+      "command": { "type": "set_deck_filter", "deck": "DeckA", "value": 0.0 }
+    },
+    {
+      "at_ms": 6100,
+      "label": "Start Deck B",
+      "op": "command",
+      "command": { "type": "play_pause", "deck": "DeckB" }
+    },
+    {
+      "at_ms": 6200,
+      "label": "Phase sync Deck B to Deck A",
+      "op": "command",
+      "command": { "type": "phase_sync_beatgrid" }
+    },
+    {
+      "at_ms": 6300,
+      "label": "Kill bass on Deck B before blend",
+      "op": "command",
+      "command": { "type": "set_deck_eq", "deck": "DeckB", "low": 0.0, "mid": 0.85, "high": 0.9 }
+    },
+    {
+      "at_ms": 7500,
+      "label": "Crossfader -0.5",
+      "op": "command",
+      "command": { "type": "set_crossfader", "value": -0.5 }
+    },
+    {
+      "at_ms": 9000,
+      "label": "Crossfader center (0.0)",
+      "op": "command",
+      "command": { "type": "set_crossfader", "value": 0.0 }
+    },
+    {
+      "at_ms": 10500,
+      "label": "Swap bass EQ to Deck B",
+      "op": "command",
+      "command": { "type": "set_deck_eq", "deck": "DeckA", "low": 0.0, "mid": 0.8, "high": 0.8 }
+    },
+    {
+      "at_ms": 10600,
+      "label": "Restore Deck B EQ",
+      "op": "command",
+      "command": { "type": "reset_deck_eq", "deck": "DeckB" }
+    },
+    {
+      "at_ms": 11500,
+      "label": "Crossfader +0.5",
+      "op": "command",
+      "command": { "type": "set_crossfader", "value": 0.5 }
+    },
+    {
+      "at_ms": 13000,
+      "label": "Crossfader full right (Deck B) + NeonEdge on Video Deck B",
+      "op": "command",
+      "command": { "type": "set_crossfader", "value": 1.0 }
+    },
+    {
+      "at_ms": 13100,
+      "label": "NeonEdge on Video Deck B",
+      "op": "video_state",
+      "deck": "DeckB",
+      "fx": "neon_edge",
+      "amount": 0.65
+    }
+  ]
+}
