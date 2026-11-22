@@ -71,9 +71,14 @@ DJCraft Pro is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck 
 - **Double-click** any knob, fader, or crossfader to reset to neutral; **Arrow keys / Home / 0** nudge a focused rotary knob.
 
 ### CLI (`djcraft-cli`) & MCP (`djcraft-mcp`)
-- GUI flags: `djcraft.exe --smoke | --booth-crate | --crates | --four-deck | --skin <battle|club|midnight|carbon|pink|daylight>`
-- CLI: `djcraft-cli status | transition | camelot 8A 9A | crate-list | crate-import-serato <file> | crate-import-vdj <file> | analyze-dettato <audio> | mixxxxx-ping`
-- MCP (`djcraft-mcp`): stdio JSON-RPC 2.0 sharing the same L1 `Command::dispatch` bus.
+- **GUI flags**: `djcraft.exe --smoke | --booth-crate | --crates | --four-deck | --skin <battle|club|midnight|carbon|pink|daylight>`
+- **CLI (`djcraft-cli`)** (all output JSON):
+  - **Config (`ui.json`)**: `config-show`, `config-set <key> <value>`, `config-reset` (controls `skin`, `backdrop`, `locale`, `workspace`, `four-deck`, `zoom`, `pitch-range`, `quantize`, `auto-gain`, `auto-dj-fade`, `headphone-device`, `split-cue`, `recording-format`, `dvs-device`, `dvs-carrier`, `ai-endpoint`, `ai-model`, `bridges-enabled`)
+  - **Audio & Probes**: `audio-list`, `dvs-probe [--device] [--carrier 1k|2k] [--ms]`, `link-probe [--bpm] [--ms]`
+  - **MIDI**: `midi-list`, `midi-connect [query]`, `midi-profile <profile>`, `midi-import-xml <path>`, `midi-rules`
+  - **Crates & Hot Cues**: `crate-list`, `crate-create <name> [--parent-id]`, `crate-scan <folder> [--crate-id]`, `crate-import-serato`, `crate-export-serato`, `crate-import-vdj`, `crate-export-vdj`, `crate-cues <track>`, `crate-set-cue <track> <slot> <sec|clear>`
+  - **Analysis & OSC**: `status`, `transition`, `camelot <a> <b>`, `commands`, `analyze-dettato <audio>`, `mixxxxx-ping`, `mixxxxx-video`
+- **MCP (`djcraft-mcp`)**: stdio JSON-RPC 2.0 server exposing **25 tools** with 100% CLI parity. See [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) for the complete command & tool reference.
 
 ---
 

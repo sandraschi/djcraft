@@ -5,6 +5,7 @@
 //! transition planner, undo/redo history, and universal Command::dispatch bus.
 
 pub mod command;
+pub mod config;
 pub mod crates_db;
 pub mod fleet_ai;
 pub mod i18n;
@@ -16,6 +17,7 @@ pub use command::{
     parse_dettato_json, resolve_dettato_binary, Command, CommandSpec, DettatoAnalysis,
     DettatoTrackSummary, DispatchOutcome,
 };
+pub use config::AppConfig;
 pub use crates_db::{
     batch_stem_folder, encode_m3u, encode_serato_crate_bytes, encode_vdj_folder_xml, parse_m3u,
     parse_serato_crate_bytes, parse_vdj_folder_xml, resolve_demucs_binary,

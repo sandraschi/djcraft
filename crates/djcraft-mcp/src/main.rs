@@ -4,12 +4,17 @@
 //! Line-delimited JSON-RPC: stdout is 100% pure JSON-RPC, every diagnostic
 //! goes to stderr. All tools dispatch through `DjOrchestrator::dispatch`.
 
-use std::path::Path;
-
-use djcraft_audio::DeckId;
-use djcraft_core::{Command, CrateStore, DjOrchestrator, MixxxxxVideoControls};
-use serde_json::{json, Value};
 use std::io::{BufRead, Write};
+use std::path::Path;
+use std::time::Duration;
+
+use djcraft_audio::output::AudioOutput;
+use djcraft_audio::{list_input_devices, DeckId, DvsCarrier, DvsInputStream};
+use djcraft_core::{
+    AppConfig, Command, ControllerProfileId, CrateStore, DjOrchestrator, LinkEngine,
+    MidiControllerManager, MixxxxxVideoControls,
+};
+use serde_json::{json, Value};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -155,6 +160,146 @@ fn main() {
                                     "dest": { "type": "string" }
                                 },
                                 "required": ["format", "crate_id", "dest"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_audio_list",
+                            "description": "List available audio output devices and DVS input devices.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_config_show",
+                            "description": "Show all persisted DJCraft settings from ui.json.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_config_set",
+                            "description": "Set any DJCraft configuration key in ui.json (e.g. skin, backdrop, locale, workspace, headphone-device, split-cue, recording-format, dvs-device, dvs-carrier, pitch-range, quantize, ai-endpoint, ai-model).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "key": { "type": "string" },
+                                    "value": { "type": "string" }
+                                },
+                                "required": ["key", "value"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_config_reset",
+                            "description": "Reset all DJCraft configuration keys in ui.json to defaults.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_midi_list",
+                            "description": "List connected USB MIDI controller input ports and auto-detected profiles.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_midi_connect",
+                            "description": "Connect to a MIDI controller input port by index or name substring (e.g. 'reloop').",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": { "type": "string" }
+                                }
+                            }
+                        },
+                        {
+                            "name": "djcraft_midi_profile",
+                            "description": "Set active built-in MIDI controller profile (reloop-ready, rane-12, rane-72, ddj-flx4, hercules, denon, numark, xone-k2, custom).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "profile": { "type": "string" }
+                                },
+                                "required": ["profile"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_midi_import_xml",
+                            "description": "Import a VirtualDJ or Mixxx MIDI XML mapper into midi_learn.json.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "path": { "type": "string" }
+                                },
+                                "required": ["path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_midi_rules",
+                            "description": "List active MIDI mapping rules.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_crate_create",
+                            "description": "Create a persistent crate or subcrate in SQLite.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "parent_id": { "type": "integer" }
+                                },
+                                "required": ["name"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_scan",
+                            "description": "Scan a local audio folder into SQLite crates.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "folder": { "type": "string" },
+                                    "crate_id": { "type": "integer" }
+                                },
+                                "required": ["folder"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_cues",
+                            "description": "Show autosaved hot cues (slots 0..3) for a track path.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "track_path": { "type": "string" }
+                                },
+                                "required": ["track_path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_set_cue",
+                            "description": "Set or clear an autosaved hot cue (slot 0..3, value = seconds or 'clear').",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "track_path": { "type": "string" },
+                                    "slot": { "type": "integer", "minimum": 0, "maximum": 3 },
+                                    "value": { "type": "string" }
+                                },
+                                "required": ["track_path", "slot", "value"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_dvs_probe",
+                            "description": "Probe live DVS timecode vinyl input signal.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "device": { "type": "string" },
+                                    "carrier": { "type": "string", "enum": ["1k", "2k"] },
+                                    "ms": { "type": "integer", "minimum": 50, "maximum": 5000 }
+                                }
+                            }
+                        },
+                        {
+                            "name": "djcraft_link_probe",
+                            "description": "Probe UDP multicast Link peers (224.76.78.75:20808).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "bpm": { "type": "number" },
+                                    "ms": { "type": "integer", "minimum": 100, "maximum": 5000 }
+                                }
                             }
                         }
                     ]
@@ -326,6 +471,275 @@ fn main() {
                             }
                             Err(e) => json!({ "error": e.to_string() }),
                         }
+                    }
+                    "djcraft_audio_list" => json!({
+                        "outputs": AudioOutput::list_output_devices(),
+                        "inputs": list_input_devices()
+                    }),
+                    "djcraft_config_show" => {
+                        serde_json::to_value(AppConfig::load()).unwrap_or_else(|_| json!({}))
+                    }
+                    "djcraft_config_set" => {
+                        let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
+                        let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                        let mut cfg = AppConfig::load();
+                        match cfg
+                            .set_key(key, value)
+                            .and_then(|msg| cfg.save().map(|p| (msg, p)))
+                        {
+                            Ok((msg, path)) => json!({ "updated": msg, "path": path }),
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_config_reset" => {
+                        let cfg = AppConfig::default();
+                        match cfg.save() {
+                            Ok(path) => json!({ "reset": true, "path": path }),
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_midi_list" => {
+                        let ports = MidiControllerManager::list_input_ports();
+                        let items: Vec<_> = ports
+                            .iter()
+                            .enumerate()
+                            .map(|(i, p)| {
+                                let prof = ControllerProfileId::auto_detect_from_port_name(p);
+                                json!({
+                                    "index": i,
+                                    "port": p,
+                                    "detected_profile": prof.label()
+                                })
+                            })
+                            .collect();
+                        json!(items)
+                    }
+                    "djcraft_midi_connect" => {
+                        let ports = MidiControllerManager::list_input_ports();
+                        if ports.is_empty() {
+                            json!({ "error": "No MIDI input ports detected" })
+                        } else {
+                            let query = args.get("query").and_then(|v| v.as_str());
+                            let idx_res: Result<usize, String> = if let Some(q) = query {
+                                if let Ok(n) = q.trim().parse::<usize>() {
+                                    if n < ports.len() {
+                                        Ok(n)
+                                    } else {
+                                        Err(format!(
+                                            "MIDI port index {n} out of range (0..{})",
+                                            ports.len()
+                                        ))
+                                    }
+                                } else {
+                                    let ql = q.to_lowercase();
+                                    ports
+                                        .iter()
+                                        .position(|p| p.to_lowercase().contains(&ql))
+                                        .ok_or_else(|| {
+                                            format!(
+                                                "No MIDI port matching '{q}' (available: {ports:?})"
+                                            )
+                                        })
+                                }
+                            } else {
+                                Ok(0)
+                            };
+                            match idx_res {
+                                Ok(idx) => {
+                                    let mut mgr = MidiControllerManager::new();
+                                    match mgr.connect_port(idx) {
+                                        Ok(port_name) => json!({
+                                            "connected": true,
+                                            "index": idx,
+                                            "port": port_name,
+                                            "profile": mgr.active_profile.label(),
+                                            "rules_count": mgr.rules.len()
+                                        }),
+                                        Err(e) => json!({ "error": e.to_string() }),
+                                    }
+                                }
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                    }
+                    "djcraft_midi_profile" => {
+                        let profile = args.get("profile").and_then(|v| v.as_str()).unwrap_or("");
+                        let id_res = match profile.trim().to_lowercase().as_str() {
+                            "reloop" | "reloop-ready" | "ready" => {
+                                Ok(ControllerProfileId::ReloopReady)
+                            }
+                            "rane-12" | "rane12" | "twelve" => {
+                                Ok(ControllerProfileId::RaneTwelveMk2)
+                            }
+                            "rane-72" | "rane72" | "seventy-two" => {
+                                Ok(ControllerProfileId::RaneSeventyTwoMk2)
+                            }
+                            "pioneer" | "ddj-flx4" | "flx4" => {
+                                Ok(ControllerProfileId::PioneerDdjFlx4)
+                            }
+                            "hercules" | "djcontrol" => {
+                                Ok(ControllerProfileId::HerculesDjControl)
+                            }
+                            "denon" | "sc6000" => Ok(ControllerProfileId::DenonSc6000),
+                            "numark" | "mixtrack" => Ok(ControllerProfileId::NumarkMixtrackProFx),
+                            "xone" | "xone-k2" | "k2" => {
+                                Ok(ControllerProfileId::AllenHeathXoneK2)
+                            }
+                            "custom" => Ok(ControllerProfileId::CustomLearn),
+                            other => Err(format!(
+                                "Unknown profile '{other}' (expected: reloop-ready, rane-12, rane-72, ddj-flx4, hercules, denon, numark, xone-k2, custom)"
+                            )),
+                        };
+                        match id_res {
+                            Ok(id) => {
+                                let mut mgr = MidiControllerManager::new();
+                                mgr.set_profile(id);
+                                json!({
+                                    "profile": mgr.active_profile.label(),
+                                    "rules_count": mgr.rules.len()
+                                })
+                            }
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_midi_import_xml" => {
+                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                        let mut mgr = MidiControllerManager::new();
+                        match mgr.import_xml_mapper_file(Path::new(path)) {
+                            Ok(count) => json!({
+                                "imported_rules": count,
+                                "profile": mgr.active_profile.label()
+                            }),
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_midi_rules" => {
+                        let mgr = MidiControllerManager::new();
+                        serde_json::to_value(&mgr.rules).unwrap_or_else(|_| json!([]))
+                    }
+                    "djcraft_crate_create" => {
+                        let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let parent_id = args.get("parent_id").and_then(|v| v.as_i64());
+                        match CrateStore::open_default() {
+                            Ok(store) => match store.create_subcrate(parent_id, name) {
+                                Ok(crate_id) => json!({
+                                    "crate_id": crate_id,
+                                    "name": name,
+                                    "parent_id": parent_id
+                                }),
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crate_scan" => {
+                        let folder = args.get("folder").and_then(|v| v.as_str()).unwrap_or("");
+                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
+                        match CrateStore::open_default() {
+                            Ok(store) => {
+                                let cid_res = match crate_id {
+                                    Some(id) => Ok(id),
+                                    None => store.ensure_crate_path(folder),
+                                };
+                                match cid_res.and_then(|cid| {
+                                    store
+                                        .scan_audio_folder(cid, Path::new(folder))
+                                        .map(|cnt| (cid, cnt))
+                                }) {
+                                    Ok((cid, cnt)) => json!({
+                                        "crate_id": cid,
+                                        "folder": folder,
+                                        "imported_tracks": cnt
+                                    }),
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                }
+                            }
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crate_cues" => {
+                        let track_path = args
+                            .get("track_path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        match CrateStore::open_default() {
+                            Ok(store) => match store.get_track_hot_cues(track_path) {
+                                Ok(cues) => json!({
+                                    "track_path": track_path,
+                                    "hot_cues": cues
+                                }),
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crate_set_cue" => {
+                        let track_path = args
+                            .get("track_path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let slot = args.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                        let pos_res: Result<Option<f64>, String> =
+                            if value.trim().eq_ignore_ascii_case("clear") {
+                                Ok(None)
+                            } else {
+                                value
+                                    .trim()
+                                    .parse::<f64>()
+                                    .map(Some)
+                                    .map_err(|_| format!("Invalid seconds '{value}' (or 'clear')"))
+                            };
+                        match pos_res {
+                            Ok(pos) => match CrateStore::open_default() {
+                                Ok(store) => match store
+                                    .set_track_hot_cue(track_path, slot, pos)
+                                    .and_then(|()| store.get_track_hot_cues(track_path))
+                                {
+                                    Ok(cues) => json!({
+                                        "track_path": track_path,
+                                        "hot_cues": cues
+                                    }),
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                },
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_dvs_probe" => {
+                        let device = args.get("device").and_then(|v| v.as_str());
+                        let carrier = args.get("carrier").and_then(|v| v.as_str()).unwrap_or("1k");
+                        let ms = args.get("ms").and_then(|v| v.as_u64()).unwrap_or(400);
+                        let c = if carrier.trim().eq_ignore_ascii_case("2k") {
+                            DvsCarrier::Control2kHz
+                        } else {
+                            DvsCarrier::Control1kHz
+                        };
+                        match DvsInputStream::start(device, c) {
+                            Ok(stream) => {
+                                std::thread::sleep(Duration::from_millis(ms.clamp(50, 5000)));
+                                let tel = stream.telemetry();
+                                serde_json::to_value(tel).unwrap_or_else(|_| json!({}))
+                            }
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_link_probe" => {
+                        let bpm = args.get("bpm").and_then(|v| v.as_f64()).unwrap_or(126.0);
+                        let ms = args.get("ms").and_then(|v| v.as_u64()).unwrap_or(600);
+                        let mut link = LinkEngine::new(bpm);
+                        link.set_enabled(true);
+                        let steps = (ms.clamp(100, 5000) / 50).max(1);
+                        for _ in 0..steps {
+                            let _ = link.tick(0.05);
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        json!({
+                            "bpm": link.bpm,
+                            "beat_phase": link.beat_phase,
+                            "peers": link.peer_count()
+                        })
                     }
                     _ => json!({ "error": format!("Unknown tool: {name}") }),
                 };

@@ -6,7 +6,6 @@ mod crate_view;
 mod docks;
 mod fx_rack;
 mod performance_strips;
-mod prefs;
 mod settings;
 mod skins;
 mod studio_dock;
@@ -399,7 +398,7 @@ impl Default for DjCraftApp {
 impl DjCraftApp {
     pub fn new() -> Self {
         let mut orch = DjOrchestrator::new();
-        let app_cfg = prefs::AppConfig::load();
+        let app_cfg = djcraft_core::AppConfig::load();
         orch.headphone_split_cue = app_cfg.split_cue;
         let audio_out = AudioOutput::start_default();
         let audio_output_devices = AudioOutput::list_output_devices();

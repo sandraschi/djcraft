@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-mod prefs;
 
 use std::path::Path;
 use std::time::Duration;
@@ -8,10 +7,9 @@ use clap::{Parser, Subcommand};
 use djcraft_audio::output::AudioOutput;
 use djcraft_audio::{list_input_devices, DeckId, DvsCarrier, DvsInputStream};
 use djcraft_core::{
-    Command, ControllerProfileId, CrateStore, DjOrchestrator, LinkEngine, MidiControllerManager,
-    MixxxxxVideoControls,
+    AppConfig, Command, ControllerProfileId, CrateStore, DjOrchestrator, LinkEngine,
+    MidiControllerManager, MixxxxxVideoControls,
 };
-use prefs::AppConfig;
 
 #[derive(Parser)]
 #[command(name = "djcraft-cli", about = "DJCraft Local Performance Mixer CLI")]
