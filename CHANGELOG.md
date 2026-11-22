@@ -2,6 +2,17 @@
 
 All notable changes to DJCraft are documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Full-Track Overview Waveform, Quantize, Pitch Range & Auto-DJ (`dsp.rs`, `widgets.rs`, `main.rs`)**:
+  - Added `WaveformSummary::overview_peaks`, `compute_auto_gain_linear`, and clickable `paint_overview_waveform` needle-drop bar on each hardware deck.
+  - Added beatgrid `quantize` snapping on hot cues, configurable `+-8% / +-16% / +-50%` pitch fader range, and an **Auto-DJ** automix queue (`Auto-DJ` top-bar toggle) that loads the next crate track onto the idle deck and crossfades smoothly near outro.
+- **Expanded Clean-Room MIDI Profiles + XML Mapper Importer (`midi.rs`, `docks.rs`)**:
+  - Added built-in profiles for **Denon DJ SC6000 / Prime**, **Numark Mixtrack Pro FX**, and **Allen & Heath Xone:K2**, plus runtime `parse_mixxx_midi_xml` / `parse_vdj_mapper_xml` importers (`Import XML Mapper...`).
+- **5-Tab Settings Modal (`Ctrl+,`) & Crate-Aware Booth Chat Drawer (`Ctrl+L`) (`settings.rs`)**:
+  - Added unified `Settings` window (`Audio`, `Decks & Booth`, `MIDI & DVS`, `Auto-DJ & Rec`, `AI & Bridges`) and a toggleable right-hand `Chat` drawer with live Deck A/B + compatible crate track suggestions.
+
 ## [0.2.2] - 2026-11-22
 
 ### Added

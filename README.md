@@ -35,7 +35,7 @@ Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
 ```
 
-Or download the per-user Windows installer (`djcraft-0.2.1-setup.exe`) or Linux/macOS/Windows binaries from [GitHub Releases](https://github.com/sandraschi/djcraft/releases/tag/v0.2.1).
+Or download the per-user Windows installer (`djcraft-0.2.2-setup.exe`) or Linux/macOS/Windows binaries from [GitHub Releases](https://github.com/sandraschi/djcraft/releases/tag/v0.2.2).
 
 ---
 
@@ -43,10 +43,10 @@ Or download the per-user Windows installer (`djcraft-0.2.1-setup.exe`) or Linux/
 
 | Area | Status | Guide |
 | :--- | :--- | :--- |
-| 4-Deck Audio, 3-Band RGB Waveforms, Vinyl Scratching, Color Filter, 3-Pack FX Rack, 4x8 Sampler, Dual-Bus PFL, WAV/FLAC Recording & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
+| 4-Deck Audio, 3-Band RGB + Overview Waveforms, Vinyl Scratching, DVS Timecode, Auto-DJ, Quantize, Color Filter, 3-Pack FX, 4x8 Sampler, Dual-Bus/Split PFL, WAV/FLAC Rec & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
 | Dedicated 2-Pane Crates & Gig Prep UI, `BOOTH + CRATE` Split View, Per-File Autosaved Hot Cues, Drag-Drop Ordering, Serato `.crate` & VirtualDJ Interop | **Implemented** | [docs/CRATES_AND_GIG_PREP.md](docs/CRATES_AND_GIG_PREP.md) |
-| 6 Skins (incl. Shocking Pink & Daylight), Sparkle Underlay, 2/4-Deck + Vertical Waveforms, i18n, MIDI (Rane 12/72) & 3-Monitor Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
-| AI Booth Chat (Ollama/LM Studio), Fleet Hub (Speech/SFX/VFX/Butterchurn), CLI & 10-Tool MCP Server | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
+| 6 Skins (incl. Shocking Pink & Daylight), Sparkle/Metal/Weave Backdrops, 2/4-Deck + Vertical Waveforms, 5-Tab Settings (`Ctrl+,`), i18n, 8 MIDI Profiles + XML Mapper Import, UDP Link & Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
+| Side-Drawer Booth AI Chat (`Ctrl+L`), Camelot Setlists, Opt-In External Bridges, CLI & 10-Tool MCP Server | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
 | Standalone Release & Per-User NSIS Installer (`SHA256SUMS.txt`) | **Implemented** | [BUILD_LOG.md](BUILD_LOG.md) |
 
 ---
@@ -54,7 +54,7 @@ Or download the per-user Windows installer (`djcraft-0.2.1-setup.exe`) or Linux/
 ## Quick Verification
 
 ```powershell
-# Full CI gate (fmt, clippy, 61 workspace tests, layer & asset checks)
+# Full CI gate (fmt, clippy, 65 workspace tests, layer & asset checks)
 cargo run -p xtask -- ci
 
 # Headless smoke verification
