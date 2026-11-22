@@ -28,11 +28,12 @@ pub enum ControllerProfileId {
     DenonSc6000,
     NumarkMixtrackProFx,
     AllenHeathXoneK2,
+    ReloopReady,
     CustomLearn,
 }
 
 impl ControllerProfileId {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::RaneTwelveMk2,
         Self::RaneSeventyTwoMk2,
         Self::PioneerDdjFlx4,
@@ -40,6 +41,7 @@ impl ControllerProfileId {
         Self::DenonSc6000,
         Self::NumarkMixtrackProFx,
         Self::AllenHeathXoneK2,
+        Self::ReloopReady,
         Self::CustomLearn,
     ];
 
@@ -52,6 +54,7 @@ impl ControllerProfileId {
             Self::DenonSc6000 => "Denon DJ SC6000 / Prime",
             Self::NumarkMixtrackProFx => "Numark Mixtrack Pro FX",
             Self::AllenHeathXoneK2 => "Allen & Heath Xone:K2",
+            Self::ReloopReady => "Reloop Ready",
             Self::CustomLearn => "Custom MIDI Learn",
         }
     }
@@ -73,6 +76,8 @@ impl ControllerProfileId {
             Self::NumarkMixtrackProFx
         } else if lc.contains("xone") || lc.contains("allen") {
             Self::AllenHeathXoneK2
+        } else if lc.contains("reloop") || lc.contains("ready") {
+            Self::ReloopReady
         } else {
             Self::CustomLearn
         }
@@ -527,6 +532,84 @@ pub fn builtin_profile_rules(profile: ControllerProfileId) -> Vec<MidiMappingRul
                     },
                     action: MidiTargetAction::DeckEqLow(deck),
                 });
+            }
+        }
+        ControllerProfileId::ReloopReady => {
+            rules.push(MidiMappingRule {
+                key: MidiBindingKey {
+                    kind: MidiMsgKind::ControlChange,
+                    channel: 6,
+                    number: 0x08,
+                },
+                action: MidiTargetAction::Crossfader,
+            });
+            for (ch, deck) in [(0u8, DeckId::DeckA), (1u8, DeckId::DeckB)] {
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::NoteOn,
+                        channel: ch,
+                        number: 0x00,
+                    },
+                    action: MidiTargetAction::PlayPause(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::NoteOn,
+                        channel: ch,
+                        number: 0x01,
+                    },
+                    action: MidiTargetAction::CueReturn(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x1C,
+                    },
+                    action: MidiTargetAction::DeckVolume(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x09,
+                    },
+                    action: MidiTargetAction::DeckPitch(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x0A,
+                    },
+                    action: MidiTargetAction::DeckEqHigh(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x0B,
+                    },
+                    action: MidiTargetAction::DeckEqMid(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x0C,
+                    },
+                    action: MidiTargetAction::DeckEqLow(deck),
+                });
+                for slot in 0u8..4 {
+                    rules.push(MidiMappingRule {
+                        key: MidiBindingKey {
+                            kind: MidiMsgKind::NoteOn,
+                            channel: ch + 4,
+                            number: 0x10 + slot,
+                        },
+                        action: MidiTargetAction::HotCue(deck, slot),
+                    });
+                }
             }
         }
         ControllerProfileId::CustomLearn => {}

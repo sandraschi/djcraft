@@ -1317,4 +1317,9 @@ fn test_midi_xml_mapper_importers_and_extended_profiles() {
         ControllerProfileId::auto_detect_from_port_name("Allen & Heath Xone:K2"),
         ControllerProfileId::AllenHeathXoneK2
     );
+    assert_eq!(
+        ControllerProfileId::auto_detect_from_port_name("Reloop Ready MIDI"),
+        ControllerProfileId::ReloopReady
+    );
+    assert!(!djcraft_core::builtin_profile_rules(ControllerProfileId::ReloopReady).is_empty());
 }
