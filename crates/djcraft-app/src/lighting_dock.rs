@@ -189,8 +189,8 @@ impl super::DjCraftApp {
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(rect, 3.0, palette.canvas);
                 let col_w = (rect.width() / 32.0).max(2.0);
-                for ch in 0..32 {
-                    let v = self.lighting.dmx[ch] as f32 / 255.0;
+                for (ch, &dmx_val) in self.lighting.dmx.iter().enumerate().take(32) {
+                    let v = dmx_val as f32 / 255.0;
                     let h = rect.height() * v;
                     let bar = egui::Rect::from_min_max(
                         egui::pos2(rect.left() + ch as f32 * col_w + 1.0, rect.bottom() - h),
