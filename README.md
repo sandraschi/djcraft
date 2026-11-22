@@ -46,8 +46,10 @@ Or download the per-user Windows installer (`djcraft-0.2.2-setup.exe`) or Linux/
 | 4-Deck Audio, 3-Band RGB + Overview Waveforms, Vinyl Scratching, DVS Timecode, Auto-DJ, Quantize, Color Filter, 3-Pack FX, 4x8 Sampler, Dual-Bus/Split PFL, WAV/FLAC Rec & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
 | Dedicated 2-Pane Crates & Gig Prep UI, `BOOTH + CRATE` Split View, Per-File Autosaved Hot Cues, Drag-Drop Ordering, Serato `.crate` & VirtualDJ Interop | **Implemented** | [docs/CRATES_AND_GIG_PREP.md](docs/CRATES_AND_GIG_PREP.md) |
 | 6 Skins (incl. Shocking Pink & Daylight), Sparkle/Metal/Weave Backdrops, 2/4-Deck + Vertical Waveforms, 5-Tab Settings (`Ctrl+,`), i18n, 8 MIDI Profiles + XML Mapper Import, UDP Link & Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
-| Side-Drawer Booth AI Chat (`Ctrl+L`), Camelot Setlists, Opt-In External Bridges, Full-Parity CLI (44 commands) & 34-Tool MCP Server (incl. Live GUI Remote Control, Set Macros & Two-Room) | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
+| Side-Drawer Booth AI Chat (`Ctrl+L`), Camelot Setlists, Opt-In External Bridges, Full-Parity CLI (45 commands) & 35-Tool MCP Server (incl. Live GUI Remote Control, Set Macros, Two-Room & Lighting) | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
+| Hands-Free AI Lighting Assistant (Art-Net 4 UDP `6454` & sACN E1.31 UDP `5568`, BPM/Energy Sync, Fixture Patcher & Budget Gear Guide) | **Implemented** | [docs/LIGHTING_AND_LASER_GUIDE.md](docs/LIGHTING_AND_LASER_GUIDE.md) |
 | Standalone Release & Per-User NSIS Installer (`SHA256SUMS.txt`) | **Implemented** | [BUILD_LOG.md](BUILD_LOG.md) |
+| Out-of-Process CLAP & VST3 Audio Plugin Host Sidecar (crash-isolated FX/Master chain for Kilohearts, Airwindows, FabFilter, Valhalla, ShaperBox) | **Planned** | [docs/TIERED_PLAN.md](docs/TIERED_PLAN.md) |
 
 ---
 

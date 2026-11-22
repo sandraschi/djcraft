@@ -54,3 +54,14 @@ Tier 1: Core Engine ──> Tier 2: MCP / CLI ──> Tier 3: Desktop UI ──>
 ### Post-Phase-4 Completed Items
 
 - [x] **Offline track analysis via `kobimusic/dettato` CLI sidecar** (`D:\Dev\tools\dettato\.venv\Scripts\dettato.exe`, Apache-2.0, 28.1M params, CUDA <4 GB VRAM) - wired into L1 `Command::AnalyzeTrackDettato`, Crate UI, CLI, and MCP.
+
+---
+
+### Planned Next Week — External Audio Plugin Host (`CLAP` + `VST3` Sidecar)
+
+- [ ] **Out-of-process crash-isolated plugin host sidecar** (preserves `#![forbid(unsafe_code)]` across all main DJCraft workspace crates; streams stereo audio + parameter automation over local pipe/shared memory so third-party plugin segfaults cannot crash a live set).
+- [ ] **CLAP first** (open MIT C ABI, zero Steinberg SDK licensing constraints; targets Kilohearts Essentials, Airwindows, TDR Nova, FabFilter Pro-Q 4 / Pro-L 2, Surge XT).
+- [ ] **Optional VST3 bridge** in the same isolated sidecar for VST3-only FX (Valhalla VintageVerb / Supermassive, ShaperBox 3, Soundtoys, Turnado).
+- [ ] **Recommended starter plugin stack**:
+  - Free (CLAP/VST3): Kilohearts Essentials (`Tape Stop`, `Trance Gate`, `Delay`, `Limiter`), Airwindows (`ToTape7`, `Galactic`, `Pressure5`), TDR Nova, Valhalla Supermassive, ChowDSP BYOD.
+  - Paid club-safe: FabFilter Pro-L 2 (Master true-peak limiter), FabFilter Pro-Q 4, Valhalla VintageVerb, Cableguys ShaperBox 3, Sugar Bytes Turnado.
