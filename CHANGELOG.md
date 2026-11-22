@@ -4,7 +4,18 @@ All notable changes to DJCraft are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-22
+
 ### Added
+- **Reloop Ready Hardware Profile & Auto-Detect (`midi.rs`)**:
+  - Added built-in `ControllerProfileId::ReloopReady` profile and USB MIDI port auto-detection (`"Reloop Ready"`).
+- **Live Loopback IPC, Full-Parity CLI (45 commands) & 35-Tool MCP Server (`ipc.rs`, `config.rs`, `cli.rs`, `djcraft-mcp`)**:
+  - Shared `AppConfig` (`%LOCALAPPDATA%\djcraft\ui.json`) across `djcraft`, `djcraft-cli`, and `djcraft-mcp`.
+  - Loopback TCP IPC (`%LOCALAPPDATA%\djcraft\live.port`) for live remote control of decks, mixer, crates, hot cues, video, and `Command::dispatch`.
+- **Set Automation & Dani's Two-Room Setup (`set_and_rooms.rs`, `output.rs`)**:
+  - Added `Set & Two-Room` dock tab with `.djset.json` Set Script Player (`0.5x / 1.0x / 2.0x`), live `REC Macro` recorder, and `Room2AudioOutput` (independent secondary WASAPI output + prepared crate autoplay).
+- **Hands-Free AI Lighting Assistant (`lighting.rs`, `lighting_dock.rs`)**:
+  - Pure Safe Rust Art-Net 4 (UDP `6454`) and sACN E1.31 (UDP `5568`) DMX512 engine synced to BPM, beat phase, and deck energy (`AutoClub`, `ChillWarm`, `TechnoStrobe`, `LaserTunnel`, `Blackout`) with fixture patcher, 32ch live preview, CLI/MCP controls, and [docs/LIGHTING_AND_LASER_GUIDE.md](docs/LIGHTING_AND_LASER_GUIDE.md).
 - **Full-Track Overview Waveform, Quantize, Pitch Range & Auto-DJ (`dsp.rs`, `widgets.rs`, `main.rs`)**:
   - Added `WaveformSummary::overview_peaks`, `compute_auto_gain_linear`, and clickable `paint_overview_waveform` needle-drop bar on each hardware deck.
   - Added beatgrid `quantize` snapping on hot cues, configurable `+-8% / +-16% / +-50%` pitch fader range, and an **Auto-DJ** automix queue (`Auto-DJ` top-bar toggle) that loads the next crate track onto the idle deck and crossfades smoothly near outro.

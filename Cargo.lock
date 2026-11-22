@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "djcraft-app"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "clap",
@@ -894,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "djcraft-audio"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "cpal",
@@ -907,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "djcraft-core"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "djcraft-audio",
@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "djcraft-mcp"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "djcraft-audio",
