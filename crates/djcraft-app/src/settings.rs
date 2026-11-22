@@ -349,20 +349,8 @@ impl DjCraftApp {
                             egui::RichText::new("AI Booth Chat & Optional External Bridges")
                                 .color(palette.text_primary),
                         );
-                        ui.horizontal(|ui| {
-                            ui.label("LLM Endpoint:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.ai_cfg.endpoint)
-                                    .desired_width(300.0),
-                            );
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Model:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.ai_cfg.model)
-                                    .desired_width(180.0),
-                            );
-                        });
+                        ui.add_space(4.0);
+                        self.render_ai_provider_controls(ui, palette, "settings");
                         ui.separator();
                         if ui
                             .checkbox(
@@ -401,8 +389,17 @@ impl DjCraftApp {
                     });
                 });
                 ui.separator();
-
-                // Live Booth + Compatible Crate Quick Suggestions
+                ui.collapsing(
+                    format!(
+                        "Provider: {} | {}",
+                        self.ai_cfg.provider.label(),
+                        self.ai_cfg.model
+                    ),
+                    |ui| {
+                        self.render_ai_provider_controls(ui, palette, "drawer");
+                    },
+                );
+                ui.separator();
                 let deck_a_key = self
                     .orch
                     .deck_a
@@ -568,7 +565,7 @@ impl DjCraftApp {
         let log_arc = std::sync::Arc::clone(&self.ai_log);
         let _ = Command::Status;
         std::thread::spawn(move || {
-            let reply = match chat_with_booth_ai(&cfg, &booth_ctx, &prompt) {
+            let reply = match chat_with_booth_ai(&cfg, &prompt, &booth_ctx) {
                 Ok(r) => r,
                 Err(e) => format!("Offline / LLM not configured ({e}). Try 'sync', 'load compatible', or configure LLM in Settings -> AI & Bridges."),
             };

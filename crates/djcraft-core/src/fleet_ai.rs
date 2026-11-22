@@ -12,18 +12,164 @@ use serde_json::{json, Value};
 
 use crate::{Command, CrateQuery, CrateStore, CrateTrack, DjError};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AiProvider {
+    #[default]
+    Ollama,
+    LmStudio,
+    OpenAi,
+    Anthropic,
+    Gemini,
+    OpenRouter,
+    Custom,
+}
+
+impl AiProvider {
+    pub const ALL: [Self; 7] = [
+        Self::Ollama,
+        Self::LmStudio,
+        Self::OpenAi,
+        Self::Anthropic,
+        Self::Gemini,
+        Self::OpenRouter,
+        Self::Custom,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ollama => "Ollama (Local)",
+            Self::LmStudio => "LM Studio (Local)",
+            Self::OpenAi => "OpenAI",
+            Self::Anthropic => "Anthropic",
+            Self::Gemini => "Google Gemini",
+            Self::OpenRouter => "OpenRouter",
+            Self::Custom => "Custom OpenAI-Compatible",
+        }
+    }
+
+    pub fn default_endpoint(self) -> &'static str {
+        match self {
+            Self::Ollama => "http://127.0.0.1:11434/v1/chat/completions",
+            Self::LmStudio => "http://127.0.0.1:1234/v1/chat/completions",
+            Self::OpenAi => "https://api.openai.com/v1/chat/completions",
+            Self::Anthropic => "https://api.anthropic.com/v1/messages",
+            Self::Gemini => {
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+            }
+            Self::OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
+            Self::Custom => "http://127.0.0.1:8000/v1/chat/completions",
+        }
+    }
+
+    pub fn default_model(self) -> &'static str {
+        match self {
+            Self::Ollama => "qwen2.5:7b",
+            Self::LmStudio => "local-model",
+            Self::OpenAi => "gpt-4o-mini",
+            Self::Anthropic => "claude-sonnet-4-5-20250929",
+            Self::Gemini => "gemini-2.5-flash",
+            Self::OpenRouter => "openai/gpt-4o-mini",
+            Self::Custom => "gpt-4o-mini",
+        }
+    }
+
+    pub fn preset_models(self) -> &'static [&'static str] {
+        match self {
+            Self::Ollama => &[
+                "qwen2.5:7b",
+                "llama3.2:latest",
+                "gemma3:latest",
+                "mistral:latest",
+                "deepseek-r1:8b",
+            ],
+            Self::LmStudio => &["local-model"],
+            Self::OpenAi => &["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "o4-mini"],
+            Self::Anthropic => &[
+                "claude-sonnet-4-5-20250929",
+                "claude-haiku-4-5-20251001",
+                "claude-opus-4-1-20250805",
+            ],
+            Self::Gemini => &["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+            Self::OpenRouter => &[
+                "openai/gpt-4o-mini",
+                "anthropic/claude-sonnet-4.5",
+                "google/gemini-2.5-flash",
+                "meta-llama/llama-3.3-70b-instruct",
+            ],
+            Self::Custom => &[],
+        }
+    }
+
+    pub fn requires_api_key(self) -> bool {
+        matches!(
+            self,
+            Self::OpenAi | Self::Anthropic | Self::Gemini | Self::OpenRouter
+        )
+    }
+
+    pub fn env_key_name(self) -> Option<&'static str> {
+        match self {
+            Self::OpenAi => Some("OPENAI_API_KEY"),
+            Self::Anthropic => Some("ANTHROPIC_API_KEY"),
+            Self::Gemini => Some("GEMINI_API_KEY"),
+            Self::OpenRouter => Some("OPENROUTER_API_KEY"),
+            _ => None,
+        }
+    }
+
+    pub fn infer_from_endpoint(endpoint: &str) -> Self {
+        let lower = endpoint.to_lowercase();
+        if lower.contains(":11434") || lower.contains("ollama") {
+            Self::Ollama
+        } else if lower.contains(":1234") {
+            Self::LmStudio
+        } else if lower.contains("api.openai.com") {
+            Self::OpenAi
+        } else if lower.contains("api.anthropic.com") {
+            Self::Anthropic
+        } else if lower.contains("generativelanguage.googleapis.com") {
+            Self::Gemini
+        } else if lower.contains("openrouter.ai") {
+            Self::OpenRouter
+        } else {
+            Self::Custom
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiChatConfig {
+    #[serde(default)]
+    pub provider: AiProvider,
     pub endpoint: String,
     pub model: String,
+    #[serde(default)]
+    pub api_key: String,
 }
 
 impl Default for AiChatConfig {
     fn default() -> Self {
         Self {
-            endpoint: "http://127.0.0.1:11434/v1/chat/completions".to_string(),
-            model: "qwen2.5:7b".to_string(),
+            provider: AiProvider::Ollama,
+            endpoint: AiProvider::Ollama.default_endpoint().to_string(),
+            model: AiProvider::Ollama.default_model().to_string(),
+            api_key: String::new(),
         }
+    }
+}
+
+impl AiChatConfig {
+    /// Returns the user-entered API key, or falls back to the provider's standard env var.
+    pub fn resolved_api_key(&self) -> Option<String> {
+        let trimmed = self.api_key.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+        self.provider
+            .env_key_name()
+            .and_then(|k| std::env::var(k).ok())
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
     }
 }
 
@@ -172,20 +318,192 @@ pub fn plan_harmonic_setlist(
     Ok(chosen)
 }
 
-/// Send a booth-context-aware chat turn to a local OpenAI-compatible LLM (`/v1/chat/completions`).
+/// Derive the base URL (scheme + host + optional path prefix before `/v1/` or `/api/`) from an endpoint.
+fn endpoint_base_url(endpoint: &str) -> String {
+    let trimmed = endpoint.trim().trim_end_matches('/');
+    for marker in ["/v1/chat/completions", "/v1/messages", "/api/chat", "/api/generate", "/v1"] {
+        if let Some(idx) = trimmed.find(marker) {
+            return trimmed[..idx].trim_end_matches('/').to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+/// Fetch the live list of available models from Ollama (`/api/tags`), LM Studio, or OpenAI/Anthropic/Gemini/OpenRouter.
+pub fn fetch_available_models(cfg: &AiChatConfig) -> Result<Vec<String>, DjError> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(5))
+        .build();
+    let api_key = cfg.resolved_api_key();
+
+    // 1. Ollama native `/api/tags` first (lists all pulled local models reliably).
+    if cfg.provider == AiProvider::Ollama {
+        let base = endpoint_base_url(&cfg.endpoint);
+        let tags_url = format!("{base}/api/tags");
+        if let Ok(resp) = agent.get(&tags_url).call() {
+            if let Ok(val) = resp.into_json::<Value>() {
+                if let Some(arr) = val.get("models").and_then(Value::as_array) {
+                    let mut names: Vec<String> = arr
+                        .iter()
+                        .filter_map(|m| m.get("name").and_then(Value::as_str))
+                        .map(|s| s.to_string())
+                        .collect();
+                    names.sort();
+                    names.dedup();
+                    if !names.is_empty() {
+                        return Ok(names);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Anthropic `/v1/models` (or curated presets if no key)
+    if cfg.provider == AiProvider::Anthropic {
+        if let Some(ref key) = api_key {
+            if let Ok(resp) = agent
+                .get("https://api.anthropic.com/v1/models")
+                .set("x-api-key", key)
+                .set("anthropic-version", "2023-06-01")
+                .call()
+            {
+                if let Ok(val) = resp.into_json::<Value>() {
+                    if let Some(arr) = val.get("data").and_then(Value::as_array) {
+                        let mut names: Vec<String> = arr
+                            .iter()
+                            .filter_map(|m| m.get("id").and_then(Value::as_str))
+                            .map(|s| s.to_string())
+                            .collect();
+                        names.sort();
+                        names.dedup();
+                        if !names.is_empty() {
+                            return Ok(names);
+                        }
+                    }
+                }
+            }
+        }
+        return Ok(cfg
+            .provider
+            .preset_models()
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect());
+    }
+
+    // 3. OpenAI-compatible `/models` endpoint (LM Studio, OpenAI, Gemini, OpenRouter, Ollama fallback, Custom)
+    let models_url = if cfg.endpoint.contains("/chat/completions") {
+        cfg.endpoint.replace("/chat/completions", "/models")
+    } else {
+        format!("{}/v1/models", endpoint_base_url(&cfg.endpoint))
+    };
+
+    let mut req = agent.get(&models_url);
+    if let Some(ref key) = api_key {
+        req = req.set("Authorization", &format!("Bearer {key}"));
+    }
+
+    match req.call() {
+        Ok(resp) => {
+            let val: Value = resp
+                .into_json()
+                .map_err(|e| DjError::Sidecar(format!("Invalid models JSON: {e}")))?;
+            let mut names: Vec<String> = val
+                .get("data")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|m| m.get("id").and_then(Value::as_str))
+                        .map(|s| s.to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names.dedup();
+            if names.is_empty() {
+                Ok(cfg
+                    .provider
+                    .preset_models()
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect())
+            } else {
+                Ok(names)
+            }
+        }
+        Err(e) => {
+            let presets: Vec<String> = cfg
+                .provider
+                .preset_models()
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect();
+            if cfg.provider.requires_api_key() && !presets.is_empty() {
+                Ok(presets)
+            } else {
+                Err(DjError::Sidecar(format!(
+                    "Could not fetch models from {models_url}: {e}"
+                )))
+            }
+        }
+    }
+}
+
+/// Send a booth-context-aware chat turn to a local or cloud LLM (Ollama, LM Studio, OpenAI, Anthropic, Gemini, OpenRouter).
 pub fn chat_with_booth_ai(
     cfg: &AiChatConfig,
     user_prompt: &str,
     booth_context: &str,
 ) -> Result<String, DjError> {
+    let api_key = cfg.resolved_api_key();
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(30))
+        .build();
+
+    let system_prompt = format!(
+        "You are DJCraft's concise technical DJ booth assistant. Current booth state: {booth_context}"
+    );
+
+    if cfg.provider == AiProvider::Anthropic || cfg.endpoint.trim_end_matches('/').ends_with("/v1/messages") {
+        let key = api_key.ok_or_else(|| {
+            DjError::Sidecar(
+                "Anthropic requires an API key (enter API Key or set ANTHROPIC_API_KEY)".to_string(),
+            )
+        })?;
+        let payload = json!({
+            "model": cfg.model,
+            "max_tokens": 1024,
+            "system": system_prompt,
+            "messages": [
+                { "role": "user", "content": user_prompt }
+            ],
+            "temperature": 0.4
+        });
+        let resp = agent
+            .post(&cfg.endpoint)
+            .set("Content-Type", "application/json")
+            .set("x-api-key", &key)
+            .set("anthropic-version", "2023-06-01")
+            .send_json(payload)
+            .map_err(|e| DjError::Sidecar(format!("Anthropic request failed: {e}")))?;
+        let val: Value = resp
+            .into_json()
+            .map_err(|e| DjError::Sidecar(format!("Invalid Anthropic JSON response: {e}")))?;
+        let content = val
+            .pointer("/content/0/text")
+            .and_then(Value::as_str)
+            .unwrap_or("(empty LLM reply)")
+            .trim()
+            .to_string();
+        return Ok(content);
+    }
+
     let payload = json!({
         "model": cfg.model,
         "messages": [
             {
                 "role": "system",
-                "content": format!(
-                    "You are DJCraft's concise technical DJ booth assistant. Current booth state: {booth_context}"
-                )
+                "content": system_prompt
             },
             {
                 "role": "user",
@@ -195,12 +513,17 @@ pub fn chat_with_booth_ai(
         "temperature": 0.4
     });
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(20))
-        .build();
-    let resp = agent
+    let mut req = agent
         .post(&cfg.endpoint)
-        .set("Content-Type", "application/json")
+        .set("Content-Type", "application/json");
+    if let Some(ref key) = api_key {
+        req = req.set("Authorization", &format!("Bearer {key}"));
+    }
+    if cfg.provider == AiProvider::OpenRouter {
+        req = req.set("X-Title", "DJCraft");
+    }
+
+    let resp = req
         .send_json(payload)
         .map_err(|e| DjError::Sidecar(format!("LLM request failed ({}): {e}", cfg.endpoint)))?;
 

@@ -27,9 +27,9 @@ pub use crates_db::{
     CrateStore, CrateTrack, ImportSummary,
 };
 pub use fleet_ai::{
-    butterchurn_sync_bpm, chat_with_booth_ai, generate_speech_drop, parse_natural_language_command,
-    plan_harmonic_setlist, probe_fleet_health, sfx_search, vfx_apply_preset, AiChatConfig,
-    FleetEndpoints, FleetHealthReport,
+    butterchurn_sync_bpm, chat_with_booth_ai, fetch_available_models, generate_speech_drop,
+    parse_natural_language_command, plan_harmonic_setlist, probe_fleet_health, sfx_search,
+    vfx_apply_preset, AiChatConfig, AiProvider, FleetEndpoints, FleetHealthReport,
 };
 pub use ipc::{
     live_port_path, send_ipc_request, send_ipc_request_to_port, start_ipc_server, IpcReceiver,

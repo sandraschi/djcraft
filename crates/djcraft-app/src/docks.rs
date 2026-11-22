@@ -5,10 +5,10 @@ use std::sync::Arc;
 use djcraft_audio::dsp::{decode_audio_file, WaveformSummary};
 use djcraft_audio::{DeckId, TrackMeta};
 use djcraft_core::{
-    batch_stem_folder, butterchurn_sync_bpm, chat_with_booth_ai, generate_speech_drop,
-    parse_natural_language_command, plan_harmonic_setlist, probe_fleet_health, sfx_search,
-    vfx_apply_preset, Command, ControllerProfileId, CrateSortField, MidiControllerManager,
-    MidiTargetAction, MixxxxxVideoControls,
+    batch_stem_folder, butterchurn_sync_bpm, chat_with_booth_ai, fetch_available_models,
+    generate_speech_drop, parse_natural_language_command, plan_harmonic_setlist,
+    probe_fleet_health, sfx_search, vfx_apply_preset, AiProvider, Command, ControllerProfileId,
+    CrateSortField, MidiControllerManager, MidiTargetAction, MixxxxxVideoControls,
 };
 
 use super::skins::SkinPalette;
@@ -579,16 +579,160 @@ impl super::DjCraftApp {
         });
     }
 
+    pub(super) fn trigger_ai_model_refresh(&mut self) {
+        self.ai_models_fetched_once = true;
+        let cfg = self.ai_cfg.clone();
+        let models_arc = Arc::clone(&self.ai_models);
+        let status_arc = Arc::clone(&self.ai_models_status);
+        if let Ok(mut st) = status_arc.lock() {
+            *st = "Loading models...".to_string();
+        }
+        std::thread::spawn(move || match fetch_available_models(&cfg) {
+            Ok(list) => {
+                let count = list.len();
+                if let Ok(mut m) = models_arc.lock() {
+                    *m = list;
+                }
+                if let Ok(mut st) = status_arc.lock() {
+                    *st = format!("{count} model(s)");
+                }
+            }
+            Err(e) => {
+                if let Ok(mut st) = status_arc.lock() {
+                    *st = format!("Offline ({e})");
+                }
+            }
+        });
+    }
+
+    pub(super) fn render_ai_provider_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        palette: &SkinPalette,
+        id_prefix: &str,
+    ) {
+        if !self.ai_models_fetched_once {
+            self.trigger_ai_model_refresh();
+        }
+
+        // Row 1: Provider selector + Model dropdown + Refresh + custom model input
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Provider:");
+            let prev_provider = self.ai_cfg.provider;
+            egui::ComboBox::from_id_salt((id_prefix, "ai_provider_combo"))
+                .selected_text(self.ai_cfg.provider.label())
+                .width(155.0)
+                .show_ui(ui, |ui| {
+                    for prov in AiProvider::ALL {
+                        ui.selectable_value(&mut self.ai_cfg.provider, prov, prov.label());
+                    }
+                });
+            if self.ai_cfg.provider != prev_provider {
+                self.ai_cfg.endpoint = self.ai_cfg.provider.default_endpoint().to_string();
+                self.ai_cfg.model = self.ai_cfg.provider.default_model().to_string();
+                if let Ok(mut m) = self.ai_models.lock() {
+                    m.clear();
+                }
+                self.trigger_ai_model_refresh();
+            }
+
+            // Build candidate model list: live fetched models + provider presets + current value
+            let mut choices: Vec<String> = self
+                .ai_models
+                .lock()
+                .map(|m| m.clone())
+                .unwrap_or_default();
+            for preset in self.ai_cfg.provider.preset_models() {
+                if !choices.iter().any(|c| c == preset) {
+                    choices.push((*preset).to_string());
+                }
+            }
+            if !self.ai_cfg.model.trim().is_empty()
+                && !choices.iter().any(|c| c == &self.ai_cfg.model)
+            {
+                choices.insert(0, self.ai_cfg.model.clone());
+            }
+
+            ui.label("Model:");
+            let selected_lbl = if self.ai_cfg.model.trim().is_empty() {
+                "(select model)"
+            } else {
+                self.ai_cfg.model.as_str()
+            };
+            egui::ComboBox::from_id_salt((id_prefix, "ai_model_combo"))
+                .selected_text(selected_lbl)
+                .width(175.0)
+                .show_ui(ui, |ui| {
+                    if choices.is_empty() {
+                        ui.label("No models found -- click Refresh or type below");
+                    } else {
+                        for m in &choices {
+                            ui.selectable_value(&mut self.ai_cfg.model, m.clone(), m);
+                        }
+                    }
+                });
+
+            if ui
+                .small_button("Refresh")
+                .on_hover_text("Fetch installed/available models from the selected provider")
+                .clicked()
+            {
+                self.trigger_ai_model_refresh();
+            }
+
+            let status_txt = self
+                .ai_models_status
+                .lock()
+                .map(|s| s.clone())
+                .unwrap_or_default();
+            if !status_txt.is_empty() {
+                ui.label(
+                    egui::RichText::new(status_txt)
+                        .small()
+                        .color(palette.text_secondary),
+                );
+            }
+        });
+
+        // Row 2: Custom model override + Endpoint URL + API Key (masked)
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Custom:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.ai_cfg.model)
+                    .desired_width(130.0)
+                    .hint_text("model tag..."),
+            );
+            ui.label("URL:");
+            ui.add(egui::TextEdit::singleline(&mut self.ai_cfg.endpoint).desired_width(230.0));
+            ui.label("API Key:");
+            let env_detected = self.ai_cfg.api_key.trim().is_empty()
+                && self.ai_cfg.resolved_api_key().is_some();
+            let key_hint = if env_detected {
+                "Using env var (override...)"
+            } else if self.ai_cfg.provider.requires_api_key() {
+                "Enter API key..."
+            } else {
+                "Optional (local)"
+            };
+            ui.add(
+                egui::TextEdit::singleline(&mut self.ai_cfg.api_key)
+                    .password(!self.ai_show_api_key)
+                    .desired_width(145.0)
+                    .hint_text(key_hint),
+            );
+            if ui
+                .small_button(if self.ai_show_api_key { "Hide" } else { "Show" })
+                .clicked()
+            {
+                self.ai_show_api_key = !self.ai_show_api_key;
+            }
+        });
+    }
+
     pub(super) fn render_ai_chat_dock(&mut self, ui: &mut egui::Ui, palette: &SkinPalette) {
         theme::card_frame(ui, palette, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.strong("AI Booth Assistant & Workflows");
-                if ui.small_button("Ollama :11434").clicked() {
-                    self.ai_cfg.endpoint = "http://127.0.0.1:11434/v1/chat/completions".to_string();
-                }
-                if ui.small_button("LM Studio :1234").clicked() {
-                    self.ai_cfg.endpoint = "http://127.0.0.1:1234/v1/chat/completions".to_string();
-                }
                 if ui.small_button("Build 4-Track Harmonic Setlist").clicked() {
                     let seed = self
                         .orch
@@ -629,12 +773,7 @@ impl super::DjCraftApp {
                 }
             });
 
-            ui.horizontal(|ui| {
-                ui.label("Model:");
-                ui.add(egui::TextEdit::singleline(&mut self.ai_cfg.model).desired_width(140.0));
-                ui.label("URL:");
-                ui.add(egui::TextEdit::singleline(&mut self.ai_cfg.endpoint).desired_width(260.0));
-            });
+            self.render_ai_provider_controls(ui, palette, "dock");
 
             egui::ScrollArea::vertical()
                 .max_height(140.0)

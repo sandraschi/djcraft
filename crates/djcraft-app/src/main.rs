@@ -34,8 +34,8 @@ use djcraft_audio::{
 use djcraft_core::i18n::{t, AppLocale, I18nKey};
 use djcraft_core::{
     action_to_command, batch_stem_folder, resolve_dettato_binary, resolve_mixxxxx_binary,
-    AiChatConfig, Command, ControllerProfileId, CrateNode, CrateQuery, CrateSortField, CrateStore,
-    CrateTrack, DjOrchestrator, FleetEndpoints, FleetHealthReport, LinkEngine,
+    AiChatConfig, AiProvider, Command, ControllerProfileId, CrateNode, CrateQuery, CrateSortField,
+    CrateStore, CrateTrack, DjOrchestrator, FleetEndpoints, FleetHealthReport, LinkEngine,
     MidiControllerManager, MidiTargetAction, MixxxxxVideoControls,
 };
 use serde::{Deserialize, Serialize};
@@ -359,6 +359,10 @@ pub struct DjCraftApp {
     ai_cfg: AiChatConfig,
     ai_input: String,
     ai_log: Arc<Mutex<Vec<(String, String)>>>,
+    ai_models: Arc<Mutex<Vec<String>>>,
+    ai_models_status: Arc<Mutex<String>>,
+    ai_models_fetched_once: bool,
+    ai_show_api_key: bool,
     bg_status: Arc<Mutex<Option<String>>>,
 
     // Fleet Hub (SpeechCraft, sfx-mcp, vfx-mcp, butterchurn-mcp)
@@ -520,14 +524,20 @@ impl DjCraftApp {
             mixxxxx_last_pong: false,
 
             ai_cfg: AiChatConfig {
+                provider: AiProvider::infer_from_endpoint(&app_cfg.ai_endpoint),
                 endpoint: app_cfg.ai_endpoint.clone(),
                 model: app_cfg.ai_model.clone(),
+                api_key: String::new(),
             },
             ai_input: String::new(),
             ai_log: Arc::new(Mutex::new(vec![(
                 "AI".to_string(),
-                "Booth Assistant ready. Try 'sync', 'phase sync', 'kill bass a', or ask a mix question (Ollama :11434 / LM Studio :1234).".to_string(),
+                "Booth Assistant ready. Try 'sync', 'phase sync', 'kill bass a', or ask a mix question (Ollama, LM Studio, OpenAI, Anthropic, Gemini, OpenRouter).".to_string(),
             )])),
+            ai_models: Arc::new(Mutex::new(Vec::new())),
+            ai_models_status: Arc::new(Mutex::new(String::new())),
+            ai_models_fetched_once: false,
+            ai_show_api_key: false,
             bg_status: Arc::new(Mutex::new(None)),
 
             fleet_endpoints: FleetEndpoints::default(),
