@@ -2,8 +2,12 @@
 use std::path::Path;
 
 use clap::{Parser, Subcommand};
-use djcraft_audio::DeckId;
-use djcraft_core::{Command, CrateStore, DjOrchestrator, MixxxxxVideoControls};
+use djcraft_audio::output::AudioOutput;
+use djcraft_audio::{list_input_devices, DeckId};
+use djcraft_core::{
+    Command, ControllerProfileId, CrateStore, DjOrchestrator, MidiControllerManager,
+    MixxxxxVideoControls,
+};
 
 #[derive(Parser)]
 #[command(name = "djcraft-cli", about = "DJCraft Local Performance Mixer CLI")]
@@ -62,6 +66,12 @@ enum Commands {
     CrateImportVdj { path: String },
     /// Export a crate by id to a VirtualDJ .vdjfolder or .m3u8 file
     CrateExportVdj { crate_id: i64, dest: String },
+    /// List connected USB MIDI controller input ports and auto-detected profiles
+    MidiList,
+    /// Connect to a MIDI controller by index or name substring (e.g. "reloop")
+    MidiConnect { query: Option<String> },
+    /// List available audio output and DVS input devices
+    AudioList,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -169,6 +179,74 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "crate_id": crate_id,
                     "dest": dest,
                     "exported_tracks": count
+                }))?
+            );
+        }
+        Commands::MidiList => {
+            let ports = MidiControllerManager::list_input_ports();
+            let items: Vec<_> = ports
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let prof = ControllerProfileId::auto_detect_from_port_name(p);
+                    serde_json::json!({
+                        "index": i,
+                        "port": p,
+                        "detected_profile": prof.label()
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&items)?);
+        }
+        Commands::MidiConnect { query } => {
+            let ports = MidiControllerManager::list_input_ports();
+            if ports.is_empty() {
+                return Err("No MIDI input ports detected".into());
+            }
+            let idx = if let Some(q) = query.as_deref() {
+                if let Ok(n) = q.trim().parse::<usize>() {
+                    if n < ports.len() {
+                        n
+                    } else {
+                        return Err(format!(
+                            "MIDI port index {n} out of range (0..{})",
+                            ports.len()
+                        )
+                        .into());
+                    }
+                } else {
+                    let ql = q.to_lowercase();
+                    ports
+                        .iter()
+                        .position(|p| p.to_lowercase().contains(&ql))
+                        .ok_or_else(|| {
+                            format!("No MIDI port matching '{q}' (available: {ports:?})")
+                        })?
+                }
+            } else {
+                0
+            };
+            let mut mgr = MidiControllerManager::new();
+            let name = mgr.connect_port(idx)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "connected": true,
+                    "index": idx,
+                    "port": name,
+                    "profile": mgr.active_profile.label(),
+                    "rules_count": mgr.rules.len()
+                }))?
+            );
+        }
+        Commands::AudioList => {
+            let outputs = AudioOutput::list_output_devices();
+            let inputs = list_input_devices();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "outputs": outputs,
+                    "inputs": inputs
                 }))?
             );
         }
