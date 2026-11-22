@@ -1097,6 +1097,239 @@ fn fill_cue_u16(data: &mut [u16], channels: usize, cue_ring: &Arc<Mutex<VecDeque
     }
 }
 
+struct Room2PlaybackState {
+    track: Option<Arc<DecodedAudio>>,
+    pos_sec: f64,
+    playing: bool,
+    finished: bool,
+    volume: f32,
+    out_sample_rate: u32,
+}
+
+impl Default for Room2PlaybackState {
+    fn default() -> Self {
+        Self {
+            track: None,
+            pos_sec: 0.0,
+            playing: false,
+            finished: false,
+            volume: 0.85,
+            out_sample_rate: 44_100,
+        }
+    }
+}
+
+fn next_room2_frame(st: &mut Room2PlaybackState) -> (f32, f32) {
+    if !st.playing {
+        return (0.0, 0.0);
+    }
+    let Some(ref audio) = st.track else {
+        return (0.0, 0.0);
+    };
+    if st.pos_sec >= audio.duration_seconds || audio.left.is_empty() {
+        st.playing = false;
+        st.finished = true;
+        return (0.0, 0.0);
+    }
+    let (l, r) = sample_varispeed(audio, st.pos_sec);
+    st.pos_sec += 1.0 / st.out_sample_rate.max(8_000) as f64;
+    if st.pos_sec >= audio.duration_seconds {
+        st.playing = false;
+        st.finished = true;
+    }
+    (l * st.volume, r * st.volume)
+}
+
+/// Independent secondary audio player for Two-Room setups (Room 2 prepared autoplay).
+pub struct Room2AudioOutput {
+    stream: Option<Stream>,
+    device_name: Option<String>,
+    state: Arc<Mutex<Room2PlaybackState>>,
+}
+
+impl Default for Room2AudioOutput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Room2AudioOutput {
+    pub fn new() -> Self {
+        Self {
+            stream: None,
+            device_name: None,
+            state: Arc::new(Mutex::new(Room2PlaybackState::default())),
+        }
+    }
+
+    pub fn device_name(&self) -> Option<&str> {
+        self.device_name.as_deref()
+    }
+
+    pub fn set_device(&mut self, device_name: Option<&str>) -> Result<String, String> {
+        self.stream = None;
+        self.device_name = None;
+
+        let Some(target_name) = device_name.filter(|s| !s.trim().is_empty()) else {
+            return Ok("Room 2 audio output disabled".to_string());
+        };
+
+        let host = cpal::default_host();
+        let devices = host
+            .output_devices()
+            .map_err(|e| format!("Failed to enumerate output devices: {e}"))?;
+        let Some(device) = devices
+            .into_iter()
+            .find(|d| d.name().ok().as_deref() == Some(target_name))
+        else {
+            return Err(format!("Room 2 output device not found: {target_name}"));
+        };
+
+        let supported = device
+            .default_output_config()
+            .map_err(|e| format!("Room 2 audio config error: {e}"))?;
+        let channels = supported.channels() as usize;
+        let sample_format = supported.sample_format();
+        let out_sr = supported.sample_rate().0;
+        let config: cpal::StreamConfig = supported.into();
+
+        if let Ok(mut guard) = self.state.lock() {
+            guard.out_sample_rate = out_sr;
+        }
+        let state = Arc::clone(&self.state);
+        let err_fn = |err| {
+            eprintln!("[djcraft-audio] Room 2 stream error: {err}");
+        };
+
+        let stream = match sample_format {
+            SampleFormat::F32 => device.build_output_stream(
+                &config,
+                move |data: &mut [f32], _| {
+                    let ch = channels.max(1);
+                    let Ok(mut st) = state.try_lock() else {
+                        data.fill(0.0);
+                        return;
+                    };
+                    for frame in data.chunks_mut(ch) {
+                        let (l, r) = next_room2_frame(&mut st);
+                        if ch == 1 {
+                            frame[0] = (l + r) * 0.5;
+                        } else {
+                            frame[0] = l;
+                            frame[1] = r;
+                            for extra in frame.iter_mut().skip(2) {
+                                *extra = 0.0;
+                            }
+                        }
+                    }
+                },
+                err_fn,
+                None,
+            ),
+            SampleFormat::I16 => device.build_output_stream(
+                &config,
+                move |data: &mut [i16], _| {
+                    let ch = channels.max(1);
+                    let Ok(mut st) = state.try_lock() else {
+                        data.fill(0);
+                        return;
+                    };
+                    for frame in data.chunks_mut(ch) {
+                        let (l, r) = next_room2_frame(&mut st);
+                        let li = (l.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                        let ri = (r.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                        if ch == 1 {
+                            frame[0] = ((li as i32 + ri as i32) / 2) as i16;
+                        } else {
+                            frame[0] = li;
+                            frame[1] = ri;
+                            for extra in frame.iter_mut().skip(2) {
+                                *extra = 0;
+                            }
+                        }
+                    }
+                },
+                err_fn,
+                None,
+            ),
+            SampleFormat::U16 => device.build_output_stream(
+                &config,
+                move |data: &mut [u16], _| {
+                    let ch = channels.max(1);
+                    let Ok(mut st) = state.try_lock() else {
+                        data.fill(u16::MAX / 2);
+                        return;
+                    };
+                    for frame in data.chunks_mut(ch) {
+                        let (l, r) = next_room2_frame(&mut st);
+                        let lu = ((l.clamp(-1.0, 1.0) * 0.5 + 0.5) * u16::MAX as f32) as u16;
+                        let ru = ((r.clamp(-1.0, 1.0) * 0.5 + 0.5) * u16::MAX as f32) as u16;
+                        if ch == 1 {
+                            frame[0] = ((lu as u32 + ru as u32) / 2) as u16;
+                        } else {
+                            frame[0] = lu;
+                            frame[1] = ru;
+                            for extra in frame.iter_mut().skip(2) {
+                                *extra = u16::MAX / 2;
+                            }
+                        }
+                    }
+                },
+                err_fn,
+                None,
+            ),
+            other => return Err(format!("Unsupported Room 2 sample format: {other:?}")),
+        }
+        .map_err(|e| format!("Failed to build Room 2 stream: {e}"))?;
+
+        stream
+            .play()
+            .map_err(|e| format!("Failed to start Room 2 stream: {e}"))?;
+
+        self.stream = Some(stream);
+        self.device_name = Some(target_name.to_string());
+        Ok(format!("Room 2 autoplay routed to {target_name}"))
+    }
+
+    pub fn load_and_play(&mut self, audio: Arc<DecodedAudio>) {
+        if let Ok(mut st) = self.state.lock() {
+            st.track = Some(audio);
+            st.pos_sec = 0.0;
+            st.finished = false;
+            st.playing = true;
+        }
+    }
+
+    pub fn set_playing(&mut self, playing: bool) {
+        if let Ok(mut st) = self.state.lock() {
+            st.playing = playing;
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if let Ok(mut st) = self.state.lock() {
+            st.playing = false;
+            st.pos_sec = 0.0;
+            st.finished = false;
+        }
+    }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        if let Ok(mut st) = self.state.lock() {
+            st.volume = volume.clamp(0.0, 1.0);
+        }
+    }
+
+    pub fn snapshot(&self) -> (bool, bool, f64, f64) {
+        if let Ok(st) = self.state.lock() {
+            let dur = st.track.as_ref().map_or(0.0, |t| t.duration_seconds);
+            (st.playing, st.finished, st.pos_sec, dur)
+        } else {
+            (false, false, 0.0, 0.0)
+        }
+    }
+}
+
 #[cfg(test)]
 mod mix_fix_tests {
     use super::*;

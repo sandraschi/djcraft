@@ -6,6 +6,7 @@ mod crate_view;
 mod docks;
 mod fx_rack;
 mod performance_strips;
+mod set_and_rooms;
 mod settings;
 mod skins;
 mod studio_dock;
@@ -132,10 +133,11 @@ enum LowerDockTab {
     AiChatAndWorkflows,
     FleetHub,
     CamelotAndMixxxxx,
+    SetAndRooms,
 }
 
 impl LowerDockTab {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::FxRack,
         Self::StudioBeatmaker,
         Self::Crates,
@@ -144,6 +146,7 @@ impl LowerDockTab {
         Self::AiChatAndWorkflows,
         Self::FleetHub,
         Self::CamelotAndMixxxxx,
+        Self::SetAndRooms,
     ];
 
     fn label(self) -> &'static str {
@@ -156,6 +159,7 @@ impl LowerDockTab {
             Self::AiChatAndWorkflows => "AI Chat & Workflows",
             Self::FleetHub => "Fleet Hub (Speech/SFX/VFX/Butterchurn)",
             Self::CamelotAndMixxxxx => "Camelot & Mixxxxx OSC",
+            Self::SetAndRooms => "Set & Two-Room",
         }
     }
 }
@@ -388,6 +392,8 @@ pub struct DjCraftApp {
     screenshot_frames: u32,
     screenshot_requested: bool,
     ipc_rx: Option<djcraft_core::IpcReceiver>,
+    set_auto: set_and_rooms::SetAutomationState,
+    room2: set_and_rooms::Room2AutoplayState,
 }
 
 impl Default for DjCraftApp {
@@ -555,6 +561,8 @@ impl DjCraftApp {
             screenshot_frames: 0,
             screenshot_requested: false,
             ipc_rx: None,
+            set_auto: set_and_rooms::SetAutomationState::default(),
+            room2: set_and_rooms::Room2AutoplayState::default(),
         }
     }
 
@@ -600,150 +608,158 @@ impl DjCraftApp {
             }
         }
         for (req, reply) in pending {
-            let resp = match req {
-                djcraft_core::IpcRequest::Command { command } => {
-                    match self.orch.dispatch(command) {
-                        Ok(outcome) => {
-                            if outcome.command == "mixxxxx_ping" {
-                                self.mixxxxx_last_pong = outcome
-                                    .data
-                                    .get("pong_received")
-                                    .and_then(|v| v.as_bool())
-                                    .unwrap_or(false);
-                            }
-                            self.status_msg = outcome.message.clone();
-                            djcraft_core::IpcResponse::ok(
-                                serde_json::to_value(&outcome).unwrap_or(serde_json::Value::Null),
-                            )
-                        }
-                        Err(e) => {
-                            self.status_msg = format!("Error: {e}");
-                            djcraft_core::IpcResponse::err(e.to_string())
-                        }
-                    }
-                }
-                djcraft_core::IpcRequest::LoadFile { deck, path } => {
-                    match self.load_audio_file_to_deck(deck, std::path::Path::new(&path)) {
-                        Ok(msg) => {
-                            self.status_msg = msg.clone();
-                            djcraft_core::IpcResponse::ok(serde_json::json!({
-                                "loaded": true,
-                                "deck": deck.label(),
-                                "path": path,
-                                "message": msg
-                            }))
-                        }
-                        Err(e) => {
-                            self.status_msg = e.clone();
-                            djcraft_core::IpcResponse::err(e)
-                        }
-                    }
-                }
-                djcraft_core::IpcRequest::LoadVideo { deck, path } => {
-                    let p = std::path::Path::new(&path);
-                    let res = match deck {
-                        DeckId::DeckA => self.video_deck_a.load_file(p),
-                        DeckId::DeckB => self.video_deck_b.load_file(p),
-                        _ => Err("Video decks only support Deck A and Deck B".to_string()),
-                    };
-                    match res {
-                        Ok(()) => {
-                            self.prefs.show_live_video_strip = true;
-                            self.status_msg =
-                                format!("Loaded video '{}' to {}", path, deck.label());
-                            djcraft_core::IpcResponse::ok(serde_json::json!({
-                                "loaded_video": true,
-                                "deck": deck.label(),
-                                "path": path
-                            }))
-                        }
-                        Err(e) => {
-                            self.status_msg = e.clone();
-                            djcraft_core::IpcResponse::err(e)
-                        }
-                    }
-                }
-                djcraft_core::IpcRequest::VideoState {
-                    deck,
-                    fx,
-                    amount,
-                    transition,
-                    show_strip,
-                } => {
-                    if let Some(show) = show_strip {
-                        self.prefs.show_live_video_strip = show;
-                    }
-                    if let Some(ref fx_name) = fx {
-                        let parsed = match fx_name.trim().to_lowercase().as_str() {
-                            "none" | "off" => DeckVideoFx::None,
-                            "rgb" | "rgbsplit" | "rgb_split" => DeckVideoFx::RgbSplit,
-                            "invert" => DeckVideoFx::Invert,
-                            "posterize" => DeckVideoFx::Posterize,
-                            "scanlines" => DeckVideoFx::Scanlines,
-                            "mirror" => DeckVideoFx::Mirror,
-                            "strobe" => DeckVideoFx::Strobe,
-                            "neon" | "neonedge" | "neon_edge" => DeckVideoFx::NeonEdge,
-                            _ => DeckVideoFx::None,
-                        };
-                        match deck {
-                            DeckId::DeckA => self.video_fx_a = parsed,
-                            DeckId::DeckB => self.video_fx_b = parsed,
-                            _ => {}
-                        }
-                    }
-                    if let Some(amt) = amount {
-                        let c = amt.clamp(0.0, 1.0);
-                        match deck {
-                            DeckId::DeckA => self.video_fx_a_amt = c,
-                            DeckId::DeckB => self.video_fx_b_amt = c,
-                            _ => {}
-                        }
-                    }
-                    if let Some(ref tr) = transition {
-                        self.video_transition = match tr.trim().to_lowercase().as_str() {
-                            "crossfade" => VideoTransitionFx::Crossfade,
-                            "glow" | "additive" | "additiveglow" | "additive_glow" => {
-                                VideoTransitionFx::AdditiveGlow
-                            }
-                            "wipe" | "wipeleftright" | "wipe_left_right" => {
-                                VideoTransitionFx::WipeLeftRight
-                            }
-                            "iris" | "iriscircle" | "iris_circle" => VideoTransitionFx::IrisCircle,
-                            "luma" | "lumakey" | "luma_key" => VideoTransitionFx::LumaKey,
-                            "zoom" | "zoomcut" | "zoom_cut" => VideoTransitionFx::ZoomCut,
-                            "glitch" | "glitchslice" | "glitch_slice" => {
-                                VideoTransitionFx::GlitchSlice
-                            }
-                            _ => VideoTransitionFx::Crossfade,
-                        };
-                    }
-                    djcraft_core::IpcResponse::ok(serde_json::json!({
-                        "video_strip": self.prefs.show_live_video_strip,
-                        "transition": self.video_transition.label()
-                    }))
-                }
-                djcraft_core::IpcRequest::LiveStatus => match self.orch.dispatch(Command::Status) {
-                    Ok(outcome) => djcraft_core::IpcResponse::ok(serde_json::json!({
-                        "orchestrator": outcome.data,
-                        "audio_active": self.audio_out.active,
-                        "audio_device": self.audio_out.device_name,
-                        "headphone_device": self.selected_headphone_device,
-                        "split_cue": self.orch.headphone_split_cue,
-                        "auto_dj_enabled": self.auto_dj_enabled,
-                        "midi_connected": self.midi.connected_port,
-                        "midi_profile": self.midi.active_profile.label(),
-                        "dvs_device": self.dvs_selected_device,
-                        "link_bpm": self.link_engine.bpm,
-                        "link_peers": self.link_engine.peer_count()
-                    })),
-                    Err(e) => djcraft_core::IpcResponse::err(e.to_string()),
-                },
-            };
+            let resp = self.execute_ipc_request(req);
             let _ = reply.send(resp);
         }
     }
 
+    pub(crate) fn execute_ipc_request(
+        &mut self,
+        req: djcraft_core::IpcRequest,
+    ) -> djcraft_core::IpcResponse {
+        match req {
+            djcraft_core::IpcRequest::Command { command } => match self.orch.dispatch(command) {
+                Ok(outcome) => {
+                    if outcome.command == "mixxxxx_ping" {
+                        self.mixxxxx_last_pong = outcome
+                            .data
+                            .get("pong_received")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                    }
+                    self.status_msg = outcome.message.clone();
+                    djcraft_core::IpcResponse::ok(
+                        serde_json::to_value(&outcome).unwrap_or(serde_json::Value::Null),
+                    )
+                }
+                Err(e) => {
+                    self.status_msg = format!("Error: {e}");
+                    djcraft_core::IpcResponse::err(e.to_string())
+                }
+            },
+            djcraft_core::IpcRequest::LoadFile { deck, path } => {
+                match self.load_audio_file_to_deck(deck, std::path::Path::new(&path)) {
+                    Ok(msg) => {
+                        self.status_msg = msg.clone();
+                        djcraft_core::IpcResponse::ok(serde_json::json!({
+                            "loaded": true,
+                            "deck": deck.label(),
+                            "path": path,
+                            "message": msg
+                        }))
+                    }
+                    Err(e) => {
+                        self.status_msg = e.clone();
+                        djcraft_core::IpcResponse::err(e)
+                    }
+                }
+            }
+            djcraft_core::IpcRequest::LoadVideo { deck, path } => {
+                let p = std::path::Path::new(&path);
+                let res = match deck {
+                    DeckId::DeckA => self.video_deck_a.load_file(p),
+                    DeckId::DeckB => self.video_deck_b.load_file(p),
+                    _ => Err("Video decks only support Deck A and Deck B".to_string()),
+                };
+                match res {
+                    Ok(()) => {
+                        self.prefs.show_live_video_strip = true;
+                        self.status_msg = format!("Loaded video '{}' to {}", path, deck.label());
+                        djcraft_core::IpcResponse::ok(serde_json::json!({
+                            "loaded_video": true,
+                            "deck": deck.label(),
+                            "path": path
+                        }))
+                    }
+                    Err(e) => {
+                        self.status_msg = e.clone();
+                        djcraft_core::IpcResponse::err(e)
+                    }
+                }
+            }
+            djcraft_core::IpcRequest::VideoState {
+                deck,
+                fx,
+                amount,
+                transition,
+                show_strip,
+            } => {
+                if let Some(show) = show_strip {
+                    self.prefs.show_live_video_strip = show;
+                }
+                if let Some(ref fx_name) = fx {
+                    let parsed = match fx_name.trim().to_lowercase().as_str() {
+                        "none" | "off" => DeckVideoFx::None,
+                        "rgb" | "rgbsplit" | "rgb_split" => DeckVideoFx::RgbSplit,
+                        "invert" => DeckVideoFx::Invert,
+                        "posterize" => DeckVideoFx::Posterize,
+                        "scanlines" => DeckVideoFx::Scanlines,
+                        "mirror" => DeckVideoFx::Mirror,
+                        "strobe" => DeckVideoFx::Strobe,
+                        "neon" | "neonedge" | "neon_edge" => DeckVideoFx::NeonEdge,
+                        _ => DeckVideoFx::None,
+                    };
+                    match deck {
+                        DeckId::DeckA => self.video_fx_a = parsed,
+                        DeckId::DeckB => self.video_fx_b = parsed,
+                        _ => {}
+                    }
+                }
+                if let Some(amt) = amount {
+                    let c = amt.clamp(0.0, 1.0);
+                    match deck {
+                        DeckId::DeckA => self.video_fx_a_amt = c,
+                        DeckId::DeckB => self.video_fx_b_amt = c,
+                        _ => {}
+                    }
+                }
+                if let Some(ref tr) = transition {
+                    self.video_transition = match tr.trim().to_lowercase().as_str() {
+                        "crossfade" => VideoTransitionFx::Crossfade,
+                        "glow" | "additive" | "additiveglow" | "additive_glow" => {
+                            VideoTransitionFx::AdditiveGlow
+                        }
+                        "wipe" | "wipeleftright" | "wipe_left_right" => {
+                            VideoTransitionFx::WipeLeftRight
+                        }
+                        "iris" | "iriscircle" | "iris_circle" => VideoTransitionFx::IrisCircle,
+                        "luma" | "lumakey" | "luma_key" => VideoTransitionFx::LumaKey,
+                        "zoom" | "zoomcut" | "zoom_cut" => VideoTransitionFx::ZoomCut,
+                        "glitch" | "glitchslice" | "glitch_slice" => VideoTransitionFx::GlitchSlice,
+                        _ => VideoTransitionFx::Crossfade,
+                    };
+                }
+                djcraft_core::IpcResponse::ok(serde_json::json!({
+                    "video_strip": self.prefs.show_live_video_strip,
+                    "transition": self.video_transition.label()
+                }))
+            }
+            djcraft_core::IpcRequest::LiveStatus => match self.orch.dispatch(Command::Status) {
+                Ok(outcome) => djcraft_core::IpcResponse::ok(serde_json::json!({
+                    "orchestrator": outcome.data,
+                    "audio_active": self.audio_out.active,
+                    "audio_device": self.audio_out.device_name,
+                    "headphone_device": self.selected_headphone_device,
+                    "split_cue": self.orch.headphone_split_cue,
+                    "auto_dj_enabled": self.auto_dj_enabled,
+                    "midi_connected": self.midi.connected_port,
+                    "midi_profile": self.midi.active_profile.label(),
+                    "dvs_device": self.dvs_selected_device,
+                    "link_bpm": self.link_engine.bpm,
+                    "link_peers": self.link_engine.peer_count()
+                })),
+                Err(e) => djcraft_core::IpcResponse::err(e.to_string()),
+            },
+        }
+    }
+
     fn dispatch_and_report(&mut self, cmd: Command) {
+        self.record_macro_step(
+            format!("Command: {cmd:?}"),
+            djcraft_core::IpcRequest::Command {
+                command: cmd.clone(),
+            },
+        );
         match self.orch.dispatch(cmd) {
             Ok(outcome) => {
                 if outcome.command == "mixxxxx_ping" {
@@ -2222,6 +2238,8 @@ fn switch_on_hover(ctx: &egui::Context, titles: &[egui::Response]) {
 impl eframe::App for DjCraftApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_live_ipc();
+        self.tick_set_automation();
+        self.tick_room2_autoplay();
         let ctx = ui.ctx().clone();
         let palette = self.prefs.skin.palette();
         if !self.typography_applied {
@@ -3309,6 +3327,7 @@ impl eframe::App for DjCraftApp {
                     LowerDockTab::CamelotAndMixxxxx => {
                         self.render_camelot_mixxxxx_dock(ui, &palette)
                     }
+                    LowerDockTab::SetAndRooms => self.render_set_and_rooms_dock(ui, &palette),
                 }
             });
         });
