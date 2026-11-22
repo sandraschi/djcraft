@@ -162,6 +162,7 @@ When `djcraft.exe` is running, it binds a loopback TCP listener (`127.0.0.1:<eph
 | `macro-rec` | `<start\|stop\|status> [--save <path>]` | Start/stop/inspect in-app live macro recording and optionally save to `.djset.json` |
 | `set-play` | `<start\|stop\|status> [--path <file>] [--speed <f64>]` | Control the non-blocking in-app Set Player (`Set & Two-Room` dock tab) |
 | `room2` | `<status\|configure\|play\|pause\|stop\|next> [--device <name\|off>] [--crate-id <id>] [--volume <0..1>] [--shuffle <bool>]` | Control Two-Room Setup Room 2 prepared autoplay (independent output device & crate) |
+| `lighting` | `<status\|configure\|on\|off\|blackout> [--protocol <artnet\|sacn>] [--target-ip <ip>] [--universe <u16>] [--mode <auto\|chill\|techno\|laser\|blackout>] [--dimmer <0..1>] [--strobe <bool>]` | Control AI Lighting Assistant (Art-Net 4 / sACN DMX512) |
 
 ```powershell
 djcraft-cli live-status
@@ -175,7 +176,7 @@ djcraft-cli stop-all
 
 ---
 
-## 3. MCP Server (`djcraft-mcp`) - 34 Tools (100% CLI & Live Remote Parity)
+## 3. MCP Server (`djcraft-mcp`) - 35 Tools (100% CLI & Live Remote Parity)
 
 - **Transport**: line-delimited JSON-RPC 2.0 over stdio (`protocolVersion: "2024-11-05"`).
 - Every `djcraft-cli` command has a direct MCP tool equivalent:
@@ -216,3 +217,4 @@ djcraft-cli stop-all
 | `djcraft_macro_record` | `macro-rec` | `action` (`start` \| `stop` \| `status`), `save_path?` |
 | `djcraft_set_playback` | `set-play` | `action` (`start` \| `stop` \| `status`), `path?`, `speed?` |
 | `djcraft_room2` | `room2` | `action` (`status` \| `configure` \| `play` \| `pause` \| `stop` \| `next`), `device?`, `crate_id?`, `volume?`, `shuffle?` |
+| `djcraft_lighting` | `lighting` | `action` (`status` \| `configure` \| `on` \| `off` \| `blackout`), `protocol?`, `target_ip?`, `universe?`, `mode?`, `dimmer?`, `strobe?` |

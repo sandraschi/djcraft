@@ -5,6 +5,7 @@ mod battle_mixer;
 mod crate_view;
 mod docks;
 mod fx_rack;
+mod lighting_dock;
 mod performance_strips;
 mod set_and_rooms;
 mod settings;
@@ -134,10 +135,11 @@ enum LowerDockTab {
     FleetHub,
     CamelotAndMixxxxx,
     SetAndRooms,
+    Lighting,
 }
 
 impl LowerDockTab {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::FxRack,
         Self::StudioBeatmaker,
         Self::Crates,
@@ -147,6 +149,7 @@ impl LowerDockTab {
         Self::FleetHub,
         Self::CamelotAndMixxxxx,
         Self::SetAndRooms,
+        Self::Lighting,
     ];
 
     fn label(self) -> &'static str {
@@ -160,6 +163,7 @@ impl LowerDockTab {
             Self::FleetHub => "Fleet Hub (Speech/SFX/VFX/Butterchurn)",
             Self::CamelotAndMixxxxx => "Camelot & Mixxxxx OSC",
             Self::SetAndRooms => "Set & Two-Room",
+            Self::Lighting => "AI Lighting (Art-Net/sACN)",
         }
     }
 }
@@ -394,6 +398,7 @@ pub struct DjCraftApp {
     ipc_rx: Option<djcraft_core::IpcReceiver>,
     set_auto: set_and_rooms::SetAutomationState,
     room2: set_and_rooms::Room2AutoplayState,
+    lighting: djcraft_core::LightingEngine,
 }
 
 impl Default for DjCraftApp {
@@ -563,6 +568,7 @@ impl DjCraftApp {
             ipc_rx: None,
             set_auto: set_and_rooms::SetAutomationState::default(),
             room2: set_and_rooms::Room2AutoplayState::default(),
+            lighting: djcraft_core::LightingEngine::new(),
         }
     }
 
@@ -749,6 +755,25 @@ impl DjCraftApp {
                 volume,
                 shuffle,
             } => self.handle_room2_ipc(&action, device.as_deref(), crate_id, volume, shuffle),
+            djcraft_core::IpcRequest::LightingControl {
+                action,
+                enabled,
+                protocol,
+                target_ip,
+                universe,
+                mode,
+                dimmer,
+                strobe,
+            } => self.handle_lighting_ipc(
+                &action,
+                enabled,
+                protocol.as_deref(),
+                target_ip.as_deref(),
+                universe,
+                mode.as_deref(),
+                dimmer,
+                strobe,
+            ),
             djcraft_core::IpcRequest::LiveStatus => match self.orch.dispatch(Command::Status) {
                 Ok(outcome) => djcraft_core::IpcResponse::ok(serde_json::json!({
                     "orchestrator": outcome.data,
@@ -2255,6 +2280,7 @@ impl eframe::App for DjCraftApp {
         self.poll_live_ipc();
         self.tick_set_automation();
         self.tick_room2_autoplay();
+        self.tick_lighting_assistant();
         let ctx = ui.ctx().clone();
         let palette = self.prefs.skin.palette();
         if !self.typography_applied {
@@ -3343,6 +3369,7 @@ impl eframe::App for DjCraftApp {
                         self.render_camelot_mixxxxx_dock(ui, &palette)
                     }
                     LowerDockTab::SetAndRooms => self.render_set_and_rooms_dock(ui, &palette),
+                    LowerDockTab::Lighting => self.render_lighting_dock(ui, &palette),
                 }
             });
         });

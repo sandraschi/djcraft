@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
 //! DJCraft MCP Server (stdio, MCP 2024-11-05).
 //!
 //! Line-delimited JSON-RPC: stdout is 100% pure JSON-RPC, every diagnostic
@@ -405,6 +406,24 @@ fn main() {
                                     "crate_id": { "type": "integer" },
                                     "volume": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
                                     "shuffle": { "type": "boolean" }
+                                },
+                                "required": ["action"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_lighting",
+                            "description": "Control AI Lighting Assistant (Art-Net 4 / sACN E1.31 DMX512) in djcraft.exe: status, configure, on, off, blackout.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "action": { "type": "string", "enum": ["status", "configure", "on", "off", "blackout"] },
+                                    "enabled": { "type": "boolean" },
+                                    "protocol": { "type": "string", "enum": ["artnet", "sacn"] },
+                                    "target_ip": { "type": "string" },
+                                    "universe": { "type": "integer", "minimum": 0, "maximum": 255 },
+                                    "mode": { "type": "string", "enum": ["auto", "chill", "techno", "laser", "blackout"] },
+                                    "dimmer": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+                                    "strobe": { "type": "boolean" }
                                 },
                                 "required": ["action"]
                             }
@@ -1044,6 +1063,51 @@ fn main() {
                             crate_id,
                             volume,
                             shuffle,
+                        }) {
+                            Ok(r) if r.ok => r.data,
+                            Ok(r) => {
+                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                            }
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_lighting" => {
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("status")
+                            .to_string();
+                        let enabled = args.get("enabled").and_then(|v| v.as_bool());
+                        let protocol = args
+                            .get("protocol")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string);
+                        let target_ip = args
+                            .get("target_ip")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string);
+                        let universe = args
+                            .get("universe")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u16);
+                        let mode = args
+                            .get("mode")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string);
+                        let dimmer = args
+                            .get("dimmer")
+                            .and_then(|v| v.as_f64())
+                            .map(|v| v as f32);
+                        let strobe = args.get("strobe").and_then(|v| v.as_bool());
+                        match send_ipc_request(&IpcRequest::LightingControl {
+                            action,
+                            enabled,
+                            protocol,
+                            target_ip,
+                            universe,
+                            mode,
+                            dimmer,
+                            strobe,
                         }) {
                             Ok(r) if r.ok => r.data,
                             Ok(r) => {

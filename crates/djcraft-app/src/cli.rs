@@ -181,6 +181,24 @@ enum Commands {
         #[arg(long)]
         shuffle: Option<bool>,
     },
+    /// Control AI Lighting Assistant (Art-Net 4 / sACN DMX512): status, configure, on, off, blackout
+    Lighting {
+        action: String,
+        #[arg(long)]
+        enabled: Option<bool>,
+        #[arg(long)]
+        protocol: Option<String>,
+        #[arg(long)]
+        target_ip: Option<String>,
+        #[arg(long)]
+        universe: Option<u16>,
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        dimmer: Option<f32>,
+        #[arg(long)]
+        strobe: Option<bool>,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -696,6 +714,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 crate_id,
                 volume,
                 shuffle,
+            })?;
+            if !resp.ok {
+                return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());
+            }
+            println!("{}", serde_json::to_string_pretty(&resp.data)?);
+        }
+        Commands::Lighting {
+            action,
+            enabled,
+            protocol,
+            target_ip,
+            universe,
+            mode,
+            dimmer,
+            strobe,
+        } => {
+            let resp = send_ipc_request(&IpcRequest::LightingControl {
+                action,
+                enabled,
+                protocol,
+                target_ip,
+                universe,
+                mode,
+                dimmer,
+                strobe,
             })?;
             if !resp.ok {
                 return Err(resp.error.unwrap_or_else(|| "IPC error".to_string()).into());

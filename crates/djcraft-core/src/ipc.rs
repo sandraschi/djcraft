@@ -75,6 +75,23 @@ pub enum IpcRequest {
         #[serde(default)]
         shuffle: Option<bool>,
     },
+    LightingControl {
+        action: String,
+        #[serde(default)]
+        enabled: Option<bool>,
+        #[serde(default)]
+        protocol: Option<String>,
+        #[serde(default)]
+        target_ip: Option<String>,
+        #[serde(default)]
+        universe: Option<u16>,
+        #[serde(default)]
+        mode: Option<String>,
+        #[serde(default)]
+        dimmer: Option<f32>,
+        #[serde(default)]
+        strobe: Option<bool>,
+    },
     LiveStatus,
 }
 

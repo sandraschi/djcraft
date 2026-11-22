@@ -10,6 +10,7 @@ pub mod crates_db;
 pub mod fleet_ai;
 pub mod i18n;
 pub mod ipc;
+pub mod lighting;
 pub mod link;
 pub mod midi;
 pub mod mixxxxx_osc;
@@ -33,6 +34,10 @@ pub use fleet_ai::{
 pub use ipc::{
     live_port_path, send_ipc_request, send_ipc_request_to_port, start_ipc_server, IpcReceiver,
     IpcRequest, IpcResponse,
+};
+pub use lighting::{
+    encode_artnet_dmx, encode_sacn_e131, FixtureKind, LightingEngine, LightingProtocol,
+    LightingSceneMode, PatchedFixture,
 };
 pub use link::{LinkBeacon, LinkEngine};
 pub use midi::{
