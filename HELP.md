@@ -1,101 +1,83 @@
 # DJCraft Pro Help & Reference
 
-DJCraft Pro is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck audio + video DJ workstation, stem mixer, MIDI controller host, vinyl scratch engine, and Camelot harmonic performance studio.
+DJCraft Pro is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck audio + video DJ workstation, DVS timecode host, stem mixer, MIDI controller host, vinyl scratch engine, and Camelot harmonic performance studio.
 
 ---
 
 ## 1. Get Started
 
 ### Starting Playback on Deck A, B, C, or D
-1. **Launch `djcraft.exe`**: Windows WASAPI audio starts live automatically (check the green `WASAPI:` indicator in the Battle Mixer).
-2. **Load Audio**: Click `AUDIO` on any deck (MP3, WAV, FLAC, OGG, M4A), or switch to **`CRATES & GIG PREP`** in the top bar and click `A`, `B`, `C`, or `D` on any track row.
-3. **Start Playback**: Click the highlighted **`PLAY`** button on the deck (turns green **`PAUSE`** while playing), or press **`Space`** for Deck A and **`Shift+Space`** for Deck B.
-4. **Verify Audio Routing**: Make sure the deck's channel volume fader (`CH A` / `CH B`) is raised, `MST` Master Loudness is above 0%, `MUTE` is off, and the MAG FOUR crossfader is centered (`0.0`) or moved toward the playing deck.
+1. **Launch `djcraft.exe`**: Audio output starts live automatically (check the green `WASAPI:` / device indicator in the Battle Mixer or `Settings -> Audio`).
+2. **Load Audio**: Click `AUDIO` / `LOAD` on any deck (MP3, WAV, FLAC, OGG, M4A), drag audio files/folders from your file manager onto the window, or pick a track in **`CRATES & GIG PREP`** / **`BOOTH + CRATE`** and click `A`, `B`, `C`, or `D`.
+3. **Start Playback**: Click **`PLAY`** on the deck (turns green **`PAUSE`** while playing), or press **`Space`** for Deck A and **`Shift+Space`** for Deck B.
+4. **Verify Audio Routing**: Make sure the deck's channel volume fader (`CH A` / `CH B`) is raised, `MST` Master Loudness is above 0%, `MUTE` is off, and the Magnetic crossfader is centered (`0.0`) or moved toward the playing deck.
 
-### Switching Decks, Layouts & Collapsible Strips
-- **Top Bar Dropdowns**:
-  - **Mode dropdown**: switch between **`LIVE CONSOLE`** and **`CRATES & GIG PREP`**.
-  - **Decks dropdown**: switch between **`2-Deck (A/B + Layer)`** and **`4-Deck (Stacked)`** (left column stacks Deck A + C; right column stacks Deck B + D).
-  - **`Panels` menu**: toggle **`Live Video Strip (A / Mix / B)`**, **`Live Sampler Strip (4x8)`**, **`Parallel Waveforms`**, **`Vertical Waveforms (between decks)`**, and **`Decks C & D Bottom Bar`**.
-- **In `2-Deck` Mode**: click **`-> C`** in Deck A's header or **`-> D`** in Deck B's header to flip layers instantly.
-- **Lower Dock Panel**: choose between `FX Rack (3 Free Packs)`, `Crate Library`, `Video Mixer`, `MIDI Controllers`, `AI Chat & Workflows`, `Fleet Hub`, and `Camelot & Mixxxxx OSC` from the single **`Dock Panel:`** dropdown.
+### Workspace Modes & Layouts
+- **Mode dropdown** (top bar):
+  - **`LIVE CONSOLE`**: Full 2-deck or 4-deck hardware console with Battle Mixer, stacked/vertical RGB waveforms, and lower Dock Panel.
+  - **`BOOTH + CRATE`** (`--booth-crate`): Performance split layout with compact `78px` platters, center vertical RGB waveforms, a hideable **`Booth Strip`** (`Hide` | `FX Rack` | `Sampler` | `Video`), and the lower 2-pane crate browser defaulting to your prepared gig crate.
+  - **`CRATES & GIG PREP`** (`--crates`): Full-width 2-pane library manager, setlist sequencer, stem batching, and `.crate` / `.vdjfolder` interop.
+- **Decks dropdown**: **`2-Deck`** (use `-> C` / `-> D` in deck headers to flip layers) or **`4-Deck`** (stacks A+C left, B+D right).
+- **`Panels` menu**: Toggle **`Live Video Strip`**, **`Live Sampler Strip (4x8)`**, **`Parallel Waveforms`**, **`Vertical Waveforms`**, and **`Decks C & D Bottom Bar`**.
 
-### Skins, Textured & Sparkly Underlay, and Language (i18n)
-- **6 Built-in Skins** (top-right dropdown):
-  - `Rane Seventy-Two Battle`
-  - `Pioneer Club Dark`
-  - `Serato Midnight`
-  - `VirtualDJ Carbon`
-  - `Shocking Pink Club` (hot magenta/cyan/gold club theme)
-  - `Daylight Booth (Light)` (high-contrast deep ink on crisp light surfaces)
-- **Textured & Dynamic Underlay** (`BG` dropdown next to Skin): choose **`Solid`**, **`Brushed Metal`**, **`Carbon Weave`**, or **`Sparkle Club`** (animated audio-reactive diamond sparkles & ambient club bokeh behind the console).
-- **Internationalization (i18n)** (language dropdown at far top-right): switch live between **EN**, **DE**, **FR**, **ES**, **JA**, **KO**, and **ZH**. All UI preferences persist automatically in `%LOCALAPPDATA%\djcraft\ui.json`.
+### Skins, Backdrops, Language & Settings (`Ctrl+,`)
+- **6 Built-in Skins** (top-right dropdown): `Battle Console`, `Club Dark`, `Midnight Booth`, `Carbon Deck`, `Shocking Pink Club`, and `Daylight Booth (Light)` (pure black ink on crisp light surfaces).
+- **4 Backdrops** (next to Skin): `Solid`, `Brushed Metal`, `Carbon Weave`, and `Sparkle Club` (audio-reactive).
+- **7 Languages (i18n)**: `EN`, `DE`, `FR`, `ES`, `JA`, `KO`, `ZH` (saved to `%LOCALAPPDATA%\djcraft\ui.json`).
+- **Unified Settings (`Ctrl+,`)**: 5-tab modal (`Audio`, `Decks & Booth`, `MIDI & DVS`, `Auto-DJ & Rec`, `AI & Bridges`).
 
 ---
 
 ## 2. Core Functions
 
-### Vinyl Scratching & Beatmatching
-- **Interactive Platter Scratch**: Click and drag any deck's motorized jog platter left/right to scratch forward or **in reverse** (`-4x` to `+4x` speed) with Catmull-Rom varispeed audio. Works even when a deck is paused/cued so you can perform classic baby scratches on Beat 1 before hitting `PLAY`. Release the mouse to resume playback seamlessly.
-- **Varispeed vs Keylock**: Click `VINYL` / `KEYLOCK` on any deck to toggle between classic pitch-coupled varispeed and WSOLA Master Tempo keylock.
-- **Beatgrid & Sync**: Use `/2 BPM`, `x2 BPM`, `-10ms`, `+10ms`, `Auto-Sync`, and `Phase Sync` with the top **Parallel Waveforms** banner.
+### 3-Band RGB Spectral & Overview Waveforms
+- **3-Band Spectral Coloring**: Low (`<250 Hz`) = Crimson/Red, Mid (`250-2500 Hz`) = Emerald/Lime, High (`>2500 Hz`) = Electric Cyan with white-hot transient cores, beatgrid/bar lines, active loop bands, and colored hot-cue flags.
+- **Clickable Full-Track Overview**: Click or drag anywhere on the overview strip below each deck header to needle-drop seek instantly.
+- **Quantize & Pitch Range**: Enable beatgrid hot-cue **Quantize** and select **`+-8%`**, **`+-16%`**, or **`+-50%`** pitch fader range in **`Settings -> Decks & Booth`**.
 
-### Dual-Bus Headphone PFL Pre-Cue & Live Lossless WAV/FLAC Mix Recording
-- **Per-Deck PFL**: Click **`PFL`** on any deck (or `PFL A` / `PFL B` in the Battle Mixer) to audition that deck **Pre-Fader** (even when its channel fader or crossfader is completely down).
+### Vinyl Scratching, Keylock & DVS Timecode Vinyl
+- **Interactive Platter Scratch**: Drag any deck's motorized jog platter left/right to scratch forward or in reverse (`-4x` to `+4x` speed) with Catmull-Rom varispeed audio.
+- **Keylock (`KEYLOCK` / `VINYL`)**: Toggle between classic pitch-coupled varispeed and WSOLA Master Tempo keylock.
+- **DVS Timecode Vinyl** (`Settings -> MIDI & DVS` or `MIDI Controllers` dock): Connect a turntable phono preamp / line-in audio interface, choose `1000 Hz` or `2000 Hz` control vinyl, select Deck A or B, and click `Start DVS` to drive pitch and reverse/forward scratching from real vinyl.
+
+### Prelisten (PFL Headphone Cue) & Lossless Mix Recording
+- **Per-Deck PFL**: Click **`PFL`** on any deck to audition it **Pre-Fader** (even when its volume fader or crossfader is down).
 - **Two Monitoring Modes**:
-  1. **Dual-Device WASAPI**: Select your headphones / USB DJ interface channels 3-4 from the Headphone dropdown in the Battle Mixer (click `Scan` to refresh devices).
-  2. **Single-Device Split Mono Cue**: Click **`SPLIT: ON`** when using a single laptop/DAC output — **Left ear = Mono PFL Cue**, **Right ear = Mono Master**.
-- **Cue Mix Controls**: Adjust `Vol` (headphone level) and `Cue/PGM` (`0%` = 100% PFL Cue, `100%` = 100% Master PGM).
-- **Live Mix Recorder**: Choose **`WAV`** (16-bit stereo PCM) or **`FLAC`** (lossless via `ffmpeg`) in the Battle Mixer and click **`REC MIX`** (auto-saves to `%USERPROFILE%\Music\DJCraft_Recordings\`) or **`Rec As...`** for a custom path. Recording runs on a dedicated non-blocking writer thread off the WASAPI audio callback.
+  1. **Dual-Device Stereo PFL**: Select your headphone / USB DJ interface output in Battle Mixer or `Settings -> Audio`. Main output stays stereo; headphones receive stereo PFL + `Cue/PGM` blend.
+  2. **Single-Device Split Mono Cue**: Leave Headphone Device on `Off / Split Cue` and toggle **`SPLIT: ON`** (Left ear = Mono PFL Cue, Right ear = Mono Master) for a standard DJ splitter cable.
+- **Live Mix Recorder**: Select `WAV` (16-bit PCM) or `FLAC` (via `ffmpeg`) and click `REC MIX` (saves to `%USERPROFILE%\Music\DJCraft_Recordings\`) or `Rec As...`.
 
-### Dedicated 2-Pane Crates & Gig Prep Workspace
-- Click **`CRATES & GIG PREP`** in the top bar for the full-width file-oriented library manager (`%LOCALAPPDATA%\djcraft\crates.db`).
-- **Left Pane (Crate & Subcrate Tree)**: Unlimited nested subcrates with full CRUD (`+ Root`, `+ Sub`, `Rename` with recursive descendant path update, `Duplicate` preserving manual gig order, `Delete`). Drag tracks from the right table onto any crate in the tree to add them.
-- **Right Pane (Setlist & Track Table)**: Persistent **`Gig Order (#)`** with `[::]` drag-and-drop row reordering, `^`/`v` nudge buttons, live search, BPM range, Camelot harmonic filter (`Harmonic (Deck A)`), inline star rating, one-click `A`/`B`/`C`/`D` load, `BPM`/`Det` analysis, and `Rem`/`Del`.
-- **OS File Drop & Interop**: Drag audio files or folders directly from Windows Explorer onto the DJCraft window, or use Serato DJ `.crate` (`%%` subcrates) and VirtualDJ `.vdjfolder` / `.m3u8` Import/Export.
+### Crates, Autosaved Hot Cues & Auto-DJ
+- **SQLite Library (`%LOCALAPPDATA%\djcraft\crates.db`)**: Nested crates/subcrates, persistent `Gig Order (#)` with `[::]` drag-drop reordering, BPM/Camelot harmonic filtering, and Serato `.crate` / VirtualDJ `.vdjfolder` / `.m3u8` Import/Export.
+- **Per-File Autosaved Hot Cues**: Hot cues (slots 1-4) are automatically saved per audio file path in SQLite (`track_cues`) when set and restored whenever that track is loaded onto any deck.
+- **Auto-DJ Automix**: Click **`Auto-DJ`** in the top bar to automatically load the next track from the active crate onto the idle deck and crossfade smoothly near outro (`Settings -> Auto-DJ & Rec` sets fade seconds).
+- **LUFS Auto-Gain**: Automatic gentle level normalization on track load (`Settings -> Audio`).
 
-### Transparent Sidecar Stems, Video, MIDI & Fleet AI
-- **Transparent Stems (`.djcraft-stems/`)**: Click `Batch Stem Crate` or `Batch Stem Folder...` to generate `<parent>/.djcraft-stems/<track>/{vocals,drums,bass,other}.wav`. Hidden from folder scans and auto-loaded into the `VOC`/`DRM`/`BAS`/`OTH` rotary knobs.
-- **Video Mixer & Mixxxxx OSC**: Load `.mp4`/`.mkv`/`.mov`/`.webm` via `VIDEO`, click `Detach Projector` for a secondary monitor, or drive `mixxxxx` over pure-Rust UDP OSC (`127.0.0.1:11119`).
-- **Hardware MIDI (`midir`)**: Plug in **Rane Twelve MKII**, **Rane Seventy-Two MKII**, Pioneer DDJ-FLX4, or Hercules DJControl, plus persistent MIDI Learn (`midi_learn.json`).
-- **AI Booth Chat & Fleet Hub**: Local Ollama (`:11434`) / LM Studio (`:1234`) chat, instant NL commands, Camelot harmonic setlists, DJ vocal drops (`speechcraft-cli` / Windows SAPI -> Deck C), `sfx-mcp` (`:11120`), `vfx-mcp` (`:11122`), and `butterchurn-mcp` (`:10878`).
+### UDP Multicast Link, MIDI, Stems, Video & Booth Chat
+- **UDP Multicast Beat & Tempo Link**: Click **`LINK`** in the top bar to join `224.76.78.75:20808` (clean-room MIT/Apache-2.0 peer tempo/phase sync).
+- **Hardware MIDI (`midir`)**: 8 built-in clean-room profiles (Rane Twelve/Seventy-Two MKII, Pioneer DDJ-FLX4, Hercules DJControl, Denon DJ SC6000/Prime, Numark Mixtrack Pro FX, Allen & Heath Xone:K2), persistent MIDI Learn, and **`Import XML Mapper...`** for your own local VirtualDJ or Mixxx `.xml` mappers.
+- **Transparent Sidecar Stems (`.djcraft-stems/`)**: `Batch Stem Crate` / `Batch Stem Folder...` writes hidden sidecar WAVs loaded automatically into `VOC`/`DRM`/`BAS`/`OTH` knobs.
+- **Booth AI & Crate Assistant (`Ctrl+L`)**: Click **`Chat`** in the top bar for a toggleable side drawer showing live Deck A/B status, 1-click Camelot harmonic crate matches (`-> B`), offline NL commands (`sync`, `auto dj on`, `load compatible`, `kill bass a`), and optional OpenAI-compatible LLM chat.
 
 ---
 
-## 3. Usage (GUI, CLI & MCP)
+## 3. Usage (Shortcuts, CLI & MCP)
 
 ### Keyboard & Mouse Shortcuts
-- `Space`: Play / Pause Deck A
-- `Shift + Space`: Play / Pause Deck B
-- `Esc`: Stop All Decks
-- `Ctrl + K`: Command Palette | `F1`: Keyboard Shortcuts
+- `Space`: Play / Pause Deck A | `Shift + Space`: Play / Pause Deck B | `Esc`: Stop All Decks
+- `Ctrl + K`: Command Palette | `F1`: Keyboard Shortcuts | `Ctrl + ,`: Settings | `Ctrl + L`: Booth Chat Drawer
 - `Ctrl + Z` / `Ctrl + Y`: Undo / Redo (64-step mixer history)
 - `Ctrl + Mouse Wheel` / `Ctrl + 0`: Zoom UI / Reset 100%
-- **Double-click** any rotary knob, vertical fader, or crossfader to snap to neutral.
+- **Double-click** any knob, fader, or crossfader to reset to neutral; **Arrow keys / Home / 0** nudge a focused rotary knob.
 
-### CLI (`djcraft-cli`)
-```powershell
-djcraft-cli status
-djcraft-cli transition
-djcraft-cli camelot 8A 9A
-djcraft-cli crate-list
-djcraft-cli crate-import-serato "D:\_Serato_\Subcrates\House%%Deep.crate"
-djcraft-cli crate-export-serato 1 "D:\export.crate"
-djcraft-cli crate-import-vdj "D:\VirtualDJ\Folders\Club.vdjfolder"
-djcraft-cli crate-export-vdj 1 "D:\export.vdjfolder"
-djcraft-cli analyze-dettato "D:\audio\track.mp3" --device cuda
-djcraft-cli mixxxxx-ping
-```
-
-### MCP (`djcraft-mcp`)
-- Transport: stdio (JSON-RPC 2.0, MCP `2024-11-05`).
-- Tools (10): `djcraft_status`, `djcraft_plan_transition`, `djcraft_camelot_check`, `djcraft_commands`, `djcraft_analyze_dettato`, `djcraft_mixxxxx_ping`, `djcraft_mixxxxx_video`, `djcraft_crates_list`, `djcraft_crate_import`, `djcraft_crate_export`.
+### CLI (`djcraft-cli`) & MCP (`djcraft-mcp`)
+- GUI flags: `djcraft.exe --smoke | --booth-crate | --crates | --four-deck | --skin <battle|club|midnight|carbon|pink|daylight>`
+- CLI: `djcraft-cli status | transition | camelot 8A 9A | crate-list | crate-import-serato <file> | crate-import-vdj <file> | analyze-dettato <audio> | mixxxxx-ping`
+- MCP (`djcraft-mcp`): stdio JSON-RPC 2.0 sharing the same L1 `Command::dispatch` bus.
 
 ---
 
 ## 4. Troubleshooting & Safety
-
-- **Deck B loaded but not audible**: Verify `PLAY` is green (`PAUSE`), `CH B` fader is raised, and the crossfader is not pulled full left (`-1.0`).
-- **FFmpeg on PATH**: Required for native video playback and FLAC mix transcoding (FLAC recording falls back cleanly to lossless WAV if `ffmpeg` is absent).
-- **Demucs for Batch Stemming**: Set `DEMUCS_BIN` or install `demucs` in `stems-mcp/.venv`. Always run batch stemming and `dettato` during crate prep, off the live audio thread.
-- **Zero-Unsafe & Clamping**: All workspace crates enforce `#![forbid(unsafe_code)]`; all audio/mixer parameters are strictly clamped at L1.
+- **Deck B loaded but not audible**: Verify `PLAY` is active (`PAUSE`), `CH B` fader is up, and crossfader is not pulled full left (`-1.0`).
+- **FFmpeg on PATH**: Required for native video playback and FLAC mix transcoding (FLAC falls back to WAV if `ffmpeg` is absent).
+- **Zero-Unsafe & Clamping**: All workspace crates enforce `#![forbid(unsafe_code)]` and strict L1 parameter clamping.

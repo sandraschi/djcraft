@@ -969,6 +969,9 @@ impl super::DjCraftApp {
                         }
                     }
                     ui.separator();
+                    ui.monospace("Ctrl+,       Open Settings");
+                    ui.monospace("Ctrl+L       Toggle Booth AI Chat Drawer");
+                    ui.monospace("Arrows/Home  Nudge or reset focused rotary knob");
                     ui.label("Double-click any rotary knob or fader to reset to default.");
                     ui.label("Ctrl + Mouse Wheel : Zoom UI | Ctrl + 0 : Reset 100%");
                 });
@@ -994,75 +997,75 @@ impl super::DjCraftApp {
                     egui::ScrollArea::vertical().show(ui, |ui| match self.help_tab {
                         HelpTab::GetStarted => {
                             ui.strong("1. Starting Playback on Deck A, B, C, or D");
-                            ui.label("- Click the highlighted PLAY button on any deck (or press Space for Deck A, Shift+Space for Deck B).");
-                            ui.label("- Check the Battle Mixer: make sure the deck's CH A / CH B vertical volume fader is up, MST loudness is > 0%, MUTE is off, and the Magnetic crossfader is centered (0.0) or toward the playing deck.");
+                            ui.label("- Click PLAY on any deck (or press Space for Deck A, Shift+Space for Deck B).");
+                            ui.label("- Load audio via AUDIO/LOAD on a deck, drag files/folders from Explorer, or click A/B/C/D in BOOTH + CRATE or CRATES & GIG PREP.");
+                            ui.label("- Verify Battle Mixer: CH A/B faders up, MST > 0%, MUTE off, and Magnetic crossfader centered or toward the active deck.");
                             ui.add_space(6.0);
-                            ui.strong("2. Switching Decks & 2-Deck vs 4-Deck Layout");
-                            ui.label("- Click 2-DECK or 4-DECK in the top bar right next to CRATES & GIG PREP.");
-                            ui.label("- In 2-DECK mode: click the '-> C' button in Deck A's header to flip the left side between Deck A and Deck C, or '-> D' in Deck B's header to flip the right side between Deck B and Deck D. A compact C/D transport strip also sits at the bottom.");
-                            ui.label("- In 4-DECK mode: the left column stacks full Deck A + Deck C, and the right column stacks full Deck B + Deck D.");
+                            ui.strong("2. Workspace Modes & Layouts");
+                            ui.label("- LIVE CONSOLE: Full 2-Deck or 4-Deck console, Battle Mixer, RGB stacked/vertical waveforms, and lower Dock Panel.");
+                            ui.label("- BOOTH + CRATE (--booth-crate): Compact 78px platters, center vertical RGB waveforms, hideable Booth Strip (Hide/FX/Sampler/Video), and lower 2-pane crate browser defaulting to your gig crate.");
+                            ui.label("- CRATES & GIG PREP (--crates): Full-width 2-pane crate/subcrate tree, setlist reordering, stemming, and .crate / .vdjfolder interop.");
                             ui.add_space(6.0);
-                            ui.strong("3. Skins, Textured & Sparkly Underlay, and Language (i18n)");
-                            ui.label("- Top-right bar: pick from 6 skins (Battle Console, Club Dark, Midnight Booth, Carbon Deck, Shocking Pink Club, Daylight Booth (Light)).");
-                            ui.label("- Next to Skin: choose Backdrop Underlay (Solid, Brushed Metal, Carbon Weave, Sparkle Club).");
-                            ui.label("- Next to Backdrop: switch UI language (EN, DE, FR, ES, JA, KO, ZH). All preferences save automatically to %LOCALAPPDATA%\\djcraft\\ui.json.");
+                            ui.strong("3. Skins, Backdrops, Language & Settings (Ctrl+,)");
+                            ui.label("- 6 Skins: Battle Console, Club Dark, Midnight Booth, Carbon Deck, Shocking Pink Club, Daylight Booth (Light).");
+                            ui.label("- 4 Backdrops: Solid, Brushed Metal, Carbon Weave, Sparkle Club.");
+                            ui.label("- 7 Languages (EN, DE, FR, ES, JA, KO, ZH) + 5-Tab Settings (Ctrl+,) persisted to %LOCALAPPDATA%\\djcraft\\ui.json.");
                         }
                         HelpTab::Functions => {
-                            ui.strong("Audio, Vinyl Scratching & Dual-Bus PFL");
-                            ui.label("- Real-time 4-Deck WASAPI audio (cpal 0.15) with pure-Rust symphonia decoding (MP3, WAV, FLAC, OGG, M4A).");
-                            ui.label("- Vinyl Scratching: click and drag any deck's motorized platter left/right to scratch forward or in reverse (even while paused/cued for baby scratches). Release to resume normal playback.");
-                            ui.label("- Dual-Bus Headphone PFL Pre-Cue: toggle PFL on any deck (A/B/C/D) to audition it pre-fader. Route to a 2nd WASAPI headphone device in the Battle Mixer dropdown, OR enable SPLIT: ON for single-DAC monitoring (Left ear = Cue, Right ear = Master).");
-                            ui.label("- Lossless Mix Recorder: select WAV (16-bit PCM) or FLAC (via ffmpeg) and click REC MIX or Rec As... in the Battle Mixer. Recordings save to %USERPROFILE%\\Music\\DJCraft_Recordings\\.");
+                            ui.strong("3-Band RGB & Overview Waveforms, Scratching & DVS");
+                            ui.label("- 3-Band RGB Waveforms: Low (<250 Hz) Red, Mid (250-2500 Hz) Green, High (>2500 Hz) Cyan with white-hot transient cores, beatgrid lines, loop bands, and cue flags.");
+                            ui.label("- Clickable Overview Strip: Click or drag the full-track overview below each deck header to needle-drop seek.");
+                            ui.label("- Vinyl Scratching & DVS: Drag any platter to scratch (-4x..+4x), or enable DVS Timecode Vinyl (1000/2000 Hz) in Settings -> MIDI & DVS.");
                             ui.add_space(6.0);
-                            ui.strong("Crates & Gig Prep (Dedicated 2-Pane Workspace)");
-                            ui.label("- Click CRATES & GIG PREP in the top bar for the full-width 2-pane crate manager.");
-                            ui.label("- Left Pane: nested Crate/Subcrate tree with + Root, + Sub, Rename (recursive), Duplicate (preserves order), Delete, and drop-target support.");
-                            ui.label("- Right Pane: persistent Gig Order (#) with [::] drag-drop row reordering, ^/v nudge buttons, drag tracks onto crates, Windows Explorer file/folder drag-and-drop, Serato .crate & VirtualDJ .vdjfolder/.m3u8 import/export.");
+                            ui.strong("Prelisten (PFL), Mix Recording, Auto-DJ & UDP Link");
+                            ui.label("- Dual-Device PFL: Pick a 2nd audio output in Battle Mixer or Settings -> Audio for stereo headphone cue.");
+                            ui.label("- Single-Device Split Cue: Enable SPLIT: ON (Left = Cue Mono, Right = Master Mono) for a DJ splitter cable.");
+                            ui.label("- Lossless Mix Recorder: WAV (16-bit PCM) or FLAC (via ffmpeg) -> %USERPROFILE%\\Music\\DJCraft_Recordings\\.");
+                            ui.label("- Auto-DJ & LUFS Auto-Gain: Enable Auto-DJ in the top bar for automatic outro crossfading; toggle Auto-Gain in Settings -> Audio.");
+                            ui.label("- UDP Multicast Link: Click LINK in the top bar for clean-room beat/tempo sync on 224.76.78.75:20808.");
                             ui.add_space(6.0);
-                            ui.strong("Stems, Video, MIDI & Fleet AI");
-                            ui.label("- Transparent Sidecar Stems: Batch Stem Crate / Folder writes <parent>/.djcraft-stems/<track>/{vocals,drums,bass,other}.wav (hidden from scanners) and loads live into VOC/DRM/BAS/OTH rotary knobs.");
-                            ui.label("- Native FFmpeg Video Mixer + Detachable Projector + Mixxxxx OSC 1.0 (UDP 11119).");
-                            ui.label("- USB MIDI (midir): Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer DDJ-FLX4, Hercules DJControl + persistent MIDI Learn.");
-                            ui.label("- Optional AI Booth Chat (user-configured OpenAI-compatible endpoint) & Camelot harmonic setlists.");
+                            ui.strong("Crates, Autosaved Hot Cues, Stems, MIDI & Chat");
+                            ui.label("- Per-File Autosaved Hot Cues: Slots 1-4 save per track path in SQLite (track_cues) and restore on load.");
+                            ui.label("- MIDI (midir): 8 built-in profiles (Rane, Pioneer, Hercules, Denon, Numark, Xone:K2) + MIDI Learn + Import XML Mapper (VDJ/Mixxx).");
+                            ui.label("- Booth AI Chat Drawer (Ctrl+L): Live Deck A/B status, 1-click harmonic crate matches, offline NL commands, and optional LLM chat.");
                         }
                         HelpTab::Usage => {
                             ui.strong("Desktop Controls & Shortcuts");
-                            ui.label("- Space: Play/Pause Deck A | Shift+Space: Play/Pause Deck B | Esc: Stop All Decks");
-                            ui.label("- Double-click any rotary knob, channel fader, pitch fader, or crossfader to snap to neutral.");
-                            ui.label("- Drag platter left/right: live forward/reverse vinyl scratch.");
-                            ui.label("- Ctrl+K: Command Palette | F1: Shortcuts | Ctrl+Z / Ctrl+Y: Undo/Redo | Ctrl+Wheel: Zoom | Ctrl+0: Reset 100%.");
+                            ui.label("- Space: Play/Pause A | Shift+Space: Play/Pause B | Esc: Stop All");
+                            ui.label("- Ctrl+K: Command Palette | F1: Shortcuts | Ctrl+,: Settings | Ctrl+L: Chat Drawer");
+                            ui.label("- Ctrl+Z / Ctrl+Y: Undo/Redo | Ctrl+Wheel: Zoom | Ctrl+0: Reset 100%");
+                            ui.label("- Double-click any knob/fader to reset; Arrow keys / Home / 0 nudge focused rotary knobs.");
                             ui.add_space(6.0);
                             ui.strong("CLI & MCP Automation");
-                            ui.monospace("djcraft.exe --smoke");
-                            ui.monospace("djcraft-cli status | transition | camelot 8A 9A");
-                            ui.monospace("djcraft-cli crate-list | crate-import-serato <file> | crate-import-vdj <file>");
-                            ui.monospace("djcraft-cli mixxxxx-ping | analyze-dettato <audio_file> --device cuda");
-                            ui.label("MCP stdio server (djcraft-mcp.exe): 10 JSON-RPC 2.0 tools sharing the same L1 Command::dispatch bus.");
+                            ui.monospace("djcraft.exe --smoke | --booth-crate | --crates | --four-deck");
+                            ui.monospace("djcraft-cli status | transition | camelot 8A 9A | crate-list");
+                            ui.monospace("djcraft-cli crate-import-serato <file> | crate-import-vdj <file>");
+                            ui.monospace("djcraft-cli mixxxxx-ping | analyze-dettato <audio_file>");
+                            ui.label("MCP stdio server (djcraft-mcp.exe): JSON-RPC 2.0 tools sharing the L1 Command::dispatch bus.");
                         }
                         HelpTab::TipsAndTricks => {
-                            ui.label("- Fast Gig Prep: open CRATES & GIG PREP, drop folders from Windows Explorer straight into the window, drag rows by [::] to sequence your set, then click A/B/C/D to load.");
-                            ui.label("- Pre-Cue Without a 2nd Sound Card: click SPLIT: ON in the Battle Mixer and toggle PFL B to hear Deck B in your left ear and Master in your right ear.");
-                            ui.label("- Scratching on Beat 1: click CUE to park on Beat 1, then grab and drag the platter back-and-forth for classic baby scratches before hitting PLAY.");
-                            ui.label("- Keylock vs Vinyl Mode: switch KEYLOCK on for WSOLA pitch-locked tempo changes, or VINYL off for classic pitch-coupled varispeed.");
-                            ui.label("- Harmonic Mixing: check 'Harmonic (Deck A)' in Crates to filter only Camelot-compatible tracks.");
+                            ui.label("- Booth + Crate Workflow: Switch to BOOTH + CRATE for compact platters, center vertical RGB waveforms, and your prepared gig crate in the lower half.");
+                            ui.label("- Pre-Cue Without a 2nd Sound Card: Click SPLIT: ON in Battle Mixer and toggle PFL B (Left = Cue, Right = Master).");
+                            ui.label("- Beatgrid Quantize: Enable Quantize in Settings -> Decks & Booth to snap hot cues cleanly to the beatgrid.");
+                            ui.label("- Harmonic Mixing: Check 'Harmonic' in Crates or open the Chat Drawer (Ctrl+L) for 1-click compatible tracks.");
                         }
                         HelpTab::PitfallsAndSafety => {
-                            ui.label("- Deck B silent after loading? Verify PLAY is green, CH B fader is up, and crossfader is not slammed full left (-1.0).");
-                            ui.label("- FLAC recording and native MP4/MKV video require ffmpeg on PATH (FLAC falls back cleanly to lossless WAV if ffmpeg is missing).");
-                            ui.label("- Batch Stemming requires demucs (set DEMUCS_BIN or install in stems-mcp/.venv). Always run stemming & dettato during crate prep, off the audio thread.");
+                            ui.label("- Deck B silent after loading? Verify PLAY is active, CH B fader is up, and crossfader is not slammed full left (-1.0).");
+                            ui.label("- FLAC recording and native MP4/MKV video require ffmpeg on PATH (FLAC falls back cleanly to WAV if ffmpeg is missing).");
+                            ui.label("- Batch Stemming requires demucs (set DEMUCS_BIN or install on PATH). Run stemming off the live audio thread.");
                             ui.label("- All workspace crates enforce #![forbid(unsafe_code)] and strict L1 parameter clamping.");
                         }
                         HelpTab::PlannedExtensions => {
-                            ui.label("- All v0.1.0 core workstation capabilities are implemented (including Dual-Bus PFL, WAV/FLAC Mix Recording, 4-Deck Layout, Vinyl Scratching, 6 Skins + Sparkle Underlay, and i18n).");
-                            ui.label("- Future roadmap ideas: DVS timecode vinyl input, Ableton Link sync, VST3 FX rack.");
+                            ui.label("- Implemented in v0.2.x: 3-Band RGB & Overview Waveforms, DVS Timecode Vinyl, UDP Multicast Link, Auto-DJ, Quantize, LUFS Auto-Gain, 5-Tab Settings, Side-Drawer Chat, and Per-File Autosaved Hot Cues.");
+                            ui.label("- Future roadmap: Out-of-process VST3 plugin host sidecar and Icecast/Shoutcast live broadcast.");
                         }
                         HelpTab::OtherCrafts => {
-                            ui.label("- Optional external bridges (disabled by default in External Bridges panel):");
+                            ui.label("- Optional external bridges (disabled by default in Settings -> AI & Bridges):");
                             ui.label("  - Video-extended OSC 1.0 bridge (user-configured UDP host/port).");
                             ui.label("  - Local TTS vocal drops, SFX/VFX/Visualizer HTTP bridges, and offline dettato CLI (via DETTATO_BIN or PATH).");
                         }
                         HelpTab::ProjectDocs => {
-                            ui.label("See README.md, HELP.md, CHANGELOG.md, BUILD_LOG.md, and docs/TIERED_PLAN.md in the DJCraft repository.");
+                            ui.label("See README.md, HELP.md, CHANGELOG.md, BUILD_LOG.md, and docs/target-app-parity.md in the DJCraft repository.");
                         }
                     });
                 });
