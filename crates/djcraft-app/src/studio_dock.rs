@@ -76,9 +76,11 @@ impl DjCraftApp {
             });
             ui.add_space(4.0);
 
+            let step_pad_w =
+                ((ui.available_width() - 56.0 - 15.0 * 7.0 - 14.0) / 16.0).clamp(20.0, 46.0);
             for (lane_idx, lane_label) in LANE_LABELS.iter().enumerate().take(STEP_LANES) {
                 ui.horizontal(|ui| {
-                    ui.add_sized([48.0, 20.0], egui::Label::new(*lane_label));
+                    ui.add_sized([48.0, 22.0], egui::Label::new(*lane_label));
                     let lane_color = palette.pad_colors[lane_idx % palette.pad_colors.len()];
                     for (step_idx, cell) in steps[lane_idx].iter_mut().enumerate().take(STEP_COUNT)
                     {
@@ -104,7 +106,7 @@ impl DjCraftApp {
                             palette.chassis
                         };
                         let btn = egui::Button::new("")
-                            .min_size(egui::vec2(20.0, 20.0))
+                            .min_size(egui::vec2(step_pad_w, 22.0))
                             .fill(fill);
                         if ui.add(btn).clicked() {
                             let next = !active;
