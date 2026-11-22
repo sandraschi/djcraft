@@ -6,6 +6,7 @@ mod crate_view;
 mod docks;
 mod fx_rack;
 mod performance_strips;
+mod prefs;
 mod settings;
 mod skins;
 mod studio_dock;
@@ -397,7 +398,9 @@ impl Default for DjCraftApp {
 
 impl DjCraftApp {
     pub fn new() -> Self {
-        let orch = DjOrchestrator::new();
+        let mut orch = DjOrchestrator::new();
+        let app_cfg = prefs::AppConfig::load();
+        orch.headphone_split_cue = app_cfg.split_cue;
         let audio_out = AudioOutput::start_default();
         let audio_output_devices = AudioOutput::list_output_devices();
         let crate_store = CrateStore::open_default().ok();
@@ -435,15 +438,23 @@ impl DjCraftApp {
             typography_applied: false,
 
             prefs,
-            workspace_mode: WorkspaceMode::LiveConsole,
+            workspace_mode: match app_cfg.workspace.as_str() {
+                "booth-crate" => WorkspaceMode::BoothAndCrate,
+                "crates" => WorkspaceMode::CratesGigPrep,
+                _ => WorkspaceMode::LiveConsole,
+            },
             lower_tab: LowerDockTab::FxRack,
             crate_ui: CrateUiState::default(),
             crate_auto_selected_gig: false,
 
             audio_out,
             audio_output_devices,
-            selected_headphone_device: None,
-            recording_format: RecordingFormat::Wav,
+            selected_headphone_device: app_cfg.headphone_device.clone(),
+            recording_format: if app_cfg.recording_format == "flac" {
+                RecordingFormat::Flac
+            } else {
+                RecordingFormat::Wav
+            },
             fx_user_presets: load_user_fx_presets_from_dir(&fx_packs_dir()),
             fx_save_name: "My Club Chain".to_string(),
             sampler_bank: 0,
@@ -497,7 +508,10 @@ impl DjCraftApp {
             mixxxxx_saturation: 0.5,
             mixxxxx_last_pong: false,
 
-            ai_cfg: AiChatConfig::default(),
+            ai_cfg: AiChatConfig {
+                endpoint: app_cfg.ai_endpoint.clone(),
+                model: app_cfg.ai_model.clone(),
+            },
             ai_input: String::new(),
             ai_log: Arc::new(Mutex::new(vec![(
                 "AI".to_string(),
@@ -514,8 +528,12 @@ impl DjCraftApp {
             link_engine: LinkEngine::new(126.0),
             dvs_input: None,
             dvs_devices: list_input_devices(),
-            dvs_selected_device: None,
-            dvs_carrier: DvsCarrier::Control1kHz,
+            dvs_selected_device: app_cfg.dvs_device.clone(),
+            dvs_carrier: if app_cfg.dvs_carrier == "2k" {
+                DvsCarrier::Control2kHz
+            } else {
+                DvsCarrier::Control1kHz
+            },
             dvs_target_deck: DeckId::DeckA,
             dvs_telemetry: DvsTelemetry::default(),
             fleet_last_output: "Click Probe Fleet to check local MCP services.".to_string(),

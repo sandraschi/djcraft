@@ -1,13 +1,17 @@
 #![forbid(unsafe_code)]
+mod prefs;
+
 use std::path::Path;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use djcraft_audio::output::AudioOutput;
-use djcraft_audio::{list_input_devices, DeckId};
+use djcraft_audio::{list_input_devices, DeckId, DvsCarrier, DvsInputStream};
 use djcraft_core::{
-    Command, ControllerProfileId, CrateStore, DjOrchestrator, MidiControllerManager,
+    Command, ControllerProfileId, CrateStore, DjOrchestrator, LinkEngine, MidiControllerManager,
     MixxxxxVideoControls,
 };
+use prefs::AppConfig;
 
 #[derive(Parser)]
 #[command(name = "djcraft-cli", about = "DJCraft Local Performance Mixer CLI")]
@@ -72,6 +76,54 @@ enum Commands {
     MidiConnect { query: Option<String> },
     /// List available audio output and DVS input devices
     AudioList,
+    /// Show all persisted DJCraft settings (ui.json)
+    ConfigShow,
+    /// Set any configuration key (e.g. skin, backdrop, locale, workspace, headphone-device, split-cue, pitch-range, quantize, ai-endpoint)
+    ConfigSet { key: String, value: String },
+    /// Reset all configuration keys in ui.json to defaults
+    ConfigReset,
+    /// Set active built-in MIDI controller profile (e.g. reloop-ready, rane-12, ddj-flx4)
+    MidiProfile { profile: String },
+    /// Import a local VirtualDJ or Mixxx MIDI XML mapper into midi_learn.json
+    MidiImportXml { path: String },
+    /// List active MIDI mapping rules
+    MidiRules,
+    /// Create a crate or subcrate in SQLite
+    CrateCreate {
+        name: String,
+        #[arg(long)]
+        parent_id: Option<i64>,
+    },
+    /// Scan an audio folder into SQLite (creates/uses a crate)
+    CrateScan {
+        folder: String,
+        #[arg(long)]
+        crate_id: Option<i64>,
+    },
+    /// Show autosaved hot cues (slots 0..3) for a track path
+    CrateCues { track_path: String },
+    /// Set or clear an autosaved hot cue (slot 0..3, value = seconds or "clear")
+    CrateSetCue {
+        track_path: String,
+        slot: usize,
+        value: String,
+    },
+    /// Probe live DVS timecode vinyl input signal
+    DvsProbe {
+        #[arg(long)]
+        device: Option<String>,
+        #[arg(long, default_value = "1k")]
+        carrier: String,
+        #[arg(long, default_value_t = 400)]
+        ms: u64,
+    },
+    /// Probe UDP multicast Link peers (224.76.78.75:20808)
+    LinkProbe {
+        #[arg(long, default_value_t = 126.0)]
+        bpm: f64,
+        #[arg(long, default_value_t = 600)]
+        ms: u64,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -247,6 +299,173 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 serde_json::to_string_pretty(&serde_json::json!({
                     "outputs": outputs,
                     "inputs": inputs
+                }))?
+            );
+        }
+        Commands::ConfigShow => {
+            let cfg = AppConfig::load();
+            println!("{}", serde_json::to_string_pretty(&cfg)?);
+        }
+        Commands::ConfigSet { key, value } => {
+            let mut cfg = AppConfig::load();
+            let msg = cfg.set_key(&key, &value)?;
+            let path = cfg.save()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "updated": msg,
+                    "path": path
+                }))?
+            );
+        }
+        Commands::ConfigReset => {
+            let cfg = AppConfig::default();
+            let path = cfg.save()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "reset": true,
+                    "path": path
+                }))?
+            );
+        }
+        Commands::MidiProfile { profile } => {
+            let id = match profile.trim().to_lowercase().as_str() {
+                "reloop" | "reloop-ready" | "ready" => ControllerProfileId::ReloopReady,
+                "rane-12" | "rane12" | "twelve" => ControllerProfileId::RaneTwelveMk2,
+                "rane-72" | "rane72" | "seventy-two" => ControllerProfileId::RaneSeventyTwoMk2,
+                "pioneer" | "ddj-flx4" | "flx4" => ControllerProfileId::PioneerDdjFlx4,
+                "hercules" | "djcontrol" => ControllerProfileId::HerculesDjControl,
+                "denon" | "sc6000" => ControllerProfileId::DenonSc6000,
+                "numark" | "mixtrack" => ControllerProfileId::NumarkMixtrackProFx,
+                "xone" | "xone-k2" | "k2" => ControllerProfileId::AllenHeathXoneK2,
+                "custom" => ControllerProfileId::CustomLearn,
+                other => {
+                    return Err(format!(
+                        "Unknown profile '{other}' (expected: reloop-ready, rane-12, rane-72, ddj-flx4, hercules, denon, numark, xone-k2, custom)"
+                    )
+                    .into())
+                }
+            };
+            let mut mgr = MidiControllerManager::new();
+            mgr.set_profile(id);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "profile": mgr.active_profile.label(),
+                    "rules_count": mgr.rules.len()
+                }))?
+            );
+        }
+        Commands::MidiImportXml { path } => {
+            let mut mgr = MidiControllerManager::new();
+            let count = mgr.import_xml_mapper_file(Path::new(&path))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "imported_rules": count,
+                    "profile": mgr.active_profile.label()
+                }))?
+            );
+        }
+        Commands::MidiRules => {
+            let mgr = MidiControllerManager::new();
+            println!("{}", serde_json::to_string_pretty(&mgr.rules)?);
+        }
+        Commands::CrateCreate { name, parent_id } => {
+            let store = CrateStore::open_default()?;
+            let id = store.create_subcrate(parent_id, &name)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "crate_id": id,
+                    "name": name,
+                    "parent_id": parent_id
+                }))?
+            );
+        }
+        Commands::CrateScan { folder, crate_id } => {
+            let store = CrateStore::open_default()?;
+            let cid = match crate_id {
+                Some(id) => id,
+                None => store.ensure_crate_path(&folder)?,
+            };
+            let count = store.scan_audio_folder(cid, Path::new(&folder))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "crate_id": cid,
+                    "folder": folder,
+                    "imported_tracks": count
+                }))?
+            );
+        }
+        Commands::CrateCues { track_path } => {
+            let store = CrateStore::open_default()?;
+            let cues = store.get_track_hot_cues(&track_path)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "track_path": track_path,
+                    "hot_cues": cues
+                }))?
+            );
+        }
+        Commands::CrateSetCue {
+            track_path,
+            slot,
+            value,
+        } => {
+            let store = CrateStore::open_default()?;
+            let pos = if value.trim().eq_ignore_ascii_case("clear") {
+                None
+            } else {
+                Some(
+                    value
+                        .trim()
+                        .parse::<f64>()
+                        .map_err(|_| format!("Invalid seconds '{value}' (or 'clear')"))?,
+                )
+            };
+            store.set_track_hot_cue(&track_path, slot, pos)?;
+            let cues = store.get_track_hot_cues(&track_path)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "track_path": track_path,
+                    "hot_cues": cues
+                }))?
+            );
+        }
+        Commands::DvsProbe {
+            device,
+            carrier,
+            ms,
+        } => {
+            let c = if carrier.trim().eq_ignore_ascii_case("2k") {
+                DvsCarrier::Control2kHz
+            } else {
+                DvsCarrier::Control1kHz
+            };
+            let stream = DvsInputStream::start(device.as_deref(), c)?;
+            std::thread::sleep(Duration::from_millis(ms.clamp(50, 5000)));
+            let tel = stream.telemetry();
+            println!("{}", serde_json::to_string_pretty(&tel)?);
+        }
+        Commands::LinkProbe { bpm, ms } => {
+            let mut link = LinkEngine::new(bpm);
+            link.set_enabled(true);
+            let steps = (ms.clamp(100, 5000) / 50).max(1);
+            for _ in 0..steps {
+                let _ = link.tick(0.05);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "bpm": link.bpm,
+                    "beat_phase": link.beat_phase,
+                    "peers": link.peer_count()
                 }))?
             );
         }
