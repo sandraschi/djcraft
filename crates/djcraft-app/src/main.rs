@@ -40,7 +40,9 @@ use djcraft_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use skins::{paint_backdrop, BackdropStyle, SkinId, SkinPalette};
+use skins::{
+    paint_backdrop, BackdropStyle, CardDecorConfig, CardDecorStyle, SkinId, SkinPalette,
+};
 use video::{
     apply_deck_video_fx, composite_video_frame, find_companion_video, rgb_to_color_image,
     DeckVideoFx, VideoDeckPlayer, VideoTransitionFx,
@@ -109,10 +111,58 @@ impl HelpTab {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WorkspaceMode {
+pub(crate) enum WorkspaceMode {
     LiveConsole,
     BoothAndCrate,
     CratesGigPrep,
+    Settings,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BoothLayoutPreset {
+    Classic2Deck,
+    SeratoVertical,
+    Extended4Deck,
+    ScratchBattle,
+    PerformancePadsFx,
+    LibraryPrep,
+    VideoVjBooth,
+}
+
+impl BoothLayoutPreset {
+    pub(crate) const ALL: [Self; 7] = [
+        Self::Classic2Deck,
+        Self::SeratoVertical,
+        Self::Extended4Deck,
+        Self::ScratchBattle,
+        Self::PerformancePadsFx,
+        Self::LibraryPrep,
+        Self::VideoVjBooth,
+    ];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Classic2Deck => "Classic 2-Deck",
+            Self::SeratoVertical => "Serato Vertical",
+            Self::Extended4Deck => "Extended 4-Deck",
+            Self::ScratchBattle => "Scratch / Battle Focus",
+            Self::PerformancePadsFx => "Performance (Sampler + FX)",
+            Self::LibraryPrep => "Library / Gig Prep",
+            Self::VideoVjBooth => "Video / VJ Booth",
+        }
+    }
+
+    pub(crate) fn description(self) -> &'static str {
+        match self {
+            Self::Classic2Deck => "2 full decks, horizontal parallel waveforms, center Battle Mixer + FX Rack.",
+            Self::SeratoVertical => "Vertical beatmatch waveforms between Deck A & B (classic Serato Scratch Live).",
+            Self::Extended4Deck => "4 full hardware decks (A+C left, B+D right) with center mixer.",
+            Self::ScratchBattle => "Clean battle booth: large platters, parallel waveforms, minimal clutter.",
+            Self::PerformancePadsFx => "2 decks + collapsible 4x8 Live Sampler strip + FX Rack open.",
+            Self::LibraryPrep => "Compact top booth + full lower Crate browser (VirtualDJ / Serato Library view).",
+            Self::VideoVjBooth => "2 decks + 3-monitor Live Video Strip (Left / Mix / Right) + Video Mixer dock.",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -176,6 +226,18 @@ struct UiPrefs {
     last_dark_skin: SkinId,
     #[serde(default)]
     backdrop: BackdropStyle,
+    #[serde(default = "default_backdrop_intensity")]
+    backdrop_intensity: f32,
+    #[serde(default)]
+    card_decor: CardDecorStyle,
+    #[serde(default = "default_card_border_width")]
+    card_border_width: f32,
+    #[serde(default = "default_card_opacity")]
+    card_opacity: f32,
+    #[serde(default = "default_color_boost")]
+    color_boost: f32,
+    #[serde(default)]
+    waveform_zoom: widgets::WaveformZoom,
     #[serde(default)]
     locale: AppLocale,
     #[serde(default)]
@@ -207,6 +269,22 @@ fn default_true() -> bool {
     true
 }
 
+fn default_backdrop_intensity() -> f32 {
+    1.25
+}
+
+fn default_card_border_width() -> f32 {
+    1.8
+}
+
+fn default_card_opacity() -> f32 {
+    0.88
+}
+
+fn default_color_boost() -> f32 {
+    0.25
+}
+
 fn default_pitch_range() -> f64 {
     16.0
 }
@@ -225,6 +303,12 @@ impl Default for UiPrefs {
             skin: SkinId::BattleConsole,
             last_dark_skin: SkinId::BattleConsole,
             backdrop: BackdropStyle::SparkleClub,
+            backdrop_intensity: default_backdrop_intensity(),
+            card_decor: CardDecorStyle::DropShadow,
+            card_border_width: default_card_border_width(),
+            card_opacity: default_card_opacity(),
+            color_boost: default_color_boost(),
+            waveform_zoom: widgets::WaveformZoom::Zoom2x,
             locale: AppLocale::En,
             four_deck_layout: false,
             zoom_factor: 1.0,
@@ -289,6 +373,8 @@ pub struct DjCraftApp {
 
     prefs: UiPrefs,
     workspace_mode: WorkspaceMode,
+    prev_workspace_mode: WorkspaceMode,
+    hot_cue_metas: [[widgets::HotCueMeta; 4]; 4],
     lower_tab: LowerDockTab,
     crate_ui: CrateUiState,
     crate_auto_selected_gig: bool,
@@ -383,7 +469,6 @@ pub struct DjCraftApp {
     fleet_last_output: String,
 
     // Help Suite & Settings/Chat modals
-    show_settings: bool,
     settings_tab: settings::SettingsTab,
     show_chat_drawer: bool,
     auto_dj_enabled: bool,
@@ -456,8 +541,11 @@ impl DjCraftApp {
             workspace_mode: match app_cfg.workspace.as_str() {
                 "booth-crate" => WorkspaceMode::BoothAndCrate,
                 "crates" => WorkspaceMode::CratesGigPrep,
+                "settings" => WorkspaceMode::Settings,
                 _ => WorkspaceMode::LiveConsole,
             },
+            prev_workspace_mode: WorkspaceMode::LiveConsole,
+            hot_cue_metas: std::array::from_fn(|_| std::array::from_fn(|_| widgets::HotCueMeta::default())),
             lower_tab: LowerDockTab::FxRack,
             crate_ui: CrateUiState::default(),
             crate_auto_selected_gig: false,
@@ -559,8 +647,7 @@ impl DjCraftApp {
             dvs_telemetry: DvsTelemetry::default(),
             fleet_last_output: "Click Probe Fleet to check local MCP services.".to_string(),
 
-            show_settings: false,
-            settings_tab: settings::SettingsTab::Audio,
+            settings_tab: settings::SettingsTab::Appearance,
             show_chat_drawer: false,
             auto_dj_enabled: false,
             auto_dj_fading: false,
@@ -841,6 +928,142 @@ impl DjCraftApp {
                     let _ = store.set_track_hot_cue(track_path, slot, d.hot_cue_seconds[slot]);
                 }
             }
+        }
+    }
+
+    pub(crate) fn toggle_settings_workspace(&mut self) {
+        if self.workspace_mode == WorkspaceMode::Settings {
+            self.workspace_mode = self.prev_workspace_mode;
+        } else {
+            self.prev_workspace_mode = self.workspace_mode;
+            self.workspace_mode = WorkspaceMode::Settings;
+        }
+    }
+
+    pub(crate) fn apply_layout_preset(&mut self, preset: BoothLayoutPreset) {
+        match preset {
+            BoothLayoutPreset::Classic2Deck => {
+                self.workspace_mode = WorkspaceMode::LiveConsole;
+                self.prev_workspace_mode = WorkspaceMode::LiveConsole;
+                self.prefs.four_deck_layout = false;
+                self.prefs.vertical_waveforms = false;
+                self.prefs.show_parallel_waveforms = true;
+                self.prefs.show_live_sampler_strip = false;
+                self.prefs.show_live_video_strip = false;
+                self.prefs.show_decks_cd = true;
+                self.prefs.show_deck_a = true;
+                self.prefs.show_deck_b = true;
+                self.lower_tab = LowerDockTab::FxRack;
+            }
+            BoothLayoutPreset::SeratoVertical => {
+                self.workspace_mode = WorkspaceMode::LiveConsole;
+                self.prev_workspace_mode = WorkspaceMode::LiveConsole;
+                self.prefs.four_deck_layout = false;
+                self.prefs.vertical_waveforms = true;
+                self.prefs.show_parallel_waveforms = false;
+                self.prefs.show_live_sampler_strip = false;
+                self.prefs.show_live_video_strip = false;
+                self.prefs.show_decks_cd = true;
+                self.prefs.show_deck_a = true;
+                self.prefs.show_deck_b = true;
+            }
+            BoothLayoutPreset::Extended4Deck => {
+                self.workspace_mode = WorkspaceMode::LiveConsole;
+                self.prev_workspace_mode = WorkspaceMode::LiveConsole;
+                self.prefs.four_deck_layout = true;
+                self.prefs.vertical_waveforms = false;
+                self.prefs.show_parallel_waveforms = true;
+                self.prefs.show_decks_cd = false;
+                self.prefs.show_deck_a = true;
+                self.prefs.show_deck_b = true;
+            }
+            BoothLayoutPreset::ScratchBattle => {
+                self.workspace_mode = WorkspaceMode::LiveConsole;
+                self.prev_workspace_mode = WorkspaceMode::LiveConsole;
+                self.prefs.four_deck_layout = false;
+                self.prefs.vertical_waveforms = false;
+                self.prefs.show_parallel_waveforms = true;
+                self.prefs.show_live_sampler_strip = false;
+                self.prefs.show_live_video_strip = false;
+                self.prefs.show_decks_cd = false;
+                self.prefs.show_deck_a = true;
+                self.prefs.show_deck_b = true;
+            }
+            BoothLayoutPreset::PerformancePadsFx => {
+                self.workspace_mode = WorkspaceMode::LiveConsole;
+                self.prev_workspace_mode = WorkspaceMode::LiveConsole;
+                self.prefs.four_deck_layout = false;
+                self.prefs.vertical_waveforms = false;
+                self.prefs.show_parallel_waveforms = true;
+                self.prefs.show_live_sampler_strip = true;
+                self.prefs.show_live_video_strip = false;
+                self.prefs.show_deck_a = true;
+                self.prefs.show_deck_b = true;
+                self.lower_tab = LowerDockTab::FxRack;
+            }
+            BoothLayoutPreset::LibraryPrep => {
+                self.workspace_mode = WorkspaceMode::BoothAndCrate;
+                self.prev_workspace_mode = WorkspaceMode::BoothAndCrate;
+            }
+            BoothLayoutPreset::VideoVjBooth => {
+                self.workspace_mode = WorkspaceMode::LiveConsole;
+                self.prev_workspace_mode = WorkspaceMode::LiveConsole;
+                self.prefs.four_deck_layout = false;
+                self.prefs.vertical_waveforms = false;
+                self.prefs.show_parallel_waveforms = true;
+                self.prefs.show_live_video_strip = true;
+                self.prefs.show_live_sampler_strip = false;
+                self.prefs.show_deck_a = true;
+                self.prefs.show_deck_b = true;
+                self.lower_tab = LowerDockTab::VideoMixer;
+            }
+        }
+        self.prefs.save();
+        self.status_msg = format!("Layout preset applied: {}", preset.label());
+    }
+
+    fn render_waveform_zoom_controls(&mut self, ui: &mut egui::Ui, id_salt: &str) {
+        let mut changed = false;
+        if ui
+            .small_button("-")
+            .on_hover_text("Zoom out waveform")
+            .clicked()
+        {
+            self.prefs.waveform_zoom = self.prefs.waveform_zoom.zoom_out();
+            changed = true;
+        }
+        egui::ComboBox::from_id_salt(id_salt)
+            .selected_text(self.prefs.waveform_zoom.label())
+            .width(86.0)
+            .show_ui(ui, |ui| {
+                for z in widgets::WaveformZoom::ALL {
+                    if ui
+                        .selectable_label(self.prefs.waveform_zoom == z, z.label())
+                        .clicked()
+                    {
+                        self.prefs.waveform_zoom = z;
+                        changed = true;
+                    }
+                }
+            });
+        if ui
+            .small_button("+")
+            .on_hover_text("Zoom in waveform")
+            .clicked()
+        {
+            self.prefs.waveform_zoom = self.prefs.waveform_zoom.zoom_in();
+            changed = true;
+        }
+        if ui
+            .small_button("ALL")
+            .on_hover_text("Show entire track")
+            .clicked()
+        {
+            self.prefs.waveform_zoom = widgets::WaveformZoom::FitAll;
+            changed = true;
+        }
+        if changed {
+            self.prefs.save();
         }
     }
 
@@ -1829,10 +2052,13 @@ impl DjCraftApp {
                                     ui,
                                     self.orch.deck(left_deck.0),
                                     self.deck_waveforms[deck_index(left_deck.0)].as_ref(),
+                                    &self.hot_cue_metas[deck_index(left_deck.0)],
                                     self.orch.deck(right_deck.0),
                                     self.deck_waveforms[deck_index(right_deck.0)].as_ref(),
+                                    &self.hot_cue_metas[deck_index(right_deck.0)],
                                     palette,
                                     130.0,
+                                    self.prefs.waveform_zoom,
                                 );
                                 ui.add_space(3.0);
                                 ui.horizontal(|ui| {
@@ -2074,8 +2300,9 @@ impl DjCraftApp {
                 ui,
                 &d,
                 self.deck_waveforms[idx].as_ref(),
+                &self.hot_cue_metas[idx],
                 palette,
-                22.0,
+                28.0,
             ) {
                 let st = self.orch.deck_mut(deck_id);
                 st.position_seconds = seek_sec;
@@ -2198,15 +2425,63 @@ impl DjCraftApp {
 
             ui.add_space(6.0);
 
-            // 8 RGB MPC Performance Pads
+            // 8 RGB MPC Performance Pads (right-click CUE 1..4 to rename, recolor & set behavior)
             theme::card_frame(ui, palette, |ui| {
                 ui.label(
                     egui::RichText::new(t(I18nKey::HotCue, self.locale))
                         .size(11.5)
                         .color(palette.text_secondary),
                 );
-                if let Some(pad_idx) = widgets::performance_pads_grid(ui, &d, palette) {
-                    self.handle_pad_click(deck_id, pad_idx);
+                let pad_act = widgets::performance_pads_grid(
+                    ui,
+                    &d,
+                    palette,
+                    &mut self.hot_cue_metas[idx],
+                );
+                if let Some(slot) = pad_act.cleared_cue {
+                    self.orch.deck_mut(deck_id).hot_cue_seconds[slot] = None;
+                    self.status_msg = format!("Cleared Hot Cue {} on {:?}", slot + 1, deck_id);
+                }
+                if let Some(slot) = pad_act.pressed_cue {
+                    if self.hot_cue_metas[idx][slot].behavior == widgets::HotCueBehavior::GateHold {
+                        self.handle_pad_click(deck_id, slot);
+                        self.orch.deck_mut(deck_id).is_playing = true;
+                    }
+                }
+                if let Some(slot) = pad_act.released_cue {
+                    if self.hot_cue_metas[idx][slot].behavior == widgets::HotCueBehavior::GateHold {
+                        if let Some(ct) = self.orch.deck(deck_id).hot_cue_seconds[slot] {
+                            let st = self.orch.deck_mut(deck_id);
+                            st.position_seconds = ct;
+                            st.seek_gen = st.seek_gen.wrapping_add(1);
+                            st.is_playing = false;
+                        }
+                    }
+                }
+                if let Some(pad_idx) = pad_act.clicked {
+                    if pad_idx < 4 {
+                        match self.hot_cue_metas[idx][pad_idx].behavior {
+                            widgets::HotCueBehavior::Standard => {
+                                self.handle_pad_click(deck_id, pad_idx);
+                            }
+                            widgets::HotCueBehavior::GateHold => {
+                                // Handled via press/release above
+                            }
+                            widgets::HotCueBehavior::AutoLoop4 => {
+                                self.handle_pad_click(deck_id, pad_idx);
+                                self.dispatch_and_report(Command::SetLoopBars {
+                                    deck: deck_id,
+                                    bars: Some(4),
+                                });
+                            }
+                            widgets::HotCueBehavior::CueAndPause => {
+                                self.handle_pad_click(deck_id, pad_idx);
+                                self.orch.deck_mut(deck_id).is_playing = false;
+                            }
+                        }
+                    } else {
+                        self.handle_pad_click(deck_id, pad_idx);
+                    }
                 }
             });
 
@@ -2292,7 +2567,12 @@ impl eframe::App for DjCraftApp {
         self.tick_room2_autoplay();
         self.tick_lighting_assistant();
         let ctx = ui.ctx().clone();
-        let palette = self.prefs.skin.palette();
+        let palette = self.prefs.skin.palette().with_decor(CardDecorConfig {
+            style: self.prefs.card_decor,
+            border_width: self.prefs.card_border_width,
+            card_opacity: self.prefs.card_opacity,
+            color_boost: self.prefs.color_boost,
+        });
         if !self.typography_applied {
             theme::apply_fleet_typography(&ctx);
             self.typography_applied = true;
@@ -2317,6 +2597,7 @@ impl eframe::App for DjCraftApp {
             self.prefs.backdrop,
             self.backdrop_time,
             energy,
+            self.prefs.backdrop_intensity,
         );
 
         // Handle OS drag-and-drop audio files / folders straight from Windows Explorer
@@ -2401,6 +2682,7 @@ impl eframe::App for DjCraftApp {
             k_shift,
             k_settings,
             k_chat,
+            k_escape,
         ) = ctx.input(|i| {
             let cmd_mod = i.modifiers.ctrl || i.modifiers.command;
             (
@@ -2415,10 +2697,14 @@ impl eframe::App for DjCraftApp {
                 i.modifiers.shift,
                 cmd_mod && i.key_pressed(egui::Key::Comma),
                 cmd_mod && i.key_pressed(egui::Key::L),
+                i.key_pressed(egui::Key::Escape),
             )
         });
         if k_settings {
-            self.show_settings = !self.show_settings;
+            self.toggle_settings_workspace();
+        }
+        if k_escape && !wants_kb && self.workspace_mode == WorkspaceMode::Settings {
+            self.workspace_mode = self.prev_workspace_mode;
         }
         if k_chat {
             self.show_chat_drawer = !self.show_chat_drawer;
@@ -2944,9 +3230,8 @@ impl eframe::App for DjCraftApp {
             });
         });
 
-        // 2. HELP MODALS, SETTINGS & CHAT DRAWER
+        // 2. HELP MODALS & CHAT DRAWER
         self.render_modals(&ctx);
-        self.render_settings_modal(&ctx, &palette);
         self.render_chat_drawer(ui, &palette);
 
         // 3. TOP WORKSPACE SWITCHER + QUICK BAR + PARALLEL STACKED WAVEFORMS BANNER
@@ -2958,6 +3243,7 @@ impl eframe::App for DjCraftApp {
                     WorkspaceMode::LiveConsole => t(I18nKey::LiveConsole, self.locale),
                     WorkspaceMode::BoothAndCrate => "BOOTH + CRATE",
                     WorkspaceMode::CratesGigPrep => t(I18nKey::CratesGigPrep, self.locale),
+                    WorkspaceMode::Settings => "SETTINGS",
                 };
                 egui::ComboBox::from_id_salt("top_workspace_mode")
                     .selected_text(mode_lbl)
@@ -2978,7 +3264,34 @@ impl eframe::App for DjCraftApp {
                             WorkspaceMode::CratesGigPrep,
                             t(I18nKey::CratesGigPrep, self.locale),
                         );
+                        if ui
+                            .selectable_label(
+                                self.workspace_mode == WorkspaceMode::Settings,
+                                "SETTINGS (Ctrl+,)",
+                            )
+                            .clicked()
+                        {
+                            self.toggle_settings_workspace();
+                        }
                     });
+
+                ui.menu_button("Layouts", |ui| {
+                    ui.label(
+                        egui::RichText::new("Serato / VirtualDJ Presets")
+                            .small()
+                            .color(palette.text_secondary),
+                    );
+                    for preset in BoothLayoutPreset::ALL {
+                        if ui
+                            .button(preset.label())
+                            .on_hover_text(preset.description())
+                            .clicked()
+                        {
+                            self.apply_layout_preset(preset);
+                            ui.close();
+                        }
+                    }
+                });
 
                 let deck_mode_lbl = if self.prefs.four_deck_layout {
                     "4-Deck"
@@ -3150,12 +3463,19 @@ impl eframe::App for DjCraftApp {
                 {
                     self.show_chat_drawer = !self.show_chat_drawer;
                 }
+                let settings_btn = egui::Button::new("Settings")
+                    .small()
+                    .fill(if self.workspace_mode == WorkspaceMode::Settings {
+                        palette.deck_a
+                    } else {
+                        palette.card_fill
+                    });
                 if ui
-                    .small_button("Settings")
-                    .on_hover_text("Open Settings (Ctrl+,)")
+                    .add(settings_btn)
+                    .on_hover_text("Open Full-Window Settings Workspace (Ctrl+,)")
                     .clicked()
                 {
-                    self.show_settings = true;
+                    self.toggle_settings_workspace();
                 }
                 ui.separator();
                 ui.label(egui::RichText::new(&self.status_msg).color(palette.text_secondary));
@@ -3164,14 +3484,25 @@ impl eframe::App for DjCraftApp {
                 && self.prefs.show_parallel_waveforms
                 && !self.prefs.vertical_waveforms
             {
-                ui.add_space(4.0);
+                ui.add_space(3.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Waveforms:")
+                            .small()
+                            .color(palette.text_secondary),
+                    );
+                    self.render_waveform_zoom_controls(ui, "top_wf_zoom");
+                });
                 widgets::paint_parallel_waveforms(
                     ui,
                     &self.orch.deck_a,
                     self.deck_waveforms[0].as_ref(),
+                    &self.hot_cue_metas[0],
                     &self.orch.deck_b,
                     self.deck_waveforms[1].as_ref(),
+                    &self.hot_cue_metas[1],
                     &palette,
+                    self.prefs.waveform_zoom,
                 );
             }
             if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_video_strip
@@ -3186,6 +3517,14 @@ impl eframe::App for DjCraftApp {
                 self.render_collapsible_sampler_strip(ui, &palette);
             }
         });
+
+        // Full-Window 2-Pane SETTINGS Workspace (Ctrl+,)
+        if self.workspace_mode == WorkspaceMode::Settings {
+            self.render_settings_workspace(ui, &palette);
+            self.sync_audio_and_repaint(&ctx);
+            self.maybe_capture_screenshot(&ctx);
+            return;
+        }
 
         // Performance Booth + Lower Crate Split Workspace (center vertical waveforms, small platters, hideable FX/Sampler/Video strip, lower crate browser)
         if self.workspace_mode == WorkspaceMode::BoothAndCrate {
@@ -3336,15 +3675,23 @@ impl eframe::App for DjCraftApp {
                 if self.prefs.vertical_waveforms {
                     // Vertical layout: waveforms between the decks, mixer beside them
                     ui.horizontal_top(|ui| {
-                        widgets::paint_vertical_waveforms(
-                            ui,
-                            &self.orch.deck_a,
-                            self.deck_waveforms[0].as_ref(),
-                            &self.orch.deck_b,
-                            self.deck_waveforms[1].as_ref(),
-                            &palette,
-                            380.0,
-                        );
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                self.render_waveform_zoom_controls(ui, "vert_wf_zoom");
+                            });
+                            widgets::paint_vertical_waveforms(
+                                ui,
+                                &self.orch.deck_a,
+                                self.deck_waveforms[0].as_ref(),
+                                &self.hot_cue_metas[0],
+                                &self.orch.deck_b,
+                                self.deck_waveforms[1].as_ref(),
+                                &self.hot_cue_metas[1],
+                                &palette,
+                                360.0,
+                                self.prefs.waveform_zoom,
+                            );
+                        });
                         ui.vertical(|ui| {
                             self.render_battle_mixer(ui, &palette);
                         });

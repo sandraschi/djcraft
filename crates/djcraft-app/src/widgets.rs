@@ -7,8 +7,163 @@
 use djcraft_audio::dsp::WaveformSummary;
 use djcraft_audio::{AudioEngine, DeckState};
 use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
+use serde::{Deserialize, Serialize};
 
 use crate::skins::SkinPalette;
+
+/// Magnification level for the parallel & vertical waveform displays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum WaveformZoom {
+    FitAll,
+    Zoom1x,
+    #[default]
+    Zoom2x,
+    Zoom4x,
+    Zoom8x,
+    Zoom16x,
+}
+
+impl WaveformZoom {
+    pub const ALL: [Self; 6] = [
+        Self::FitAll,
+        Self::Zoom1x,
+        Self::Zoom2x,
+        Self::Zoom4x,
+        Self::Zoom8x,
+        Self::Zoom16x,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::FitAll => "Show All",
+            Self::Zoom1x => "1x (16s)",
+            Self::Zoom2x => "2x (8s)",
+            Self::Zoom4x => "4x (4s)",
+            Self::Zoom8x => "8x (2s)",
+            Self::Zoom16x => "16x (1s)",
+        }
+    }
+
+    pub fn window_seconds(self, track_duration: f64) -> f64 {
+        match self {
+            Self::FitAll => track_duration.max(4.0),
+            Self::Zoom1x => 16.0,
+            Self::Zoom2x => 8.0,
+            Self::Zoom4x => 4.0,
+            Self::Zoom8x => 2.0,
+            Self::Zoom16x => 1.0,
+        }
+    }
+
+    pub fn zoom_in(self) -> Self {
+        match self {
+            Self::FitAll => Self::Zoom1x,
+            Self::Zoom1x => Self::Zoom2x,
+            Self::Zoom2x => Self::Zoom4x,
+            Self::Zoom4x => Self::Zoom8x,
+            Self::Zoom8x | Self::Zoom16x => Self::Zoom16x,
+        }
+    }
+
+    pub fn zoom_out(self) -> Self {
+        match self {
+            Self::FitAll | Self::Zoom1x => Self::FitAll,
+            Self::Zoom2x => Self::Zoom1x,
+            Self::Zoom4x => Self::Zoom2x,
+            Self::Zoom8x => Self::Zoom4x,
+            Self::Zoom16x => Self::Zoom8x,
+        }
+    }
+}
+
+/// Special playback behavior when a Hot Cue pad is triggered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum HotCueBehavior {
+    #[default]
+    Standard,
+    GateHold,
+    AutoLoop4,
+    CueAndPause,
+}
+
+impl HotCueBehavior {
+    pub const ALL: [Self; 4] = [
+        Self::Standard,
+        Self::GateHold,
+        Self::AutoLoop4,
+        Self::CueAndPause,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Standard => "Standard (Jump & Play)",
+            Self::GateHold => "Gate (Play While Held)",
+            Self::AutoLoop4 => "Auto-Loop (Jump + 4 Bars)",
+            Self::CueAndPause => "Cue & Pause (Ready)",
+        }
+    }
+
+    pub fn short_tag(self) -> &'static str {
+        match self {
+            Self::Standard => "",
+            Self::GateHold => "G",
+            Self::AutoLoop4 => "L",
+            Self::CueAndPause => "P",
+        }
+    }
+}
+
+/// User-customizable label, color, and trigger behavior for each Hot Cue slot.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HotCueMeta {
+    pub label: String,
+    pub color: Option<[u8; 3]>,
+    pub behavior: HotCueBehavior,
+}
+
+impl HotCueMeta {
+    pub fn resolved_color(&self, slot: usize, palette: &SkinPalette) -> Color32 {
+        if let Some([r, g, b]) = self.color {
+            Color32::from_rgb(r, g, b)
+        } else {
+            palette.pad_colors[slot % palette.pad_colors.len()]
+        }
+    }
+
+    pub fn display_label(&self, slot: usize) -> String {
+        let base = if self.label.trim().is_empty() {
+            format!("CUE {}", slot + 1)
+        } else {
+            self.label.trim().chars().take(7).collect()
+        };
+        let tag = self.behavior.short_tag();
+        if tag.is_empty() {
+            base
+        } else {
+            format!("{base}[{tag}]")
+        }
+    }
+}
+
+/// Result of interacting with the 8-pad performance grid (including right-click context actions).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PadGridAction {
+    pub clicked: Option<usize>,
+    pub pressed_cue: Option<usize>,
+    pub released_cue: Option<usize>,
+    pub cleared_cue: Option<usize>,
+}
+
+const CUE_COLOR_SWATCHES: [(&str, [u8; 3]); 8] = [
+    ("Red", [239, 68, 68]),
+    ("Orange", [249, 115, 22]),
+    ("Gold", [250, 204, 21]),
+    ("Green", [34, 197, 94]),
+    ("Cyan", [34, 211, 238]),
+    ("Blue", [59, 130, 246]),
+    ("Purple", [168, 85, 247]),
+    ("Pink", [236, 72, 153]),
+];
 
 /// Result of interacting with a custom-painted hardware knob or fader.
 #[derive(Debug, Clone, Copy)]
@@ -355,15 +510,13 @@ pub fn club_crossfader(
 }
 
 /// 8 RGB backlit MPC-style performance pads per deck.
-/// Returns `Some(pad_index 0..8)` when clicked.
+/// Right-click CUE 1..4 to rename, recolor, set behavior (Gate/Auto-Loop/Pause), or clear.
 pub fn performance_pads_grid(
     ui: &mut egui::Ui,
     deck: &DeckState,
     palette: &SkinPalette,
-) -> Option<usize> {
-    let labels = [
-        "CUE 1", "CUE 2", "CUE 3", "CUE 4", "LOOP 4", "LOOP 8", "KILL B", "KILL V",
-    ];
+    cue_metas: &mut [HotCueMeta; 4],
+) -> PadGridAction {
     let active = [
         deck.hot_cue_seconds[0].is_some(),
         deck.hot_cue_seconds[1].is_some(),
@@ -374,26 +527,36 @@ pub fn performance_pads_grid(
         deck.eq_low <= 0.01,
         deck.stem_vocals_gain <= 0.01,
     ];
+    let static_labels = ["LOOP 4", "LOOP 8", "KILL B", "KILL V"];
 
-    let mut clicked = None;
+    let mut action = PadGridAction::default();
     for row in 0..2 {
         ui.horizontal(|ui| {
             for col in 0..4 {
                 let idx = row * 4 + col;
-                let pad_col = palette.pad_colors[idx];
+                let pad_col = if idx < 4 {
+                    cue_metas[idx].resolved_color(idx, palette)
+                } else {
+                    palette.pad_colors[idx]
+                };
+                let label_text = if idx < 4 {
+                    cue_metas[idx].display_label(idx)
+                } else {
+                    static_labels[idx - 4].to_string()
+                };
                 let is_on = active[idx];
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(62.0, 28.0), Sense::click());
                 let painter = ui.painter_at(rect);
                 let fill = if is_on {
-                    Color32::from_rgba_unmultiplied(pad_col.r(), pad_col.g(), pad_col.b(), 190)
+                    Color32::from_rgba_unmultiplied(pad_col.r(), pad_col.g(), pad_col.b(), 205)
                 } else {
-                    Color32::from_rgba_unmultiplied(pad_col.r(), pad_col.g(), pad_col.b(), 36)
+                    Color32::from_rgba_unmultiplied(pad_col.r(), pad_col.g(), pad_col.b(), 44)
                 };
                 painter.rect(
                     rect,
                     CornerRadius::same(5),
                     fill,
-                    Stroke::new(if is_on || resp.hovered() { 2.0 } else { 1.2 }, pad_col),
+                    Stroke::new(if is_on || resp.hovered() { 2.2 } else { 1.3 }, pad_col),
                     StrokeKind::Inside,
                 );
                 let txt_col = if is_on {
@@ -404,27 +567,96 @@ pub fn performance_pads_grid(
                 painter.text(
                     rect.center(),
                     Align2::CENTER_CENTER,
-                    labels[idx],
-                    FontId::monospace(10.5),
+                    &label_text,
+                    FontId::monospace(10.0),
                     txt_col,
                 );
-                if resp.clicked() {
-                    clicked = Some(idx);
+                if idx < 4 {
+                    let meta = &mut cue_metas[idx];
+                    if resp.is_pointer_button_down_on()
+                        && ui.input(|i| i.pointer.primary_pressed())
+                    {
+                        action.pressed_cue = Some(idx);
+                    }
+                    if resp.clicked() {
+                        action.clicked = Some(idx);
+                    }
+                    if meta.behavior == HotCueBehavior::GateHold
+                        && resp.hovered()
+                        && ui.input(|i| i.pointer.primary_released())
+                    {
+                        action.released_cue = Some(idx);
+                    }
+                    resp.clone()
+                        .on_hover_text(format!(
+                            "{} -- Left-click: trigger/set | Right-click: rename, color & behavior",
+                            meta.behavior.label()
+                        ));
+                    resp.context_menu(|ui| {
+                        ui.strong(format!("Hot Cue {} Settings", idx + 1));
+                        ui.horizontal(|ui| {
+                            ui.label("Name:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut meta.label)
+                                    .desired_width(110.0)
+                                    .hint_text("Intro, Drop..."),
+                            );
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            for preset in ["Intro", "Drop", "Break", "Vocal", "Outro"] {
+                                if ui.small_button(preset).clicked() {
+                                    meta.label = preset.to_string();
+                                }
+                            }
+                        });
+                        ui.separator();
+                        ui.label("Color:");
+                        ui.horizontal_wrapped(|ui| {
+                            for (cname, rgb) in CUE_COLOR_SWATCHES {
+                                let c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                                let b = egui::Button::new(" ")
+                                    .min_size(Vec2::new(18.0, 18.0))
+                                    .fill(c);
+                                if ui.add(b).on_hover_text(cname).clicked() {
+                                    meta.color = Some(rgb);
+                                }
+                            }
+                            if ui.small_button("Auto").clicked() {
+                                meta.color = None;
+                            }
+                        });
+                        ui.separator();
+                        ui.label("Behavior:");
+                        for beh in HotCueBehavior::ALL {
+                            ui.selectable_value(&mut meta.behavior, beh, beh.label());
+                        }
+                        ui.separator();
+                        if ui.button("Clear Hot Cue").clicked() {
+                            action.cleared_cue = Some(idx);
+                            ui.close();
+                        }
+                    });
+                } else if resp.clicked() {
+                    action.clicked = Some(idx);
                 }
             }
         });
     }
-    clicked
+    action
 }
 
 /// Serato/VDJ signature stacked parallel waveforms banner across the top for visual beatmatching.
+#[allow(clippy::too_many_arguments)]
 pub fn paint_parallel_waveforms(
     ui: &mut egui::Ui,
     deck_a: &DeckState,
     wf_a: Option<&WaveformSummary>,
+    cues_a: &[HotCueMeta; 4],
     deck_b: &DeckState,
     wf_b: Option<&WaveformSummary>,
+    cues_b: &[HotCueMeta; 4],
     palette: &SkinPalette,
+    zoom: WaveformZoom,
 ) {
     let w = ui.available_width().max(320.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 92.0), Sense::hover());
@@ -434,7 +666,7 @@ pub fn paint_parallel_waveforms(
         rect,
         CornerRadius::same(6),
         palette.fader_slot,
-        Stroke::new(1.0, palette.card_border),
+        Stroke::new(1.2, palette.card_border),
         StrokeKind::Inside,
     );
 
@@ -442,8 +674,8 @@ pub fn paint_parallel_waveforms(
     let rect_a = Rect::from_min_max(rect.min, Pos2::new(rect.max.x, rect.min.y + half_h));
     let rect_b = Rect::from_min_max(Pos2::new(rect.min.x, rect.min.y + half_h), rect.max);
 
-    paint_waveform_lane(&painter, rect_a, deck_a, wf_a, palette.deck_a, "A");
-    paint_waveform_lane(&painter, rect_b, deck_b, wf_b, palette.deck_b, "B");
+    paint_waveform_lane(&painter, rect_a, deck_a, wf_a, cues_a, palette, palette.deck_a, "A", zoom);
+    paint_waveform_lane(&painter, rect_b, deck_b, wf_b, cues_b, palette, palette.deck_b, "B", zoom);
 
     // Divider between Deck A and Deck B lanes
     painter.line_segment(
@@ -454,26 +686,32 @@ pub fn paint_parallel_waveforms(
         Stroke::new(1.0, palette.card_border),
     );
 
-    // Shared center beatmatch playhead cursor
-    painter.line_segment(
-        [
-            Pos2::new(rect.center().x, rect.top()),
-            Pos2::new(rect.center().x, rect.bottom()),
-        ],
-        Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
-    );
+    // Shared center beatmatch playhead cursor (in zoomed mode; in Show All mode each lane draws its own moving playhead)
+    if zoom != WaveformZoom::FitAll {
+        painter.line_segment(
+            [
+                Pos2::new(rect.center().x, rect.top()),
+                Pos2::new(rect.center().x, rect.bottom()),
+            ],
+            Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
+        );
+    }
 }
 
 /// Vertical layout: Deck A and Deck B waveforms scroll top-to-bottom side-by-side between the decks,
 /// with a shared horizontal playhead in the middle for visual beatmatching.
+#[allow(clippy::too_many_arguments)]
 pub fn paint_vertical_waveforms(
     ui: &mut egui::Ui,
     deck_a: &DeckState,
     wf_a: Option<&WaveformSummary>,
+    cues_a: &[HotCueMeta; 4],
     deck_b: &DeckState,
     wf_b: Option<&WaveformSummary>,
+    cues_b: &[HotCueMeta; 4],
     palette: &SkinPalette,
     height: f32,
+    zoom: WaveformZoom,
 ) {
     let w = ui.available_width().clamp(120.0, 260.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, height.max(160.0)), Sense::hover());
@@ -482,14 +720,14 @@ pub fn paint_vertical_waveforms(
         rect,
         CornerRadius::same(6),
         palette.fader_slot,
-        Stroke::new(1.0, palette.card_border),
+        Stroke::new(1.2, palette.card_border),
         StrokeKind::Inside,
     );
     let half_w = rect.width() * 0.5;
     let rect_a = Rect::from_min_max(rect.min, Pos2::new(rect.min.x + half_w, rect.max.y));
     let rect_b = Rect::from_min_max(Pos2::new(rect.min.x + half_w, rect.min.y), rect.max);
-    paint_vertical_lane(&painter, rect_a, deck_a, wf_a, palette.deck_a, "A");
-    paint_vertical_lane(&painter, rect_b, deck_b, wf_b, palette.deck_b, "B");
+    paint_vertical_lane(&painter, rect_a, deck_a, wf_a, cues_a, palette, palette.deck_a, "A", zoom);
+    paint_vertical_lane(&painter, rect_b, deck_b, wf_b, cues_b, palette, palette.deck_b, "B", zoom);
     painter.line_segment(
         [
             Pos2::new(rect.min.x + half_w, rect.top()),
@@ -497,13 +735,15 @@ pub fn paint_vertical_waveforms(
         ],
         Stroke::new(1.0, palette.card_border),
     );
-    painter.line_segment(
-        [
-            Pos2::new(rect.left(), rect.center().y),
-            Pos2::new(rect.right(), rect.center().y),
-        ],
-        Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
-    );
+    if zoom != WaveformZoom::FitAll {
+        painter.line_segment(
+            [
+                Pos2::new(rect.left(), rect.center().y),
+                Pos2::new(rect.right(), rect.center().y),
+            ],
+            Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
+        );
+    }
 }
 
 /// Sample 3-band spectral amplitudes `(low, mid, high)` in `0.0..=1.0` at track time `t`.
@@ -594,22 +834,17 @@ fn rgb_waveform_color(low: f32, mid: f32, high: f32) -> (Color32, Color32) {
     (outer, core)
 }
 
-fn cue_flag_color(slot: usize) -> Color32 {
-    match slot {
-        0 => Color32::from_rgb(239, 68, 68),
-        1 => Color32::from_rgb(245, 158, 11),
-        2 => Color32::from_rgb(34, 197, 94),
-        _ => Color32::from_rgb(56, 189, 248),
-    }
-}
-
+#[allow(clippy::too_many_arguments)]
 fn paint_vertical_lane(
     painter: &egui::Painter,
     rect: Rect,
     deck: &DeckState,
     waveform: Option<&WaveformSummary>,
+    cues: &[HotCueMeta; 4],
+    palette: &SkinPalette,
     accent: Color32,
     tag: &str,
+    zoom: WaveformZoom,
 ) {
     painter.text(
         Pos2::new(rect.center().x, rect.top() + 9.0),
@@ -623,32 +858,38 @@ fn paint_vertical_lane(
     };
     let bpm = (track.bpm * (1.0 + deck.pitch_bend_pct / 100.0)).max(20.0);
     let beat_sec = 60.0 / bpm;
-    let window_sec = 8.0_f64;
-    // Time flows downward: future audio at the top, past at the bottom.
-    let start_t = deck.position_seconds + window_sec * 0.5;
+    let window_sec = zoom.window_seconds(track.duration_seconds);
+    // In FitAll, top = end of track, bottom = 0.0; otherwise centered on playhead.
+    let start_t = if zoom == WaveformZoom::FitAll {
+        track.duration_seconds.max(1.0)
+    } else {
+        deck.position_seconds + window_sec * 0.5
+    };
 
-    // Subtle full-width beatgrid lines behind waveform
-    let last_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
-    let first_beat = ((start_t - window_sec - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
-    for b in first_beat..=last_beat {
-        if b < 0 {
-            continue;
+    // Subtle full-width beatgrid lines behind waveform (skip if zoomed all the way out to avoid clutter)
+    if zoom != WaveformZoom::FitAll {
+        let last_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
+        let first_beat = ((start_t - window_sec - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
+        for b in first_beat..=last_beat {
+            if b < 0 {
+                continue;
+            }
+            let t = deck.beatgrid_offset_sec + b as f64 * beat_sec;
+            let y = rect.top() + ((start_t - t) / window_sec) as f32 * rect.height();
+            let is_bar = b % 4 == 0;
+            let grid_col = if is_bar {
+                Color32::from_rgba_unmultiplied(248, 250, 252, 68)
+            } else {
+                Color32::from_rgba_unmultiplied(148, 163, 184, 24)
+            };
+            painter.line_segment(
+                [
+                    Pos2::new(rect.left() + 1.0, y),
+                    Pos2::new(rect.right() - 1.0, y),
+                ],
+                Stroke::new(if is_bar { 1.3 } else { 1.0 }, grid_col),
+            );
         }
-        let t = deck.beatgrid_offset_sec + b as f64 * beat_sec;
-        let y = rect.top() + ((start_t - t) / window_sec) as f32 * rect.height();
-        let is_bar = b % 4 == 0;
-        let grid_col = if is_bar {
-            Color32::from_rgba_unmultiplied(248, 250, 252, 68)
-        } else {
-            Color32::from_rgba_unmultiplied(148, 163, 184, 24)
-        };
-        painter.line_segment(
-            [
-                Pos2::new(rect.left() + 1.0, y),
-                Pos2::new(rect.right() - 1.0, y),
-            ],
-            Stroke::new(if is_bar { 1.3 } else { 1.0 }, grid_col),
-        );
     }
 
     // Active loop band highlight
@@ -706,30 +947,53 @@ fn paint_vertical_lane(
     }
 
     // Hot cue markers
-    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate() {
+    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate().take(4) {
         if let Some(cue_t) = cue_opt {
             if *cue_t <= start_t && *cue_t >= start_t - window_sec {
                 let y = rect.top() + ((start_t - *cue_t) / window_sec) as f32 * rect.height();
-                let col = cue_flag_color(slot);
+                let col = cues[slot].resolved_color(slot, palette);
                 painter.line_segment(
                     [
                         Pos2::new(rect.left() + 2.0, y),
                         Pos2::new(rect.right() - 2.0, y),
                     ],
-                    Stroke::new(1.5, col),
+                    Stroke::new(2.2, col),
+                );
+                let badge_rect = Rect::from_min_size(Pos2::new(rect.left() + 2.0, y - 6.0), Vec2::new(13.0, 12.0));
+                painter.rect_filled(badge_rect, CornerRadius::same(2), col);
+                painter.text(
+                    badge_rect.center(),
+                    Align2::CENTER_CENTER,
+                    format!("{}", slot + 1),
+                    FontId::monospace(9.0),
+                    Color32::BLACK,
                 );
             }
         }
     }
+
+    if zoom == WaveformZoom::FitAll {
+        let py = rect.top()
+            + (((start_t - deck.position_seconds) / window_sec).clamp(0.0, 1.0)) as f32
+                * rect.height();
+        painter.line_segment(
+            [Pos2::new(rect.left(), py), Pos2::new(rect.right(), py)],
+            Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
+        );
+    }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_waveform_lane(
     painter: &egui::Painter,
     rect: Rect,
     deck: &DeckState,
     waveform: Option<&WaveformSummary>,
+    cues: &[HotCueMeta; 4],
+    palette: &SkinPalette,
     accent: Color32,
     tag: &str,
+    zoom: WaveformZoom,
 ) {
     let mid_y = rect.center().y;
     painter.text(
@@ -745,31 +1009,37 @@ fn paint_waveform_lane(
 
     let bpm = (track.bpm * (1.0 + deck.pitch_bend_pct / 100.0)).max(20.0);
     let beat_sec = 60.0 / bpm;
-    let window_sec = 8.0_f64;
-    let start_t = deck.position_seconds - window_sec * 0.5;
+    let window_sec = zoom.window_seconds(track.duration_seconds);
+    let start_t = if zoom == WaveformZoom::FitAll {
+        0.0
+    } else {
+        deck.position_seconds - window_sec * 0.5
+    };
 
-    // Subtle full-height beatgrid lines behind waveform
-    let first_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
-    let last_beat = ((start_t + window_sec - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
-    for b in first_beat..=last_beat {
-        if b < 0 {
-            continue;
+    // Subtle full-height beatgrid lines behind waveform (skip in FitAll to keep track readable)
+    if zoom != WaveformZoom::FitAll {
+        let first_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
+        let last_beat = ((start_t + window_sec - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
+        for b in first_beat..=last_beat {
+            if b < 0 {
+                continue;
+            }
+            let t = deck.beatgrid_offset_sec + b as f64 * beat_sec;
+            let x = rect.left() + ((t - start_t) / window_sec) as f32 * rect.width();
+            let is_bar = b % 4 == 0;
+            let grid_col = if is_bar {
+                Color32::from_rgba_unmultiplied(248, 250, 252, 68)
+            } else {
+                Color32::from_rgba_unmultiplied(148, 163, 184, 24)
+            };
+            painter.line_segment(
+                [
+                    Pos2::new(x, rect.top() + 1.0),
+                    Pos2::new(x, rect.bottom() - 1.0),
+                ],
+                Stroke::new(if is_bar { 1.3 } else { 1.0 }, grid_col),
+            );
         }
-        let t = deck.beatgrid_offset_sec + b as f64 * beat_sec;
-        let x = rect.left() + ((t - start_t) / window_sec) as f32 * rect.width();
-        let is_bar = b % 4 == 0;
-        let grid_col = if is_bar {
-            Color32::from_rgba_unmultiplied(248, 250, 252, 68)
-        } else {
-            Color32::from_rgba_unmultiplied(148, 163, 184, 24)
-        };
-        painter.line_segment(
-            [
-                Pos2::new(x, rect.top() + 1.0),
-                Pos2::new(x, rect.bottom() - 1.0),
-            ],
-            Stroke::new(if is_bar { 1.3 } else { 1.0 }, grid_col),
-        );
     }
 
     // Active loop band highlight
@@ -825,21 +1095,46 @@ fn paint_waveform_lane(
         }
     }
 
-    // Hot cue markers
-    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate() {
+    // Hot cue markers (bold line + colored top flag badge)
+    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate().take(4) {
         if let Some(cue_t) = cue_opt {
             if *cue_t >= start_t && *cue_t <= start_t + window_sec {
                 let x = rect.left() + ((*cue_t - start_t) / window_sec) as f32 * rect.width();
-                let col = cue_flag_color(slot);
+                let col = cues[slot].resolved_color(slot, palette);
                 painter.line_segment(
                     [
-                        Pos2::new(x, rect.top() + 2.0),
-                        Pos2::new(x, rect.bottom() - 2.0),
+                        Pos2::new(x, rect.top() + 1.0),
+                        Pos2::new(x, rect.bottom() - 1.0),
                     ],
-                    Stroke::new(1.5, col),
+                    Stroke::new(2.2, col),
+                );
+                let flag_lbl = if cues[slot].label.trim().is_empty() {
+                    format!("{}", slot + 1)
+                } else {
+                    cues[slot].label.trim().chars().take(5).collect()
+                };
+                let pill_w = (flag_lbl.len() as f32 * 6.2 + 6.0).max(14.0);
+                let pill = Rect::from_min_size(Pos2::new(x + 1.0, rect.top() + 1.0), Vec2::new(pill_w, 12.0));
+                painter.rect_filled(pill, CornerRadius::same(2), col);
+                painter.text(
+                    pill.center(),
+                    Align2::CENTER_CENTER,
+                    flag_lbl,
+                    FontId::monospace(9.0),
+                    Color32::BLACK,
                 );
             }
         }
+    }
+
+    if zoom == WaveformZoom::FitAll {
+        let px = rect.left()
+            + (((deck.position_seconds - start_t) / window_sec).clamp(0.0, 1.0)) as f32
+                * rect.width();
+        painter.line_segment(
+            [Pos2::new(px, rect.top()), Pos2::new(px, rect.bottom())],
+            Stroke::new(2.0, Color32::from_rgb(239, 68, 68)),
+        );
     }
 }
 
@@ -848,6 +1143,7 @@ pub fn paint_overview_waveform(
     ui: &mut egui::Ui,
     deck: &DeckState,
     waveform: Option<&WaveformSummary>,
+    cues: &[HotCueMeta; 4],
     palette: &SkinPalette,
     height: f32,
 ) -> Option<f64> {
@@ -898,16 +1194,42 @@ pub fn paint_overview_waveform(
         }
     }
 
-    // Hot cue markers
-    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate() {
+    // High-visibility Hot Cue markers: dark contrast halo + 2.8px stem + top flag badge
+    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate().take(4) {
         if let Some(ct) = cue_opt {
             let x = rect.left() + ((*ct / dur).clamp(0.0, 1.0)) as f32 * rect.width();
+            let col = cues[slot].resolved_color(slot, palette);
+            // Dark halo so the cue stem pops over any spectral waveform color
             painter.line_segment(
-                [
-                    Pos2::new(x, rect.top() + 1.0),
-                    Pos2::new(x, rect.bottom() - 1.0),
-                ],
-                Stroke::new(1.5, cue_flag_color(slot)),
+                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                Stroke::new(5.0, Color32::from_rgba_unmultiplied(0, 0, 0, 185)),
+            );
+            painter.line_segment(
+                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                Stroke::new(2.8, col),
+            );
+            // Top colored flag badge with cue number or custom name
+            let badge_txt = if cues[slot].label.trim().is_empty() {
+                format!("{}", slot + 1)
+            } else {
+                cues[slot].label.trim().chars().take(5).collect()
+            };
+            let bw = (badge_txt.len() as f32 * 6.0 + 7.0).max(15.0);
+            let bx = (x - bw * 0.5).clamp(rect.left() + 1.0, rect.right() - bw - 1.0);
+            let badge = Rect::from_min_size(Pos2::new(bx, rect.top() + 1.0), Vec2::new(bw, 13.0));
+            painter.rect(
+                badge,
+                CornerRadius::same(3),
+                col,
+                Stroke::new(1.0, Color32::BLACK),
+                StrokeKind::Outside,
+            );
+            painter.text(
+                badge.center(),
+                Align2::CENTER_CENTER,
+                badge_txt,
+                FontId::monospace(9.5),
+                Color32::BLACK,
             );
         }
     }
