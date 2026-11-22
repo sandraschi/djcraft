@@ -35,5 +35,5 @@
 
 - [x] **Real desktop screenshots (dark + light modes)** committed to `docs/images/` and linked from `README.md` (`live-console-battle.png`, `live-console-shocking-pink-4deck.png`, `daylight-booth.png`, `crates-gig-prep.png`, attributed in `ATTRIBUTION.md`).
 - [ ] **Accessibility check (RFC-0014)**: keyboard shortcut path for every deck/mixer command, numeric entry alternatives for rotary knobs/faders, high-contrast light mode.
-- [ ] **Clean fresh-clone verification**: clone to a temp directory, run `cargo xtask ci` and `--smoke`, confirm zero warnings and zero stubs on public paths.
+- [x] **Clean fresh-clone verification**: cloned to `%TEMP%\djcraft-fresh-verify`, ran `cargo run -p xtask -- ci` (68 tests + `layers` + `assets`) and `--smoke` (`success: true`, `tofu_free: true`), and verified GitHub Actions CI green across `ubuntu-latest`, `macos-latest`, and `windows-latest` (`44979302899`).
 - [ ] **Submit** 4-field form at https://getartcraft.com/beta (App name, Email, Repo URL, Description).
