@@ -1270,3 +1270,51 @@ fn test_track_hot_cues_sqlite_persistence() {
 
     assert!(store.set_track_hot_cue(path, 4, Some(1.0)).is_err());
 }
+
+#[test]
+fn test_midi_xml_mapper_importers_and_extended_profiles() {
+    let mixxx_xml = r#"
+<MixxxControllerPreset>
+  <controller>
+    <controls>
+      <control>
+        <group>[Channel1]</group>
+        <key>play</key>
+        <status>0x90</status>
+        <midino>0x0B</midino>
+      </control>
+      <control>
+        <group>[Master]</group>
+        <key>crossfader</key>
+        <status>0xB6</status>
+        <midino>0x1F</midino>
+      </control>
+    </controls>
+  </controller>
+</MixxxControllerPreset>
+"#;
+    let m_rules = djcraft_core::parse_mixxx_midi_xml(mixxx_xml);
+    assert_eq!(m_rules.len(), 2);
+    assert_eq!(
+        m_rules[0].action,
+        MidiTargetAction::PlayPause(DeckId::DeckA)
+    );
+    assert_eq!(m_rules[1].action, MidiTargetAction::Crossfader);
+
+    let vdj_xml = r#"<map value="0x91 0x0C" action="deck 2 cue_default" />"#;
+    let v_rules = djcraft_core::parse_vdj_mapper_xml(vdj_xml);
+    assert_eq!(v_rules.len(), 1);
+    assert_eq!(
+        v_rules[0].action,
+        MidiTargetAction::CueReturn(DeckId::DeckB)
+    );
+
+    assert_eq!(
+        ControllerProfileId::auto_detect_from_port_name("Denon SC6000 Prime"),
+        ControllerProfileId::DenonSc6000
+    );
+    assert_eq!(
+        ControllerProfileId::auto_detect_from_port_name("Allen & Heath Xone:K2"),
+        ControllerProfileId::AllenHeathXoneK2
+    );
+}

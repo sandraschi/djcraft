@@ -843,6 +843,94 @@ fn paint_waveform_lane(
     }
 }
 
+/// Paint a clickable full-track RGB overview waveform strip (returns seek seconds on click/drag).
+pub fn paint_overview_waveform(
+    ui: &mut egui::Ui,
+    deck: &DeckState,
+    waveform: Option<&WaveformSummary>,
+    palette: &SkinPalette,
+    height: f32,
+) -> Option<f64> {
+    let w = ui.available_width().max(120.0);
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(w, height.max(22.0)), Sense::click_and_drag());
+    let painter = ui.painter_at(rect);
+    painter.rect(
+        rect,
+        CornerRadius::same(4),
+        palette.fader_slot,
+        Stroke::new(1.0, palette.card_border),
+        StrokeKind::Inside,
+    );
+
+    let track = deck.loaded_track.as_ref()?;
+    let dur = track.duration_seconds.max(1.0);
+    let cols = ((rect.width() / 2.0) as usize).clamp(48, 220);
+    let col_w = rect.width() / cols as f32;
+    let base_y = rect.bottom() - 2.0;
+    let max_h = rect.height() - 5.0;
+
+    if let Some(wf) = waveform {
+        let bins = wf.overview_peaks(cols);
+        for (i, (lo, mid, hi)) in bins.into_iter().enumerate() {
+            let peak = lo.max(mid).max(hi);
+            let (col, _) = rgb_waveform_color(lo, mid, hi);
+            let x = rect.left() + i as f32 * col_w + col_w * 0.5;
+            let h = (peak * max_h).max(1.5);
+            painter.line_segment(
+                [Pos2::new(x, base_y), Pos2::new(x, base_y - h)],
+                Stroke::new(1.6, col),
+            );
+        }
+    } else {
+        for i in 0..cols {
+            let frac = i as f64 / cols as f64;
+            let lo = (0.45 + 0.40 * (frac * 28.0).sin().abs()) as f32;
+            let mid = (0.35 + 0.35 * (frac * 19.0).cos().abs()) as f32;
+            let hi = (0.25 + 0.30 * (frac * 43.0).sin().abs()) as f32;
+            let (col, _) = rgb_waveform_color(lo, mid, hi);
+            let x = rect.left() + i as f32 * col_w + col_w * 0.5;
+            let h = (lo.max(mid).max(hi) * max_h).max(2.0);
+            painter.line_segment(
+                [Pos2::new(x, base_y), Pos2::new(x, base_y - h)],
+                Stroke::new(1.6, col),
+            );
+        }
+    }
+
+    // Hot cue markers
+    for (slot, cue_opt) in deck.hot_cue_seconds.iter().enumerate() {
+        if let Some(ct) = cue_opt {
+            let x = rect.left() + ((*ct / dur).clamp(0.0, 1.0)) as f32 * rect.width();
+            painter.line_segment(
+                [
+                    Pos2::new(x, rect.top() + 1.0),
+                    Pos2::new(x, rect.bottom() - 1.0),
+                ],
+                Stroke::new(1.5, cue_flag_color(slot)),
+            );
+        }
+    }
+
+    // Playhead
+    let px = rect.left() + ((deck.position_seconds / dur).clamp(0.0, 1.0)) as f32 * rect.width();
+    painter.line_segment(
+        [Pos2::new(px, rect.top()), Pos2::new(px, rect.bottom())],
+        Stroke::new(2.0, Color32::WHITE),
+    );
+
+    let _ = resp
+        .clone()
+        .on_hover_text("Click or drag to needle-drop seek");
+    if resp.clicked() || resp.dragged() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let frac = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0) as f64;
+            return Some(frac * dur);
+        }
+    }
+    None
+}
+
 /// Live scratch interaction output from the motorized vinyl platter.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PlatterResponse {

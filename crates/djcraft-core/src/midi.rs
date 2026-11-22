@@ -25,15 +25,21 @@ pub enum ControllerProfileId {
     RaneSeventyTwoMk2,
     PioneerDdjFlx4,
     HerculesDjControl,
+    DenonSc6000,
+    NumarkMixtrackProFx,
+    AllenHeathXoneK2,
     CustomLearn,
 }
 
 impl ControllerProfileId {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 8] = [
         Self::RaneTwelveMk2,
         Self::RaneSeventyTwoMk2,
         Self::PioneerDdjFlx4,
         Self::HerculesDjControl,
+        Self::DenonSc6000,
+        Self::NumarkMixtrackProFx,
+        Self::AllenHeathXoneK2,
         Self::CustomLearn,
     ];
 
@@ -43,6 +49,9 @@ impl ControllerProfileId {
             Self::RaneSeventyTwoMk2 => "Rane Seventy-Two MKII (Battle Mixer)",
             Self::PioneerDdjFlx4 => "Pioneer DDJ-FLX4 / DDJ-400",
             Self::HerculesDjControl => "Hercules DJControl",
+            Self::DenonSc6000 => "Denon DJ SC6000 / Prime",
+            Self::NumarkMixtrackProFx => "Numark Mixtrack Pro FX",
+            Self::AllenHeathXoneK2 => "Allen & Heath Xone:K2",
             Self::CustomLearn => "Custom MIDI Learn",
         }
     }
@@ -58,6 +67,12 @@ impl ControllerProfileId {
             Self::PioneerDdjFlx4
         } else if lc.contains("hercules") || lc.contains("djcontrol") {
             Self::HerculesDjControl
+        } else if lc.contains("denon") || lc.contains("sc6000") || lc.contains("prime") {
+            Self::DenonSc6000
+        } else if lc.contains("numark") || lc.contains("mixtrack") {
+            Self::NumarkMixtrackProFx
+        } else if lc.contains("xone") || lc.contains("allen") {
+            Self::AllenHeathXoneK2
         } else {
             Self::CustomLearn
         }
@@ -403,6 +418,117 @@ pub fn builtin_profile_rules(profile: ControllerProfileId) -> Vec<MidiMappingRul
                 });
             }
         }
+        ControllerProfileId::DenonSc6000 => {
+            for (ch, deck) in [(0u8, DeckId::DeckA), (1u8, DeckId::DeckB)] {
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::NoteOn,
+                        channel: ch,
+                        number: 0x01,
+                    },
+                    action: MidiTargetAction::PlayPause(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::NoteOn,
+                        channel: ch,
+                        number: 0x02,
+                    },
+                    action: MidiTargetAction::CueReturn(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x09,
+                    },
+                    action: MidiTargetAction::DeckPitch(deck),
+                });
+                for slot in 0u8..4 {
+                    rules.push(MidiMappingRule {
+                        key: MidiBindingKey {
+                            kind: MidiMsgKind::NoteOn,
+                            channel: ch,
+                            number: 0x10 + slot,
+                        },
+                        action: MidiTargetAction::HotCue(deck, slot),
+                    });
+                }
+            }
+        }
+        ControllerProfileId::NumarkMixtrackProFx => {
+            rules.push(MidiMappingRule {
+                key: MidiBindingKey {
+                    kind: MidiMsgKind::ControlChange,
+                    channel: 15,
+                    number: 0x08,
+                },
+                action: MidiTargetAction::Crossfader,
+            });
+            for (ch, deck) in [(0u8, DeckId::DeckA), (1u8, DeckId::DeckB)] {
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::NoteOn,
+                        channel: ch,
+                        number: 0x00,
+                    },
+                    action: MidiTargetAction::PlayPause(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::NoteOn,
+                        channel: ch,
+                        number: 0x01,
+                    },
+                    action: MidiTargetAction::CueReturn(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x1C,
+                    },
+                    action: MidiTargetAction::DeckVolume(deck),
+                });
+            }
+        }
+        ControllerProfileId::AllenHeathXoneK2 => {
+            for (idx, deck) in [DeckId::DeckA, DeckId::DeckB].into_iter().enumerate() {
+                let base_cc = (idx as u8) * 4;
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: 14,
+                        number: 0x10 + base_cc,
+                    },
+                    action: MidiTargetAction::DeckVolume(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: 14,
+                        number: 0x04 + base_cc,
+                    },
+                    action: MidiTargetAction::DeckEqHigh(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: 14,
+                        number: 0x08 + base_cc,
+                    },
+                    action: MidiTargetAction::DeckEqMid(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: 14,
+                        number: 0x0C + base_cc,
+                    },
+                    action: MidiTargetAction::DeckEqLow(deck),
+                });
+            }
+        }
         ControllerProfileId::CustomLearn => {}
     }
     rules
@@ -616,4 +742,170 @@ impl MidiControllerManager {
             }
         }
     }
+
+    /// Import MIDI mapping rules from a user's local VirtualDJ or Mixxx XML mapper file.
+    pub fn import_xml_mapper_file(&mut self, path: &std::path::Path) -> Result<usize, DjError> {
+        let xml = std::fs::read_to_string(path)
+            .map_err(|e| DjError::Deck(format!("Cannot read MIDI XML {}: {e}", path.display())))?;
+        let mut parsed = parse_mixxx_midi_xml(&xml);
+        if parsed.is_empty() {
+            parsed = parse_vdj_mapper_xml(&xml);
+        }
+        let mut added = 0usize;
+        for rule in parsed {
+            self.rules.retain(|r| r.key != rule.key);
+            self.rules.push(rule);
+            added += 1;
+        }
+        if added > 0 {
+            self.active_profile = ControllerProfileId::CustomLearn;
+            self.save_custom_rules();
+        }
+        Ok(added)
+    }
+}
+
+fn xml_attr<'a>(block: &'a str, key: &str) -> Option<&'a str> {
+    let needle = format!("{key}=\"");
+    let start = block.find(&needle)? + needle.len();
+    let rest = &block[start..];
+    let end = rest.find('"')?;
+    Some(&rest[..end])
+}
+
+fn map_action_name_to_target(group: &str, key: &str) -> Option<MidiTargetAction> {
+    let g = group.to_lowercase();
+    let k = key.to_lowercase();
+    let deck = if g.contains("channel2")
+        || g.contains("deck 2")
+        || g.contains("deck b")
+        || k.contains("deck 2")
+    {
+        DeckId::DeckB
+    } else if g.contains("channel3") || g.contains("deck 3") || g.contains("deck c") {
+        DeckId::DeckC
+    } else if g.contains("channel4") || g.contains("deck 4") || g.contains("deck d") {
+        DeckId::DeckD
+    } else {
+        DeckId::DeckA
+    };
+
+    if k.contains("crossfader") {
+        Some(MidiTargetAction::Crossfader)
+    } else if k.contains("play") {
+        Some(MidiTargetAction::PlayPause(deck))
+    } else if k.contains("cue_default") || k == "cue" {
+        Some(MidiTargetAction::CueReturn(deck))
+    } else if k.contains("volume") || k.contains("level") {
+        Some(MidiTargetAction::DeckVolume(deck))
+    } else if k.contains("rate") || k.contains("pitch") {
+        Some(MidiTargetAction::DeckPitch(deck))
+    } else if k.contains("filterhigh") || k.contains("eq_high") {
+        Some(MidiTargetAction::DeckEqHigh(deck))
+    } else if k.contains("filtermid") || k.contains("eq_mid") {
+        Some(MidiTargetAction::DeckEqMid(deck))
+    } else if k.contains("filterlow") || k.contains("eq_low") {
+        Some(MidiTargetAction::DeckEqLow(deck))
+    } else if k.contains("hotcue_1") || k.contains("hot_cue 1") {
+        Some(MidiTargetAction::HotCue(deck, 0))
+    } else if k.contains("hotcue_2") || k.contains("hot_cue 2") {
+        Some(MidiTargetAction::HotCue(deck, 1))
+    } else if k.contains("hotcue_3") || k.contains("hot_cue 3") {
+        Some(MidiTargetAction::HotCue(deck, 2))
+    } else if k.contains("hotcue_4") || k.contains("hot_cue 4") {
+        Some(MidiTargetAction::HotCue(deck, 3))
+    } else {
+        None
+    }
+}
+
+/// Parse user-supplied Mixxx `.midi.xml` `<control>` blocks into DJCraft `MidiMappingRule`s.
+pub fn parse_mixxx_midi_xml(xml: &str) -> Vec<MidiMappingRule> {
+    let mut rules = Vec::new();
+    let mut rest = xml;
+    while let Some(pos) = rest.find("<control>") {
+        let after = &rest[pos + 9..];
+        let Some(end) = after.find("</control>") else {
+            break;
+        };
+        let block = &after[..end];
+        let extract_tag = |tag: &str| -> Option<String> {
+            let open = format!("<{tag}>");
+            let close = format!("</{tag}>");
+            let s = block.find(&open)? + open.len();
+            let e = block[s..].find(&close)?;
+            Some(block[s..s + e].trim().to_string())
+        };
+        if let (Some(group), Some(key_name), Some(status_s), Some(midino_s)) = (
+            extract_tag("group"),
+            extract_tag("key"),
+            extract_tag("status"),
+            extract_tag("midino"),
+        ) {
+            let status = u8::from_str_radix(status_s.trim_start_matches("0x"), 16).unwrap_or(0);
+            let midino = u8::from_str_radix(midino_s.trim_start_matches("0x"), 16).unwrap_or(0);
+            let kind = match status & 0xF0 {
+                0x90 => Some(MidiMsgKind::NoteOn),
+                0xB0 => Some(MidiMsgKind::ControlChange),
+                _ => None,
+            };
+            if let (Some(kind), Some(action)) = (kind, map_action_name_to_target(&group, &key_name))
+            {
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind,
+                        channel: status & 0x0F,
+                        number: midino & 0x7F,
+                    },
+                    action,
+                });
+            }
+        }
+        rest = &after[end + 10..];
+    }
+    rules
+}
+
+/// Parse user-supplied VirtualDJ `.xml` `<map value="..." action="..." />` entries.
+pub fn parse_vdj_mapper_xml(xml: &str) -> Vec<MidiMappingRule> {
+    let mut rules = Vec::new();
+    for line in xml.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("<map ") {
+            continue;
+        }
+        let (Some(val), Some(act)) = (xml_attr(trimmed, "value"), xml_attr(trimmed, "action"))
+        else {
+            continue;
+        };
+        // Expect formats like "0x90 0x0B" or "CC 1 19" or "NOTE 0 11"
+        let parts: Vec<&str> = val.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let parse_byte = |s: &str| -> Option<u8> {
+                if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                    u8::from_str_radix(hex, 16).ok()
+                } else {
+                    s.parse::<u8>().ok()
+                }
+            };
+            if let (Some(status), Some(num)) = (parse_byte(parts[0]), parse_byte(parts[1])) {
+                let kind = match status & 0xF0 {
+                    0x90 => Some(MidiMsgKind::NoteOn),
+                    0xB0 => Some(MidiMsgKind::ControlChange),
+                    _ => None,
+                };
+                if let (Some(kind), Some(action)) = (kind, map_action_name_to_target(act, act)) {
+                    rules.push(MidiMappingRule {
+                        key: MidiBindingKey {
+                            kind,
+                            channel: status & 0x0F,
+                            number: num & 0x7F,
+                        },
+                        action,
+                    });
+                }
+            }
+        }
+    }
+    rules
 }

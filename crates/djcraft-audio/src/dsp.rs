@@ -464,6 +464,54 @@ impl WaveformSummary {
             self.high_peaks[idx],
         )
     }
+
+    /// Downsample the full track into `bins` `(low, mid, high)` peak tuples for overview rendering.
+    pub fn overview_peaks(&self, bins: usize) -> Vec<(f32, f32, f32)> {
+        let len = self.low_peaks.len();
+        if len == 0 || bins == 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::with_capacity(bins);
+        for b in 0..bins {
+            let start = b * len / bins;
+            let end = ((b + 1) * len / bins).max(start + 1).min(len);
+            let mut lo = 0.0_f32;
+            let mut mid = 0.0_f32;
+            let mut hi = 0.0_f32;
+            for i in start..end {
+                lo = lo.max(self.low_peaks[i]);
+                mid = mid.max(self.mid_peaks.get(i).copied().unwrap_or(0.0));
+                hi = hi.max(self.high_peaks[i]);
+            }
+            out.push((lo, mid, hi));
+        }
+        out
+    }
+}
+
+/// Compute a gentle LUFS-style auto-gain linear multiplier (clamped `0.45..=1.35`)
+/// targeting `-14 dBFS` RMS so quiet vintage tracks and loud masters match levels.
+pub fn compute_auto_gain_linear(audio: &DecodedAudio) -> f64 {
+    let n = audio.len_frames();
+    if n == 0 {
+        return 1.0;
+    }
+    let step = (n / 8000).max(1);
+    let mut sum_sq = 0.0_f64;
+    let mut count = 0usize;
+    let mut i = 0;
+    while i < n {
+        let m = 0.5 * (audio.left[i] as f64 + audio.right[i] as f64);
+        sum_sq += m * m;
+        count += 1;
+        i += step;
+    }
+    let rms = (sum_sq / count.max(1) as f64).sqrt();
+    if rms < 1e-4 {
+        return 1.0;
+    }
+    let target_rms = 0.20; // ~ -14 dBFS
+    (target_rms / rms).clamp(0.45, 1.35)
 }
 
 /// Real-time stereo 3-band DJ kill EQ (Low < 250 Hz, Mid 250-2500 Hz, High > 2500 Hz).

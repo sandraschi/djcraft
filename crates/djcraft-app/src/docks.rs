@@ -429,6 +429,22 @@ impl super::DjCraftApp {
                         }
                     });
                 ui.monospace(format!("({} rules)", self.midi.rules.len()));
+                if ui.small_button("Import XML Mapper...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("MIDI Mapper XML", &["xml"])
+                        .pick_file()
+                    {
+                        match self.midi.import_xml_mapper_file(&path) {
+                            Ok(n) => {
+                                self.status_msg = format!(
+                                    "Imported {n} MIDI mapping rule(s) from {}",
+                                    path.display()
+                                )
+                            }
+                            Err(e) => self.status_msg = format!("XML import error: {e}"),
+                        }
+                    }
+                }
             });
 
             ui.add_space(4.0);

@@ -6,6 +6,7 @@ mod crate_view;
 mod docks;
 mod fx_rack;
 mod performance_strips;
+mod settings;
 mod skins;
 mod studio_dock;
 mod theme;
@@ -184,6 +185,26 @@ struct UiPrefs {
     vertical_waveforms: bool,
     #[serde(default)]
     booth_strip: BoothStripTab,
+    #[serde(default = "default_true")]
+    auto_gain_enabled: bool,
+    #[serde(default = "default_pitch_range")]
+    pitch_range_pct: f64,
+    #[serde(default)]
+    quantize_default: bool,
+    #[serde(default = "default_auto_dj_fade")]
+    auto_dj_fade_sec: f64,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_pitch_range() -> f64 {
+    16.0
+}
+
+fn default_auto_dj_fade() -> f64 {
+    8.0
 }
 
 fn default_last_dark() -> SkinId {
@@ -207,6 +228,10 @@ impl Default for UiPrefs {
             show_live_sampler_strip: false,
             vertical_waveforms: false,
             booth_strip: BoothStripTab::None,
+            auto_gain_enabled: true,
+            pitch_range_pct: 16.0,
+            quantize_default: false,
+            auto_dj_fade_sec: 8.0,
         }
     }
 }
@@ -345,7 +370,13 @@ pub struct DjCraftApp {
     dvs_telemetry: DvsTelemetry,
     fleet_last_output: String,
 
-    // Help Suite modals
+    // Help Suite & Settings/Chat modals
+    show_settings: bool,
+    settings_tab: settings::SettingsTab,
+    show_chat_drawer: bool,
+    auto_dj_enabled: bool,
+    auto_dj_fading: bool,
+    auto_dj_target_xf: f64,
     show_command_palette: bool,
     palette_query: String,
     show_shortcuts_dialog: bool,
@@ -489,6 +520,12 @@ impl DjCraftApp {
             dvs_telemetry: DvsTelemetry::default(),
             fleet_last_output: "Click Probe Fleet to check local MCP services.".to_string(),
 
+            show_settings: false,
+            settings_tab: settings::SettingsTab::Audio,
+            show_chat_drawer: false,
+            auto_dj_enabled: false,
+            auto_dj_fading: false,
+            auto_dj_target_xf: 1.0,
             show_command_palette: false,
             palette_query: String::new(),
             show_shortcuts_dialog: false,
@@ -574,6 +611,16 @@ impl DjCraftApp {
                         pos
                     );
                 } else {
+                    if self.orch.deck(deck).quantize {
+                        let d = self.orch.deck_mut(deck);
+                        if let Some(t) = &d.loaded_track {
+                            let bpm = (t.bpm * (1.0 + d.pitch_bend_pct / 100.0)).max(20.0);
+                            let beat_sec = 60.0 / bpm;
+                            let n =
+                                ((d.position_seconds - d.beatgrid_offset_sec) / beat_sec).round();
+                            d.position_seconds = (d.beatgrid_offset_sec + n * beat_sec).max(0.0);
+                        }
+                    }
                     self.dispatch_and_report(Command::SetHotCue {
                         deck,
                         slot: pad_idx,
@@ -1372,12 +1419,13 @@ impl DjCraftApp {
                     }
 
                     let mut pitch = d.pitch_bend_pct;
+                    let prange = self.prefs.pitch_range_pct.max(4.0);
                     let pf = widgets::vertical_fader(
                         ui,
                         &format!("{pitch:+.1}%"),
                         &mut pitch,
-                        -16.0,
-                        16.0,
+                        -prange,
+                        prange,
                         0.0,
                         78.0,
                         accent,
@@ -1767,7 +1815,19 @@ impl DjCraftApp {
                 });
             });
 
-            ui.add_space(6.0);
+            ui.add_space(4.0);
+            if let Some(seek_sec) = widgets::paint_overview_waveform(
+                ui,
+                &d,
+                self.deck_waveforms[idx].as_ref(),
+                palette,
+                22.0,
+            ) {
+                let st = self.orch.deck_mut(deck_id);
+                st.position_seconds = seek_sec;
+                st.seek_gen = st.seek_gen.wrapping_add(1);
+            }
+            ui.add_space(4.0);
 
             // Motorized Platter (interactive vinyl scratching!) + Vertical Pitch Fader
             theme::card_frame(ui, palette, |ui| {
@@ -1792,12 +1852,13 @@ impl DjCraftApp {
 
                     ui.add_space(6.0);
                     let mut pitch = d.pitch_bend_pct;
+                    let prange = self.prefs.pitch_range_pct.max(4.0);
                     let pf = widgets::vertical_fader(
                         ui,
                         &format!("{pitch:+.1}%"),
                         &mut pitch,
-                        -16.0,
-                        16.0,
+                        -prange,
+                        prange,
                         0.0,
                         120.0,
                         accent,
@@ -2070,21 +2131,40 @@ impl eframe::App for DjCraftApp {
 
         // Global shortcuts (NEVER call ctx.* inside ctx.input() -- egui RwLock deadlock!)
         let wants_kb = ctx.egui_wants_keyboard_input();
-        let (k_palette, k_palette_shift, k_f1, k_undo, k_redo, k_new, k_zoom0, k_space, k_shift) =
-            ctx.input(|i| {
-                let cmd_mod = i.modifiers.ctrl || i.modifiers.command;
-                (
-                    cmd_mod && i.key_pressed(egui::Key::K),
-                    cmd_mod && i.modifiers.shift && i.key_pressed(egui::Key::P),
-                    i.key_pressed(egui::Key::F1),
-                    cmd_mod && i.key_pressed(egui::Key::Z),
-                    cmd_mod && i.key_pressed(egui::Key::Y),
-                    cmd_mod && i.key_pressed(egui::Key::N),
-                    cmd_mod && i.key_pressed(egui::Key::Num0),
-                    i.key_pressed(egui::Key::Space),
-                    i.modifiers.shift,
-                )
-            });
+        let (
+            k_palette,
+            k_palette_shift,
+            k_f1,
+            k_undo,
+            k_redo,
+            k_new,
+            k_zoom0,
+            k_space,
+            k_shift,
+            k_settings,
+            k_chat,
+        ) = ctx.input(|i| {
+            let cmd_mod = i.modifiers.ctrl || i.modifiers.command;
+            (
+                cmd_mod && i.key_pressed(egui::Key::K),
+                cmd_mod && i.modifiers.shift && i.key_pressed(egui::Key::P),
+                i.key_pressed(egui::Key::F1),
+                cmd_mod && i.key_pressed(egui::Key::Z),
+                cmd_mod && i.key_pressed(egui::Key::Y),
+                cmd_mod && i.key_pressed(egui::Key::N),
+                cmd_mod && i.key_pressed(egui::Key::Num0),
+                i.key_pressed(egui::Key::Space),
+                i.modifiers.shift,
+                cmd_mod && i.key_pressed(egui::Key::Comma),
+                cmd_mod && i.key_pressed(egui::Key::L),
+            )
+        });
+        if k_settings {
+            self.show_settings = !self.show_settings;
+        }
+        if k_chat {
+            self.show_chat_drawer = !self.show_chat_drawer;
+        }
         if k_palette {
             self.show_command_palette = !self.show_command_palette;
         }
@@ -2162,6 +2242,67 @@ impl eframe::App for DjCraftApp {
                 self.platter_angles[i] += (0.04 * rate as f32) * (dt_vis / 0.016);
                 d.position_seconds += dt_play * rate;
                 any_playing = true;
+            }
+        }
+
+        // Auto-DJ Automix Queue: trigger crossfade to next crate track near outro
+        if self.auto_dj_enabled && !self.crate_results.is_empty() {
+            let fade_sec = self.prefs.auto_dj_fade_sec.max(2.0);
+            if self.auto_dj_fading {
+                let step = (2.0 / fade_sec) * dt_play;
+                if self.auto_dj_target_xf > 0.0 {
+                    self.orch.crossfader = (self.orch.crossfader + step).min(1.0);
+                    if self.orch.crossfader >= 0.99 {
+                        self.orch.crossfader = 1.0;
+                        self.orch.deck_a.is_playing = false;
+                        self.auto_dj_fading = false;
+                    }
+                } else {
+                    self.orch.crossfader = (self.orch.crossfader - step).max(-1.0);
+                    if self.orch.crossfader <= -0.99 {
+                        self.orch.crossfader = -1.0;
+                        self.orch.deck_b.is_playing = false;
+                        self.auto_dj_fading = false;
+                    }
+                }
+            } else {
+                let a_rem = self
+                    .orch
+                    .deck_a
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| t.duration_seconds - self.orch.deck_a.position_seconds);
+                let b_rem = self
+                    .orch
+                    .deck_b
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| t.duration_seconds - self.orch.deck_b.position_seconds);
+                if self.orch.deck_a.is_playing
+                    && !self.orch.deck_b.is_playing
+                    && a_rem.map(|r| r <= fade_sec + 2.0).unwrap_or(false)
+                {
+                    let idx = self.crate_cursor_b % self.crate_results.len();
+                    self.crate_cursor_b = idx + 1;
+                    let tr = self.crate_results[idx].clone();
+                    self.load_crate_track_to_deck(DeckId::DeckB, &tr);
+                    self.orch.deck_b.is_playing = true;
+                    self.auto_dj_target_xf = 1.0;
+                    self.auto_dj_fading = true;
+                    self.status_msg = format!("Auto-DJ: mixing in '{}' on Deck B", tr.title);
+                } else if self.orch.deck_b.is_playing
+                    && !self.orch.deck_a.is_playing
+                    && b_rem.map(|r| r <= fade_sec + 2.0).unwrap_or(false)
+                {
+                    let idx = self.crate_cursor_a % self.crate_results.len();
+                    self.crate_cursor_a = idx + 1;
+                    let tr = self.crate_results[idx].clone();
+                    self.load_crate_track_to_deck(DeckId::DeckA, &tr);
+                    self.orch.deck_a.is_playing = true;
+                    self.auto_dj_target_xf = -1.0;
+                    self.auto_dj_fading = true;
+                    self.status_msg = format!("Auto-DJ: mixing in '{}' on Deck A", tr.title);
+                }
             }
         }
 
@@ -2545,8 +2686,10 @@ impl eframe::App for DjCraftApp {
             });
         });
 
-        // 2. HELP MODALS (Command Palette, Shortcuts, Help Center, Licenses, About)
+        // 2. HELP MODALS, SETTINGS & CHAT DRAWER
         self.render_modals(&ctx);
+        self.render_settings_modal(&ctx, &palette);
+        self.render_chat_drawer(ui, &palette);
 
         // 3. TOP WORKSPACE SWITCHER + QUICK BAR + PARALLEL STACKED WAVEFORMS BANNER
         egui::Panel::top("parallel_waveforms_bar").show(ui, |ui| {
@@ -2704,6 +2847,57 @@ impl eframe::App for DjCraftApp {
 
                 if ui.small_button("Stop All").clicked() {
                     self.execute_catalog_id("deck.stop_all");
+                }
+                let autodj_btn = egui::Button::new(
+                    egui::RichText::new(if self.auto_dj_enabled {
+                        "AUTO-DJ ON"
+                    } else {
+                        "Auto-DJ"
+                    })
+                    .small()
+                    .color(if self.auto_dj_enabled {
+                        egui::Color32::WHITE
+                    } else {
+                        palette.text_primary
+                    }),
+                )
+                .small()
+                .fill(if self.auto_dj_enabled {
+                    egui::Color32::from_rgb(22, 163, 74)
+                } else {
+                    palette.card_fill
+                });
+                if ui
+                    .add(autodj_btn)
+                    .on_hover_text("Toggle Auto-DJ Automix Queue")
+                    .clicked()
+                {
+                    self.auto_dj_enabled = !self.auto_dj_enabled;
+                    self.status_msg = format!(
+                        "Auto-DJ {}",
+                        if self.auto_dj_enabled { "ON" } else { "OFF" }
+                    );
+                }
+                let chat_btn = egui::Button::new("Chat")
+                    .small()
+                    .fill(if self.show_chat_drawer {
+                        palette.deck_a
+                    } else {
+                        palette.card_fill
+                    });
+                if ui
+                    .add(chat_btn)
+                    .on_hover_text("Toggle Booth AI & Crate Assistant (Ctrl+L)")
+                    .clicked()
+                {
+                    self.show_chat_drawer = !self.show_chat_drawer;
+                }
+                if ui
+                    .small_button("Settings")
+                    .on_hover_text("Open Settings (Ctrl+,)")
+                    .clicked()
+                {
+                    self.show_settings = true;
                 }
                 ui.separator();
                 ui.label(egui::RichText::new(&self.status_msg).color(palette.text_secondary));

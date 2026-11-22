@@ -87,6 +87,14 @@ pub struct DeckState {
     pub scratch_velocity: Option<f64>,
     #[serde(default)]
     pub slip_mode: bool,
+    #[serde(default)]
+    pub quantize: bool,
+    #[serde(default = "default_pitch_range")]
+    pub pitch_range_pct: f64,
+}
+
+fn default_pitch_range() -> f64 {
+    16.0
 }
 
 pub struct AudioEngine;
@@ -118,6 +126,8 @@ impl AudioEngine {
             seek_gen: 0,
             scratch_velocity: None,
             slip_mode: false,
+            quantize: false,
+            pitch_range_pct: 16.0,
         }
     }
 

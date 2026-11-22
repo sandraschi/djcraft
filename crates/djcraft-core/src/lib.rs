@@ -29,8 +29,9 @@ pub use fleet_ai::{
 };
 pub use link::{LinkBeacon, LinkEngine};
 pub use midi::{
-    action_to_command, builtin_profile_rules, parse_raw_midi, ControllerProfileId, MidiBindingKey,
-    MidiControllerManager, MidiMappingRule, MidiMsgKind, MidiTargetAction, RawMidiEvent,
+    action_to_command, builtin_profile_rules, parse_mixxx_midi_xml, parse_raw_midi,
+    parse_vdj_mapper_xml, ControllerProfileId, MidiBindingKey, MidiControllerManager,
+    MidiMappingRule, MidiMsgKind, MidiTargetAction, RawMidiEvent,
 };
 pub use mixxxxx_osc::{
     encode_osc_message, ping_mixxxxx, resolve_mixxxxx_binary, send_deck_video_controls,
