@@ -1,7 +1,9 @@
-## [0.2.2] - 2026-11-22
+## [0.4.0] - 2026-11-23
 
 ### Highlights
-- **DVS Timecode Vinyl (`djcraft-audio/src/dvs.rs`)**: 100% Safe Rust quadrature stereo decoder (`1000 Hz` / `2000 Hz` control vinyl) + live `cpal` audio input routing speed, direction, and pitch directly to Deck A/B.
-- **Pure-Rust UDP Multicast Link (`djcraft-core/src/link.rs`)**: Clean-room beat & tempo sync (`224.76.78.75:20808`, zero GPL) with a top-bar `LINK` toggle pill and peer counter.
-- **3-Band RGB Spectral Waveforms (`dsp.rs`, `widgets.rs`)**: `<250 Hz` Crimson/Red, `250-2500 Hz` Emerald/Lime, `>2500 Hz` Electric Cyan with white-hot transient cores, beatgrid lines, loop highlights, and colored cue flags.
-- **Daylight Black Text & Visible Backdrops (`skins.rs`)**: Pure black (`#000000`) primary text in Daylight Booth mode and high-contrast `BrushedMetal` / `CarbonWeave` textures.
+- **Full-Window 2-Pane Settings Workspace (`Ctrl+,`)**: Replaces the small settings modal with a dedicated 7-category workspace (`Appearance & Skins`, `Booth Layouts`, `Audio & Headphone Cue`, `Decks & Beatgrid`, `MIDI & DVS Timecode`, `Auto-DJ & Recording`, `AI & External Bridges`).
+- **7 Serato / VirtualDJ Booth Layout Presets**: One-click `Layouts` switcher (`Classic 2-Deck`, `Serato Vertical`, `Extended 4-Deck`, `Scratch / Battle Focus`, `Performance`, `Library / Gig Prep`, `Video / VJ Booth`).
+- **New Skins, Bold Card Decorations & Visible Backdrops**: Added **Star Trek LCARS**, **Baroque Velvet & Gold**, and **Synthwave Outrun** skins (9 total), 5 card decoration styles (`Clean`, `Drop Shadow`, `Neon Glow`, `Baroque Double Frame`, `LCARS Bracket`), live border/opacity/color-boost/pattern-intensity sliders, and **Starfield Warp** & **Baroque Gold Damask** backdrops.
+- **Waveform Magnification & High-Visibility Hot Cues**: Added `-` / Zoom dropdown (`Show All` to `16x`) / `+` / `ALL` controls on both horizontal and vertical waveforms, bold scrubber cue flag badges, and right-click Hot Cue context menus (rename, 8-color swatches, `Standard` / `Gate Hold` / `Auto-Loop 4` / `Cue & Pause` behaviors, Clear).
+- **Multi-Provider AI Booth Assistant**: Provider dropdown (`Ollama`, `LM Studio`, `OpenAI`, `Anthropic`, `Google Gemini`, `OpenRouter`, `Custom`), live Ollama/API model dropdown with Refresh, and masked API key input with env-var fallback.
+- **Balanced Battle Mixer Layout**: Eliminated empty right-side space in wide Battle Mixer cards and scaled Studio Beatmaker step pads to full card width.

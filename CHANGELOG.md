@@ -4,6 +4,29 @@ All notable changes to DJCraft are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-23
+
+### Added
+- **Full-Window 2-Pane Settings Workspace (`WorkspaceMode::Settings`, `Ctrl+,`)**:
+  - Replaced the cramped floating settings modal with a dedicated 2-pane Settings workspace (`Appearance & Skins`, `Booth Layouts`, `Audio & Headphone Cue`, `Decks & Beatgrid`, `MIDI & DVS Timecode`, `Auto-DJ & Recording`, `AI & External Bridges`).
+- **7 Serato / VirtualDJ Favorite Booth Layout Presets**:
+  - One-click **Layouts** menu & Settings presets: `Classic 2-Deck`, `Serato Vertical`, `Extended 4-Deck`, `Scratch / Battle Focus`, `Performance (Sampler + FX)`, `Library / Gig Prep`, and `Video / VJ Booth`.
+- **New Skins, Bold Card Decorations & Visible Background Patterns (`skins.rs`, `theme.rs`)**:
+  - Added **Star Trek LCARS**, **Baroque Velvet & Gold**, and **Synthwave Outrun** skins (9 curated skins total).
+  - Added 5 card decoration styles (`Clean Flat`, `Bold Drop Shadow`, `Neon Outer Glow`, `Baroque Double Frame`, `LCARS Starfleet Bracket`) plus live sliders for Border Thickness, Card Opacity, Color Richness / Accent Boost, and Background Pattern Intensity.
+  - Added **Starfield Warp (LCARS)** and **Baroque Gold Damask** animated/ornate backdrops and boosted contrast on all background patterns.
+- **Waveform Magnification Controls (`widgets.rs`, `main.rs`)**:
+  - Added `-` / Zoom dropdown (`Show All`, `1x`, `2x`, `4x`, `8x`, `16x`) / `+` / `ALL` controls on both horizontal parallel waveforms and vertical waveforms.
+- **High-Visibility Scrubber Cue Flags & Right-Click Hot Cue Menu (`widgets.rs`, `main.rs`)**:
+  - Upgraded overview scrubber cue markers with dark contrast halos, 2.8px stems, and colored top flag badges.
+  - Right-clicking any `CUE 1..4` pad opens a context menu to rename the cue (`Intro`, `Drop`, `Break`, `Vocal`, `Outro`), pick from 8 vivid colors, assign special trigger behaviors (`Standard`, `Gate Hold`, `Auto-Loop 4 Bars`, `Cue & Pause`), or clear the cue.
+- **Multi-Provider AI Booth Assistant (`fleet_ai.rs`, `docks.rs`, `settings.rs`)**:
+  - Added Provider selector (`Ollama`, `LM Studio`, `OpenAI`, `Anthropic`, `Google Gemini`, `OpenRouter`, `Custom`), live model auto-discovery dropdown (`/api/tags` + `/v1/models`) with Refresh + custom override, and password-masked API key input with automatic env-var fallback.
+
+### Fixed
+- **Battle Mixer & Studio Beatmaker Layout (`battle_mixer.rs`, `studio_dock.rs`)**:
+  - Switched wide Battle Mixer cards (`>= 640px`) to a balanced 2-column layout (Hardware Mixer left, Headphone PFL & Mix Recorder right) and scaled Studio Beatmaker step pads to fill card width, eliminating dead empty space in light and dark modes.
+
 ## [0.3.0] - 2026-11-22
 
 ### Added

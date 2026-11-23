@@ -56,3 +56,5 @@ djcraft-cli analyze-dettato "D:\audio\track.mp3" --device cuda
   - `djcraft_crates_list`
   - `djcraft_crate_import`
   - `djcraft_crate_export`
+
+See [docs/CLI_AND_MCP.md](CLI_AND_MCP.md) for the complete 27-command `djcraft-cli` reference, all `config-set` keys, and the full 25-tool `djcraft-mcp` parity table.
