@@ -22,6 +22,9 @@ Control DJCraft over local Wi-Fi from any iPad or tablet browser — zero Apple 
   - **MIXER & DECKS**: Deck A/B transport, `LOOP 4`, Beatjump (`-4/-1/+1/+4`), custom-colored Hot Cue pads, Bipolar Color Filter & Bass Kill sliders, vertical `CH A / MST / CH B` faders, full-width Crossfader, `SYNC`, `MUTE`.
   - **SAMPLER & FX**: 4x8 Sampler pads (Bank A..D), Studio Beatmaker toggle, FX 1/2 toggles, and a live **XY Touch Pad** (`X` = FX 1 Wet/Dry, `Y` = Deck A Color Filter).
   - **CRATES**: Searchable live track list from `crates.db` with one-tap `-> A` and `-> B` deck loaders.
+- **Using Outside the LAN (Tailscale / Tailscale Funnel)**:
+  - **Tailnet Members Only (Recommended)**: With Tailscale installed on both the host PC and iPad, open `http://<host-tailscale-ip>:14119` directly, or run `tailscale serve --bg 14119` for automatic HTTPS (`https://<machine>.<tailnet>.ts.net`) restricted to your tailnet.
+  - **Public Internet (Tailscale Funnel)**: Run `tailscale funnel --bg 14119` to expose `https://<machine>.<tailnet>.ts.net` publicly (stop anytime with `tailscale funnel off`). Note: `/api/cmd` is currently unauthenticated, so prefer tailnet-only (`tailscale serve`) unless you intend open guest access or add a reverse-proxy/PIN gate.
 
 ---
 
