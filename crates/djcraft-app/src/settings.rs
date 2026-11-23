@@ -601,6 +601,16 @@ impl DjCraftApp {
                                         egui::DragValue::new(&mut self.touch_remote_port)
                                             .range(1024..=65535),
                                     );
+                                    ui.label("PIN:");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.touch_remote_pin)
+                                            .password(true)
+                                            .desired_width(82.0)
+                                            .hint_text("optional"),
+                                    )
+                                    .on_hover_text(
+                                        "Optional passcode required by iPad browser (recommended when using Tailscale Funnel)",
+                                    );
                                 });
                                 let btn = egui::Button::new(if running {
                                     "Stop Touch Remote"
@@ -619,10 +629,16 @@ impl DjCraftApp {
                                     } else {
                                         match super::touch_remote::TouchRemoteServer::start(
                                             self.touch_remote_port,
+                                            self.touch_remote_pin.clone(),
                                         ) {
                                             Ok(srv) => {
+                                                let lock_note = if srv.pin_protected {
+                                                    " (PIN protected)"
+                                                } else {
+                                                    ""
+                                                };
                                                 self.status_msg = format!(
-                                                    "iPad Touch Remote LIVE at {}",
+                                                    "iPad Touch Remote LIVE at {}{lock_note}",
                                                     srv.lan_url
                                                 );
                                                 self.touch_remote = Some(srv);
@@ -639,6 +655,14 @@ impl DjCraftApp {
                                             .monospace()
                                             .color(palette.deck_a),
                                     );
+                                    if srv.pin_protected {
+                                        ui.label(
+                                            egui::RichText::new("[PIN ON]")
+                                                .small()
+                                                .strong()
+                                                .color(egui::Color32::from_rgb(34, 197, 94)),
+                                        );
+                                    }
                                     if ui.small_button("Copy URL").clicked() {
                                         ui.ctx().copy_text(srv.lan_url.clone());
                                         self.status_msg =

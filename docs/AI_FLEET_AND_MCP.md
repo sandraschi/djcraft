@@ -24,7 +24,7 @@ Control DJCraft over local Wi-Fi from any iPad or tablet browser — zero Apple 
   - **CRATES**: Searchable live track list from `crates.db` with one-tap `-> A` and `-> B` deck loaders.
 - **Using Outside the LAN (Tailscale / Tailscale Funnel)**:
   - **Tailnet Members Only (Recommended)**: With Tailscale installed on both the host PC and iPad, open `http://<host-tailscale-ip>:14119` directly, or run `tailscale serve --bg 14119` for automatic HTTPS (`https://<machine>.<tailnet>.ts.net`) restricted to your tailnet.
-  - **Public Internet (Tailscale Funnel)**: Run `tailscale funnel --bg 14119` to expose `https://<machine>.<tailnet>.ts.net` publicly (stop anytime with `tailscale funnel off`). Note: `/api/cmd` is currently unauthenticated, so prefer tailnet-only (`tailscale serve`) unless you intend open guest access or add a reverse-proxy/PIN gate.
+  - **Public Internet (Tailscale Funnel)**: Set an optional **PIN** right next to the Port field in Settings before clicking **Start iPad Touch Remote**, then run `tailscale funnel --bg 14119` to expose `https://<machine>.<tailnet>.ts.net` publicly (stop anytime with `tailscale funnel off`). When a PIN is set, `/api/state` and `/api/cmd` return `401 Unauthorized` until unlocked with the PIN in the iPad browser.
 
 ---
 

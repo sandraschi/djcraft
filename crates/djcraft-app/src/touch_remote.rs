@@ -85,6 +85,7 @@ pub struct TouchRemoteServer {
     #[cfg_attr(not(test), allow(dead_code))]
     pub port: u16,
     pub lan_url: String,
+    pub pin_protected: bool,
     stop: Arc<AtomicBool>,
     pub snapshot: Arc<Mutex<TouchRemoteSnapshot>>,
     pub rx: Receiver<TouchRemoteAction>,
@@ -92,11 +93,16 @@ pub struct TouchRemoteServer {
 
 impl TouchRemoteServer {
     /// Start the opt-in LAN HTTP server bound to `0.0.0.0:<port>`.
-    pub fn start(port: u16) -> Result<Self, String> {
+    /// If `pin` is non-empty, `/api/state` and `/api/cmd` require `X-DJCraft-Pin: <pin>`.
+    pub fn start(port: u16, pin: String) -> Result<Self, String> {
         let listener = TcpListener::bind(("0.0.0.0", port))
             .map_err(|e| format!("Could not bind Touch Remote on :{port}: {e}"))?;
         let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
         let _ = listener.set_nonblocking(true);
+
+        let clean_pin = pin.trim().to_string();
+        let pin_protected = !clean_pin.is_empty();
+        let pin_arc = Arc::new(clean_pin);
 
         let stop = Arc::new(AtomicBool::new(false));
         let stop_bg = Arc::clone(&stop);
@@ -112,8 +118,9 @@ impl TouchRemoteServer {
                         Ok((stream, _)) => {
                             let snap = Arc::clone(&snap_bg);
                             let cmd_tx = tx.clone();
+                            let req_pin = Arc::clone(&pin_arc);
                             let _ = std::thread::spawn(move || {
-                                handle_client(stream, &snap, &cmd_tx);
+                                handle_client(stream, &snap, &cmd_tx, &req_pin);
                             });
                         }
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -130,6 +137,7 @@ impl TouchRemoteServer {
         Ok(Self {
             port: actual_port,
             lan_url,
+            pin_protected,
             stop,
             snapshot,
             rx,
@@ -155,10 +163,22 @@ pub fn detect_lan_ipv4() -> Option<String> {
     Some(addr.ip().to_string())
 }
 
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 fn handle_client(
     mut stream: TcpStream,
     snapshot: &Arc<Mutex<TouchRemoteSnapshot>>,
     tx: &Sender<TouchRemoteAction>,
+    required_pin: &str,
 ) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
@@ -180,6 +200,7 @@ fn handle_client(
     let path = parts[1].split('?').next().unwrap_or("/");
 
     let mut content_len: usize = 0;
+    let mut provided_pin = String::new();
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line).is_err() {
@@ -192,9 +213,14 @@ fn handle_client(
         if let Some((k, v)) = trimmed.split_once(':') {
             if k.eq_ignore_ascii_case("content-length") {
                 content_len = v.trim().parse().unwrap_or(0).min(65536);
+            } else if k.eq_ignore_ascii_case("x-djcraft-pin") {
+                provided_pin = v.trim().to_string();
             }
         }
     }
+
+    let pin_ok = required_pin.is_empty()
+        || constant_time_eq(provided_pin.as_bytes(), required_pin.as_bytes());
 
     match (method, path) {
         ("GET", "/") | ("GET", "/index.html") => {
@@ -214,6 +240,15 @@ fn handle_client(
             );
         }
         ("GET", "/api/state") => {
+            if !pin_ok {
+                write_response(
+                    &mut stream,
+                    "401 Unauthorized",
+                    "application/json",
+                    br#"{"ok":false,"auth_required":true}"#,
+                );
+                return;
+            }
             let body = snapshot
                 .lock()
                 .ok()
@@ -222,6 +257,15 @@ fn handle_client(
             write_response(&mut stream, "200 OK", "application/json", &body);
         }
         ("POST", "/api/cmd") => {
+            if !pin_ok {
+                write_response(
+                    &mut stream,
+                    "401 Unauthorized",
+                    "application/json",
+                    br#"{"ok":false,"auth_required":true}"#,
+                );
+                return;
+            }
             let mut buf = vec![0u8; content_len];
             if content_len > 0 && reader.read_exact(&mut buf).is_err() {
                 write_response(
@@ -279,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_touch_remote_http_get_and_post_cmd() {
-        let srv = TouchRemoteServer::start(0).expect("bind ephemeral port");
+        let srv = TouchRemoteServer::start(0, String::new()).expect("bind ephemeral port");
 
         let html = http_roundtrip(srv.port, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
         assert!(html.contains("200 OK"));
@@ -308,5 +352,19 @@ mod tests {
             TouchRemoteAction::SetCrossfader { value } => assert!((value - 0.42).abs() < 1e-6),
             other => panic!("unexpected action: {other:?}"),
         }
+
+        // Verify optional PIN gate rejects unauthenticated requests and accepts matching header
+        let pin_srv =
+            TouchRemoteServer::start(0, "4829".to_string()).expect("bind pin-protected port");
+        let unauth = http_roundtrip(
+            pin_srv.port,
+            "GET /api/state HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        );
+        assert!(unauth.contains("401 Unauthorized"));
+        let auth = http_roundtrip(
+            pin_srv.port,
+            "GET /api/state HTTP/1.1\r\nHost: localhost\r\nX-DJCraft-Pin: 4829\r\n\r\n",
+        );
+        assert!(auth.contains("200 OK"));
     }
 }
