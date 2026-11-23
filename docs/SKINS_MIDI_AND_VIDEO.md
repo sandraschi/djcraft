@@ -8,19 +8,31 @@ Back to [README.md](../README.md)
 
 Switch skins and backdrops live from the top-right bar (persisted in `%LOCALAPPDATA%\djcraft\ui.json`):
 
-### 6 Built-In Console Skins
+### 9 Built-In Console Skins
 1. **Battle Console** (electric cyan + crimson battle dark)
 2. **Club Dark** (deep navy + amber club console)
 3. **Midnight Booth** (pitch-black contrast + neon cyan/pink)
 4. **Carbon Deck** (slate carbon + teal/orange)
 5. **Shocking Pink Club** (velvet plum-black + shocking pink, electric cyan, acid lime & hot gold)
-6. **Daylight Booth (Light)** (high-contrast near-black ink `#020617` on crisp `#FFFFFF` / `#E2E8F0` surfaces)
+6. **Daylight Booth (Light)** (high-contrast pure black `#000000` ink on crisp `#FFFFFF` / `#E2E8F0` surfaces)
+7. **Star Trek LCARS** (deep space obsidian + LCARS amber-gold, lavender, tricorder cyan & Starfleet brackets)
+8. **Baroque Velvet & Gold** (royal burgundy velvet + antique burnished gold double frames & jewel accents)
+9. **Synthwave Outrun** (ultraviolet indigo + laser cyan, outrun magenta & neon outer glow)
 
-### 4 Textured & Dynamic Underlays (`BG` Dropdown)
+### 6 Textured & Dynamic Underlays (`BG` Dropdown / Settings)
 - **Solid**: Flat studio chassis.
-- **Brushed Metal**: Fine horizontal anodized metal grain.
-- **Carbon Weave**: Diagonal tinted carbon texture.
-- **Sparkle Club**: Animated audio-reactive diamond sparkles and ambient club bokeh behind translucent panels.
+- **Brushed Metal**: Bold horizontal anodized metal grain with accent sheen bands.
+- **Carbon Weave**: High-contrast diagonal tinted carbon texture.
+- **Sparkle Club**: Vivid animated audio-reactive diamond sparkles and glowing club bokeh behind translucent panels.
+- **Starfield Warp (LCARS)**: Subspace tactical grid with radial warp star streaks.
+- **Baroque Gold Damask**: Gilded diamond lattice with ornate rosette medallions.
+
+### Configurable Card Decorations & Full-Window Settings (`Ctrl+,`)
+Open the dedicated 2-pane **Settings** workspace (`Settings` button, Workspace dropdown, or `Ctrl+,`; `Esc` returns to the booth):
+- **5 Card Decoration Styles**: `Clean Flat`, `Bold Drop Shadow`, `Neon Outer Glow`, `Baroque Double Frame` (inner gilded hairline + corner studs), and `LCARS Starfleet Bracket` (left vertical bar + top elbow pill).
+- **Live Sliders (persisted in `ui.json`)**: Border Thickness (`1.0..3.8 px`), Card Opacity (`52%..100%`), Color Richness / Accent Boost (`0%..100%`), and Background Pattern Intensity (`20%..200%`).
+- **7 Serato / VirtualDJ Layout Presets (`Layouts` top-bar menu & Settings)**: `Classic 2-Deck`, `Serato Vertical`, `Extended 4-Deck`, `Scratch / Battle Focus`, `Performance (Sampler + FX)`, `Library / Gig Prep`, and `Video / VJ Booth`.
+- **Waveform Magnification**: `-` / Zoom dropdown (`Show All`, `1x (16s)`, `2x (8s)`, `4x (4s)`, `8x (2s)`, `16x (1s)`) / `+` / `ALL` controls on both horizontal parallel waveforms and vertical waveforms.
 
 ---
 

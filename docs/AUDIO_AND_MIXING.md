@@ -77,3 +77,12 @@ Toggle open/collapsed anytime via **`SAMPLER: ON` / `SAMPLER`** in the top bar (
 - **8 Synthesized One-Shots on Bank A**: `Air Horn`, `Laser Zap`, `Sub Drop`, `Riser Sweep`, `Club Clap`, `Rim Shot`, `Dub Siren`, `Vinyl Chirp`. These are oscillator hits generated in-process, not recorded club samples, and they are ready with zero external files. A short attack fades the start of every pad hit.
 - **Custom Audio Loading**: Click **`Load`** on any of the 32 pads to drop any `.wav`, `.mp3`, `.flac`, `.ogg`, or `.m4a` file via `symphonia`.
 - **Per-Pad Trigger / Loop Mode + Global Volume + `STOP ALL`**: Toggle `Trig` (one-shot) vs `Loop` per pad, control global sampler volume, or silence all pads instantly with `STOP ALL`.
+
+---
+
+## 8. Studio Beatmaker, Auto-Slice Chopper, Slip Mode, Beatjump & Smart Hot Cues
+
+- **16-Step BPM-Synced Drum Sequencer (`studio.rs`, `studio_dock.rs`)**: Open **`Dock Panel -> Studio Beatmaker & Chopper`** for 4 pre-synthesized 808/909 drum lanes (`Kick`, `Snare`, `Hi-Hat`, `Clap`) x 16 clickable steps locked to Deck A's BPM with 6 one-click genre patterns (`House`, `Techno`, `Hip-Hop`, `Trap`, `DnB`, `Reggaeton`).
+- **Auto-Slice Sample Chopper ("Find Samples")**: Runs RMS onset-flux transient detection on Deck A, Deck B, or any local audio file to slice up to 8 playable hits straight into Sampler Banks `A..D`.
+- **Slip Mode & Beatjump**: Located in each deck's **`Grid...`** menu — Slip Mode keeps a silent background playhead advancing while scratching so releasing the platter snaps right back on beat; Beatjump skips `-4`, `-1`, `+1`, or `+4` beats seamlessly.
+- **High-Visibility Hot Cue Flags & Right-Click Context Menu**: Overview scrubber strips draw 2.8px colored stems with dark contrast halos and top flag badges. Right-click any **`CUE 1..4`** pad to rename it (`Intro`, `Drop`, `Break`, `Vocal`, `Outro`), pick from 8 vivid colors, choose a trigger behavior (`Standard`, `Gate Hold`, `Auto-Loop 4 Bars`, `Cue & Pause`), or clear the cue — all persisted per track in SQLite (`track_cues` + `track_cue_meta`).
