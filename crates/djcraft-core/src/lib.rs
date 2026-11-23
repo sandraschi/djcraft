@@ -24,7 +24,7 @@ pub use crates_db::{
     batch_stem_folder, encode_m3u, encode_serato_crate_bytes, encode_vdj_folder_xml, parse_m3u,
     parse_serato_crate_bytes, parse_vdj_folder_xml, resolve_demucs_binary,
     stem_audio_file_transparent, BatchStemSummary, CrateNode, CrateQuery, CrateSortField,
-    CrateStore, CrateTrack, ImportSummary,
+    CrateStore, CrateTrack, ImportSummary, TrackCueMeta,
 };
 pub use fleet_ai::{
     butterchurn_sync_bpm, chat_with_booth_ai, fetch_available_models, generate_speech_drop,

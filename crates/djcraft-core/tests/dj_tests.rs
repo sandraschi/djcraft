@@ -1269,6 +1269,19 @@ fn test_track_hot_cues_sqlite_persistence() {
     );
 
     assert!(store.set_track_hot_cue(path, 4, Some(1.0)).is_err());
+
+    // Custom Hot Cue metadata (name, RGB color, behavior) persistence
+    let meta = djcraft_core::TrackCueMeta {
+        label: "Drop 1".to_string(),
+        color: Some([239, 68, 68]),
+        behavior: "autoloop4".to_string(),
+    };
+    store
+        .set_track_hot_cue_meta(path, 1, &meta)
+        .expect("save meta");
+    let loaded = store.get_track_hot_cue_metas(path).expect("load metas");
+    assert_eq!(loaded[1], meta);
+    assert_eq!(loaded[0].behavior, "standard");
 }
 
 #[test]

@@ -212,6 +212,14 @@ impl CrateStore {
                     position_seconds REAL NOT NULL,
                     PRIMARY KEY (track_path, slot)
                 );
+                CREATE TABLE IF NOT EXISTS track_cue_meta (
+                    track_path TEXT NOT NULL,
+                    slot INTEGER NOT NULL,
+                    label TEXT NOT NULL DEFAULT '',
+                    color_rgb TEXT,
+                    behavior TEXT NOT NULL DEFAULT 'standard',
+                    PRIMARY KEY (track_path, slot)
+                );
                 ",
             )
             .map_err(|e| DjError::Deck(format!("Crates schema init failed: {e}")))?;
@@ -1112,6 +1120,97 @@ impl CrateStore {
             }
         }
         Ok(cues)
+    }
+
+    /// Persist custom label, RGB color, and behavior for a single hot-cue slot (0..4).
+    pub fn set_track_hot_cue_meta(
+        &self,
+        track_path: &str,
+        slot: usize,
+        meta: &TrackCueMeta,
+    ) -> Result<(), DjError> {
+        if slot >= 4 {
+            return Err(DjError::Deck(format!(
+                "Hot cue slot {slot} out of range (0..4)"
+            )));
+        }
+        let color_str = meta.color.map(|[r, g, b]| format!("{r},{g},{b}"));
+        self.conn
+            .execute(
+                "INSERT INTO track_cue_meta (track_path, slot, label, color_rgb, behavior)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(track_path, slot) DO UPDATE SET
+                   label = excluded.label,
+                   color_rgb = excluded.color_rgb,
+                   behavior = excluded.behavior",
+                params![
+                    track_path,
+                    slot as i64,
+                    meta.label,
+                    color_str,
+                    meta.behavior
+                ],
+            )
+            .map_err(|e| DjError::Deck(format!("Save hot cue meta failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Load all 4 hot-cue metadata entries (label, color, behavior) for a track path.
+    pub fn get_track_hot_cue_metas(&self, track_path: &str) -> Result<[TrackCueMeta; 4], DjError> {
+        let mut metas: [TrackCueMeta; 4] = std::array::from_fn(|_| TrackCueMeta::default());
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT slot, label, color_rgb, behavior FROM track_cue_meta WHERE track_path = ?1",
+            )
+            .map_err(|e| DjError::Deck(format!("Query hot cue meta failed: {e}")))?;
+        let rows = stmt
+            .query_map(params![track_path], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| DjError::Deck(format!("Map hot cue meta failed: {e}")))?;
+        for (slot, label, color_rgb, behavior) in rows.flatten() {
+            if (0..4).contains(&slot) {
+                let color = color_rgb.and_then(|s| {
+                    let parts: Vec<u8> =
+                        s.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+                    if parts.len() == 3 {
+                        Some([parts[0], parts[1], parts[2]])
+                    } else {
+                        None
+                    }
+                });
+                metas[slot as usize] = TrackCueMeta {
+                    label,
+                    color,
+                    behavior,
+                };
+            }
+        }
+        Ok(metas)
+    }
+}
+
+/// Persisted custom metadata (name, optional RGB color, trigger behavior) for one Hot Cue slot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackCueMeta {
+    pub label: String,
+    pub color: Option<[u8; 3]>,
+    pub behavior: String,
+}
+
+impl Default for TrackCueMeta {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            color: None,
+            behavior: "standard".to_string(),
+        }
     }
 }
 

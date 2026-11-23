@@ -111,6 +111,24 @@ impl HotCueBehavior {
             Self::CueAndPause => "P",
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::GateHold => "gate",
+            Self::AutoLoop4 => "autoloop4",
+            Self::CueAndPause => "cue_pause",
+        }
+    }
+
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "gate" => Self::GateHold,
+            "autoloop4" => Self::AutoLoop4,
+            "cue_pause" => Self::CueAndPause,
+            _ => Self::Standard,
+        }
+    }
 }
 
 /// User-customizable label, color, and trigger behavior for each Hot Cue slot.
@@ -152,6 +170,7 @@ pub struct PadGridAction {
     pub pressed_cue: Option<usize>,
     pub released_cue: Option<usize>,
     pub cleared_cue: Option<usize>,
+    pub meta_changed_cue: Option<usize>,
 }
 
 const CUE_COLOR_SWATCHES: [(&str, [u8; 3]); 8] = [
@@ -591,19 +610,26 @@ pub fn performance_pads_grid(
                         meta.behavior.label()
                     ));
                     resp.context_menu(|ui| {
+                        let mut meta_dirty = false;
                         ui.strong(format!("Hot Cue {} Settings", idx + 1));
                         ui.horizontal(|ui| {
                             ui.label("Name:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut meta.label)
-                                    .desired_width(110.0)
-                                    .hint_text("Intro, Drop..."),
-                            );
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut meta.label)
+                                        .desired_width(110.0)
+                                        .hint_text("Intro, Drop..."),
+                                )
+                                .changed()
+                            {
+                                meta_dirty = true;
+                            }
                         });
                         ui.horizontal_wrapped(|ui| {
                             for preset in ["Intro", "Drop", "Break", "Vocal", "Outro"] {
                                 if ui.small_button(preset).clicked() {
                                     meta.label = preset.to_string();
+                                    meta_dirty = true;
                                 }
                             }
                         });
@@ -617,16 +643,26 @@ pub fn performance_pads_grid(
                                     .fill(c);
                                 if ui.add(b).on_hover_text(cname).clicked() {
                                     meta.color = Some(rgb);
+                                    meta_dirty = true;
                                 }
                             }
                             if ui.small_button("Auto").clicked() {
                                 meta.color = None;
+                                meta_dirty = true;
                             }
                         });
                         ui.separator();
                         ui.label("Behavior:");
                         for beh in HotCueBehavior::ALL {
-                            ui.selectable_value(&mut meta.behavior, beh, beh.label());
+                            if ui
+                                .selectable_value(&mut meta.behavior, beh, beh.label())
+                                .changed()
+                            {
+                                meta_dirty = true;
+                            }
+                        }
+                        if meta_dirty {
+                            action.meta_changed_cue = Some(idx);
                         }
                         ui.separator();
                         if ui.button("Clear Hot Cue").clicked() {

@@ -68,6 +68,9 @@ struct Args {
     /// Start in Booth + Crate split workspace (center vertical waveforms, small platters, hideable FX/Sampler/Video strip, lower crate browser).
     #[arg(long)]
     booth_crate: bool,
+    /// Start in the full-window 2-pane Settings workspace.
+    #[arg(long)]
+    settings: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -927,6 +930,16 @@ impl DjCraftApp {
             if let Ok(cues) = store.get_track_hot_cues(track_path) {
                 self.orch.deck_mut(deck).hot_cue_seconds = cues;
             }
+            if let Ok(metas) = store.get_track_hot_cue_metas(track_path) {
+                let d_idx = deck_index(deck);
+                for (slot, m) in metas.into_iter().enumerate() {
+                    self.hot_cue_metas[d_idx][slot] = widgets::HotCueMeta {
+                        label: m.label,
+                        color: m.color,
+                        behavior: widgets::HotCueBehavior::from_str_lossy(&m.behavior),
+                    };
+                }
+            }
         }
     }
 
@@ -936,6 +949,23 @@ impl DjCraftApp {
             if let Some(ref track_path) = d.audio_path {
                 if let Some(ref store) = self.crate_store {
                     let _ = store.set_track_hot_cue(track_path, slot, d.hot_cue_seconds[slot]);
+                }
+            }
+        }
+    }
+
+    fn autosave_hot_cue_meta_for_deck(&self, deck: DeckId, slot: usize) {
+        if slot < 4 {
+            let d = self.orch.deck(deck);
+            if let Some(ref track_path) = d.audio_path {
+                if let Some(ref store) = self.crate_store {
+                    let m = &self.hot_cue_metas[deck_index(deck)][slot];
+                    let persisted = djcraft_core::TrackCueMeta {
+                        label: m.label.clone(),
+                        color: m.color,
+                        behavior: m.behavior.as_str().to_string(),
+                    };
+                    let _ = store.set_track_hot_cue_meta(track_path, slot, &persisted);
                 }
             }
         }
@@ -2446,7 +2476,11 @@ impl DjCraftApp {
                     widgets::performance_pads_grid(ui, &d, palette, &mut self.hot_cue_metas[idx]);
                 if let Some(slot) = pad_act.cleared_cue {
                     self.orch.deck_mut(deck_id).hot_cue_seconds[slot] = None;
+                    self.autosave_hot_cue_for_deck(deck_id, slot);
                     self.status_msg = format!("Cleared Hot Cue {} on {:?}", slot + 1, deck_id);
+                }
+                if let Some(slot) = pad_act.meta_changed_cue {
+                    self.autosave_hot_cue_meta_for_deck(deck_id, slot);
                 }
                 if let Some(slot) = pad_act.pressed_cue {
                     if self.hot_cue_metas[idx][slot].behavior == widgets::HotCueBehavior::GateHold {
@@ -3823,8 +3857,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "carbon" | "vdj" => SkinId::CarbonDeck,
             "pink" | "shocking_pink" => SkinId::ShockingPink,
             "daylight" | "light" => SkinId::DaylightBooth,
+            "lcars" | "starfleet" => SkinId::LcarsStarfleet,
+            "baroque" | "gold" => SkinId::BaroqueGold,
+            "synthwave" | "outrun" => SkinId::SynthwaveOutrun,
             _ => SkinId::BattleConsole,
         };
+        app.prefs.card_decor = app.prefs.skin.recommended_decor();
+        app.prefs.backdrop = app.prefs.skin.recommended_backdrop();
     }
     if args.four_deck {
         app.prefs.four_deck_layout = true;
@@ -3834,6 +3873,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.booth_crate {
         app.workspace_mode = WorkspaceMode::BoothAndCrate;
+    }
+    if args.settings {
+        app.workspace_mode = WorkspaceMode::Settings;
     }
     app.screenshot_out = args.screenshot;
     let native_options = eframe::NativeOptions {
