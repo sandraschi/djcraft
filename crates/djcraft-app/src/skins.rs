@@ -338,10 +338,10 @@ impl SkinId {
                 card_border: Color32::from_rgb(229, 184, 75), // Antique Burnished Gold
                 text_primary: Color32::from_rgb(255, 246, 224),
                 text_secondary: Color32::from_rgb(236, 204, 134),
-                deck_a: Color32::from_rgb(245, 197, 66),  // Royal Gold
-                deck_b: Color32::from_rgb(16, 185, 129),  // Venetian Emerald
-                deck_c: Color32::from_rgb(96, 165, 250),  // Baroque Sapphire
-                deck_d: Color32::from_rgb(244, 63, 94),   // Imperial Ruby
+                deck_a: Color32::from_rgb(245, 197, 66), // Royal Gold
+                deck_b: Color32::from_rgb(16, 185, 129), // Venetian Emerald
+                deck_c: Color32::from_rgb(96, 165, 250), // Baroque Sapphire
+                deck_d: Color32::from_rgb(244, 63, 94),  // Imperial Ruby
                 knob_body: Color32::from_rgb(72, 22, 38),
                 knob_track: Color32::from_rgb(138, 98, 42),
                 fader_slot: Color32::from_rgb(16, 4, 8),
@@ -371,10 +371,10 @@ impl SkinId {
                 card_border: Color32::from_rgb(0, 240, 255), // Laser Cyan
                 text_primary: Color32::from_rgb(252, 246, 255),
                 text_secondary: Color32::from_rgb(244, 148, 255),
-                deck_a: Color32::from_rgb(0, 240, 255),   // Laser Cyan
-                deck_b: Color32::from_rgb(255, 42, 164),  // Outrun Magenta
-                deck_c: Color32::from_rgb(255, 184, 0),   // Sunset Amber
-                deck_d: Color32::from_rgb(168, 85, 247),  // Ultraviolet
+                deck_a: Color32::from_rgb(0, 240, 255), // Laser Cyan
+                deck_b: Color32::from_rgb(255, 42, 164), // Outrun Magenta
+                deck_c: Color32::from_rgb(255, 184, 0), // Sunset Amber
+                deck_d: Color32::from_rgb(168, 85, 247), // Ultraviolet
                 knob_body: Color32::from_rgb(48, 20, 108),
                 knob_track: Color32::from_rgb(120, 42, 186),
                 fader_slot: Color32::from_rgb(9, 4, 24),
@@ -744,8 +744,8 @@ pub fn paint_backdrop(
             let center = rect.center();
             let max_r = rect.width().hypot(rect.height()) * 0.55;
             for i in 0..110u32 {
-                let angle = ((i.wrapping_mul(2654435761) % 3600) as f32 / 3600.0)
-                    * std::f32::consts::TAU;
+                let angle =
+                    ((i.wrapping_mul(2654435761) % 3600) as f32 / 3600.0) * std::f32::consts::TAU;
                 let speed = 0.14 + (i % 7) as f32 * 0.04 + energy * 0.12;
                 let depth = ((i as f32 * 0.173) + time_sec * speed).fract();
                 let r0 = depth * depth * max_r;
@@ -788,7 +788,12 @@ pub fn paint_backdrop(
             let mut y = rect.top() - tile;
             let mut row = 0u32;
             while y < rect.bottom() + tile {
-                let mut x = rect.left() - tile + if row.is_multiple_of(2) { 0.0 } else { tile * 0.5 };
+                let mut x = rect.left() - tile
+                    + if row.is_multiple_of(2) {
+                        0.0
+                    } else {
+                        tile * 0.5
+                    };
                 while x < rect.right() + tile {
                     let cx = x + tile * 0.5;
                     let cy = y + tile * 0.5;

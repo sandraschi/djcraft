@@ -53,7 +53,12 @@ pub fn card_frame<R>(
             offset: [4, 5],
             blur: 14,
             spread: 1,
-            color: Color32::from_rgba_unmultiplied(0, 0, 0, if palette.is_light { 75 } else { 155 }),
+            color: Color32::from_rgba_unmultiplied(
+                0,
+                0,
+                0,
+                if palette.is_light { 75 } else { 155 },
+            ),
         },
         CardDecorStyle::NeonGlow => Shadow {
             offset: [0, 0],
@@ -113,10 +118,18 @@ pub fn card_frame<R>(
             painter.rect_stroke(
                 inset,
                 CornerRadius::same(2),
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(gold.r(), gold.g(), gold.b(), 190)),
+                Stroke::new(
+                    1.0,
+                    Color32::from_rgba_unmultiplied(gold.r(), gold.g(), gold.b(), 190),
+                ),
                 StrokeKind::Inside,
             );
-            for pt in [rect.left_top(), rect.right_top(), rect.left_bottom(), rect.right_bottom()] {
+            for pt in [
+                rect.left_top(),
+                rect.right_top(),
+                rect.left_bottom(),
+                rect.right_bottom(),
+            ] {
                 painter.circle_filled(pt, 3.2, palette.deck_a);
             }
         }
@@ -130,7 +143,10 @@ pub fn card_frame<R>(
             painter.rect_filled(left_bar, CornerRadius::same(3), palette.deck_a);
             let top_pill = egui::Rect::from_min_max(
                 egui::pos2(rect.left() + 10.0, rect.top() + 1.0),
-                egui::pos2((rect.left() + 72.0).min(rect.right() - 12.0), rect.top() + 5.0),
+                egui::pos2(
+                    (rect.left() + 72.0).min(rect.right() - 12.0),
+                    rect.top() + 5.0,
+                ),
             );
             painter.rect_filled(top_pill, CornerRadius::same(2), palette.deck_b);
         }

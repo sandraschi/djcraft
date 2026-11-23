@@ -321,7 +321,13 @@ pub fn plan_harmonic_setlist(
 /// Derive the base URL (scheme + host + optional path prefix before `/v1/` or `/api/`) from an endpoint.
 fn endpoint_base_url(endpoint: &str) -> String {
     let trimmed = endpoint.trim().trim_end_matches('/');
-    for marker in ["/v1/chat/completions", "/v1/messages", "/api/chat", "/api/generate", "/v1"] {
+    for marker in [
+        "/v1/chat/completions",
+        "/v1/messages",
+        "/api/chat",
+        "/api/generate",
+        "/v1",
+    ] {
         if let Some(idx) = trimmed.find(marker) {
             return trimmed[..idx].trim_end_matches('/').to_string();
         }
@@ -464,10 +470,13 @@ pub fn chat_with_booth_ai(
         "You are DJCraft's concise technical DJ booth assistant. Current booth state: {booth_context}"
     );
 
-    if cfg.provider == AiProvider::Anthropic || cfg.endpoint.trim_end_matches('/').ends_with("/v1/messages") {
+    if cfg.provider == AiProvider::Anthropic
+        || cfg.endpoint.trim_end_matches('/').ends_with("/v1/messages")
+    {
         let key = api_key.ok_or_else(|| {
             DjError::Sidecar(
-                "Anthropic requires an API key (enter API Key or set ANTHROPIC_API_KEY)".to_string(),
+                "Anthropic requires an API key (enter API Key or set ANTHROPIC_API_KEY)"
+                    .to_string(),
             )
         })?;
         let payload = json!({

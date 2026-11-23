@@ -637,11 +637,8 @@ impl super::DjCraftApp {
             }
 
             // Build candidate model list: live fetched models + provider presets + current value
-            let mut choices: Vec<String> = self
-                .ai_models
-                .lock()
-                .map(|m| m.clone())
-                .unwrap_or_default();
+            let mut choices: Vec<String> =
+                self.ai_models.lock().map(|m| m.clone()).unwrap_or_default();
             for preset in self.ai_cfg.provider.preset_models() {
                 if !choices.iter().any(|c| c == preset) {
                     choices.push((*preset).to_string());
@@ -705,8 +702,8 @@ impl super::DjCraftApp {
             ui.label("URL:");
             ui.add(egui::TextEdit::singleline(&mut self.ai_cfg.endpoint).desired_width(230.0));
             ui.label("API Key:");
-            let env_detected = self.ai_cfg.api_key.trim().is_empty()
-                && self.ai_cfg.resolved_api_key().is_some();
+            let env_detected =
+                self.ai_cfg.api_key.trim().is_empty() && self.ai_cfg.resolved_api_key().is_some();
             let key_hint = if env_detected {
                 "Using env var (override...)"
             } else if self.ai_cfg.provider.requires_api_key() {

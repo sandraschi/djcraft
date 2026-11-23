@@ -40,9 +40,7 @@ use djcraft_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use skins::{
-    paint_backdrop, BackdropStyle, CardDecorConfig, CardDecorStyle, SkinId, SkinPalette,
-};
+use skins::{paint_backdrop, BackdropStyle, CardDecorConfig, CardDecorStyle, SkinId, SkinPalette};
 use video::{
     apply_deck_video_fx, composite_video_frame, find_companion_video, rgb_to_color_image,
     DeckVideoFx, VideoDeckPlayer, VideoTransitionFx,
@@ -154,13 +152,25 @@ impl BoothLayoutPreset {
 
     pub(crate) fn description(self) -> &'static str {
         match self {
-            Self::Classic2Deck => "2 full decks, horizontal parallel waveforms, center Battle Mixer + FX Rack.",
-            Self::SeratoVertical => "Vertical beatmatch waveforms between Deck A & B (classic Serato Scratch Live).",
+            Self::Classic2Deck => {
+                "2 full decks, horizontal parallel waveforms, center Battle Mixer + FX Rack."
+            }
+            Self::SeratoVertical => {
+                "Vertical beatmatch waveforms between Deck A & B (classic Serato Scratch Live)."
+            }
             Self::Extended4Deck => "4 full hardware decks (A+C left, B+D right) with center mixer.",
-            Self::ScratchBattle => "Clean battle booth: large platters, parallel waveforms, minimal clutter.",
-            Self::PerformancePadsFx => "2 decks + collapsible 4x8 Live Sampler strip + FX Rack open.",
-            Self::LibraryPrep => "Compact top booth + full lower Crate browser (VirtualDJ / Serato Library view).",
-            Self::VideoVjBooth => "2 decks + 3-monitor Live Video Strip (Left / Mix / Right) + Video Mixer dock.",
+            Self::ScratchBattle => {
+                "Clean battle booth: large platters, parallel waveforms, minimal clutter."
+            }
+            Self::PerformancePadsFx => {
+                "2 decks + collapsible 4x8 Live Sampler strip + FX Rack open."
+            }
+            Self::LibraryPrep => {
+                "Compact top booth + full lower Crate browser (VirtualDJ / Serato Library view)."
+            }
+            Self::VideoVjBooth => {
+                "2 decks + 3-monitor Live Video Strip (Left / Mix / Right) + Video Mixer dock."
+            }
         }
     }
 }
@@ -2432,12 +2442,8 @@ impl DjCraftApp {
                         .size(11.5)
                         .color(palette.text_secondary),
                 );
-                let pad_act = widgets::performance_pads_grid(
-                    ui,
-                    &d,
-                    palette,
-                    &mut self.hot_cue_metas[idx],
-                );
+                let pad_act =
+                    widgets::performance_pads_grid(ui, &d, palette, &mut self.hot_cue_metas[idx]);
                 if let Some(slot) = pad_act.cleared_cue {
                     self.orch.deck_mut(deck_id).hot_cue_seconds[slot] = None;
                     self.status_msg = format!("Cleared Hot Cue {} on {:?}", slot + 1, deck_id);
@@ -3463,13 +3469,13 @@ impl eframe::App for DjCraftApp {
                 {
                     self.show_chat_drawer = !self.show_chat_drawer;
                 }
-                let settings_btn = egui::Button::new("Settings")
-                    .small()
-                    .fill(if self.workspace_mode == WorkspaceMode::Settings {
+                let settings_btn = egui::Button::new("Settings").small().fill(
+                    if self.workspace_mode == WorkspaceMode::Settings {
                         palette.deck_a
                     } else {
                         palette.card_fill
-                    });
+                    },
+                );
                 if ui
                     .add(settings_btn)
                     .on_hover_text("Open Full-Window Settings Workspace (Ctrl+,)")

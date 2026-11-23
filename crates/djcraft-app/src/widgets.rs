@@ -573,8 +573,7 @@ pub fn performance_pads_grid(
                 );
                 if idx < 4 {
                     let meta = &mut cue_metas[idx];
-                    if resp.is_pointer_button_down_on()
-                        && ui.input(|i| i.pointer.primary_pressed())
+                    if resp.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_pressed())
                     {
                         action.pressed_cue = Some(idx);
                     }
@@ -587,11 +586,10 @@ pub fn performance_pads_grid(
                     {
                         action.released_cue = Some(idx);
                     }
-                    resp.clone()
-                        .on_hover_text(format!(
-                            "{} -- Left-click: trigger/set | Right-click: rename, color & behavior",
-                            meta.behavior.label()
-                        ));
+                    resp.clone().on_hover_text(format!(
+                        "{} -- Left-click: trigger/set | Right-click: rename, color & behavior",
+                        meta.behavior.label()
+                    ));
                     resp.context_menu(|ui| {
                         ui.strong(format!("Hot Cue {} Settings", idx + 1));
                         ui.horizontal(|ui| {
@@ -674,8 +672,28 @@ pub fn paint_parallel_waveforms(
     let rect_a = Rect::from_min_max(rect.min, Pos2::new(rect.max.x, rect.min.y + half_h));
     let rect_b = Rect::from_min_max(Pos2::new(rect.min.x, rect.min.y + half_h), rect.max);
 
-    paint_waveform_lane(&painter, rect_a, deck_a, wf_a, cues_a, palette, palette.deck_a, "A", zoom);
-    paint_waveform_lane(&painter, rect_b, deck_b, wf_b, cues_b, palette, palette.deck_b, "B", zoom);
+    paint_waveform_lane(
+        &painter,
+        rect_a,
+        deck_a,
+        wf_a,
+        cues_a,
+        palette,
+        palette.deck_a,
+        "A",
+        zoom,
+    );
+    paint_waveform_lane(
+        &painter,
+        rect_b,
+        deck_b,
+        wf_b,
+        cues_b,
+        palette,
+        palette.deck_b,
+        "B",
+        zoom,
+    );
 
     // Divider between Deck A and Deck B lanes
     painter.line_segment(
@@ -726,8 +744,28 @@ pub fn paint_vertical_waveforms(
     let half_w = rect.width() * 0.5;
     let rect_a = Rect::from_min_max(rect.min, Pos2::new(rect.min.x + half_w, rect.max.y));
     let rect_b = Rect::from_min_max(Pos2::new(rect.min.x + half_w, rect.min.y), rect.max);
-    paint_vertical_lane(&painter, rect_a, deck_a, wf_a, cues_a, palette, palette.deck_a, "A", zoom);
-    paint_vertical_lane(&painter, rect_b, deck_b, wf_b, cues_b, palette, palette.deck_b, "B", zoom);
+    paint_vertical_lane(
+        &painter,
+        rect_a,
+        deck_a,
+        wf_a,
+        cues_a,
+        palette,
+        palette.deck_a,
+        "A",
+        zoom,
+    );
+    paint_vertical_lane(
+        &painter,
+        rect_b,
+        deck_b,
+        wf_b,
+        cues_b,
+        palette,
+        palette.deck_b,
+        "B",
+        zoom,
+    );
     painter.line_segment(
         [
             Pos2::new(rect.min.x + half_w, rect.top()),
@@ -869,7 +907,8 @@ fn paint_vertical_lane(
     // Subtle full-width beatgrid lines behind waveform (skip if zoomed all the way out to avoid clutter)
     if zoom != WaveformZoom::FitAll {
         let last_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
-        let first_beat = ((start_t - window_sec - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
+        let first_beat =
+            ((start_t - window_sec - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
         for b in first_beat..=last_beat {
             if b < 0 {
                 continue;
@@ -959,7 +998,10 @@ fn paint_vertical_lane(
                     ],
                     Stroke::new(2.2, col),
                 );
-                let badge_rect = Rect::from_min_size(Pos2::new(rect.left() + 2.0, y - 6.0), Vec2::new(13.0, 12.0));
+                let badge_rect = Rect::from_min_size(
+                    Pos2::new(rect.left() + 2.0, y - 6.0),
+                    Vec2::new(13.0, 12.0),
+                );
                 painter.rect_filled(badge_rect, CornerRadius::same(2), col);
                 painter.text(
                     badge_rect.center(),
@@ -1019,7 +1061,8 @@ fn paint_waveform_lane(
     // Subtle full-height beatgrid lines behind waveform (skip in FitAll to keep track readable)
     if zoom != WaveformZoom::FitAll {
         let first_beat = ((start_t - deck.beatgrid_offset_sec) / beat_sec).ceil() as i64;
-        let last_beat = ((start_t + window_sec - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
+        let last_beat =
+            ((start_t + window_sec - deck.beatgrid_offset_sec) / beat_sec).floor() as i64;
         for b in first_beat..=last_beat {
             if b < 0 {
                 continue;
@@ -1114,7 +1157,10 @@ fn paint_waveform_lane(
                     cues[slot].label.trim().chars().take(5).collect()
                 };
                 let pill_w = (flag_lbl.len() as f32 * 6.2 + 6.0).max(14.0);
-                let pill = Rect::from_min_size(Pos2::new(x + 1.0, rect.top() + 1.0), Vec2::new(pill_w, 12.0));
+                let pill = Rect::from_min_size(
+                    Pos2::new(x + 1.0, rect.top() + 1.0),
+                    Vec2::new(pill_w, 12.0),
+                );
                 painter.rect_filled(pill, CornerRadius::same(2), col);
                 painter.text(
                     pill.center(),

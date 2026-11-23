@@ -62,9 +62,7 @@ impl DjCraftApp {
             .max_size(300.0)
             .show(ui, |ui| {
                 theme::card_frame(ui, palette, |ui| {
-                    ui.heading(
-                        egui::RichText::new("DJCraft Settings").color(palette.text_primary),
-                    );
+                    ui.heading(egui::RichText::new("DJCraft Settings").color(palette.text_primary));
                     ui.label(
                         egui::RichText::new("Changes apply live & persist to ui.json")
                             .small()
@@ -72,7 +70,10 @@ impl DjCraftApp {
                     );
                     ui.add_space(6.0);
                     if ui
-                        .add_sized([ui.available_width(), 28.0], egui::Button::new("<- Back to Booth (Esc)"))
+                        .add_sized(
+                            [ui.available_width(), 28.0],
+                            egui::Button::new("<- Back to Booth (Esc)"),
+                        )
                         .clicked()
                     {
                         self.workspace_mode = self.prev_workspace_mode;
@@ -83,21 +84,20 @@ impl DjCraftApp {
 
                     for tab in SettingsTab::ALL {
                         let selected = self.settings_tab == tab;
-                        let btn = egui::Button::new(
-                            egui::RichText::new(tab.label())
-                                .strong()
-                                .color(if selected {
+                        let btn =
+                            egui::Button::new(egui::RichText::new(tab.label()).strong().color(
+                                if selected {
                                     egui::Color32::BLACK
                                 } else {
                                     palette.text_primary
-                                }),
-                        )
-                        .min_size(egui::vec2(ui.available_width(), 30.0))
-                        .fill(if selected {
-                            palette.deck_a
-                        } else {
-                            palette.chassis
-                        });
+                                },
+                            ))
+                            .min_size(egui::vec2(ui.available_width(), 30.0))
+                            .fill(if selected {
+                                palette.deck_a
+                            } else {
+                                palette.chassis
+                            });
                         if ui.add(btn).clicked() {
                             self.settings_tab = tab;
                         }
@@ -108,7 +108,10 @@ impl DjCraftApp {
                     ui.separator();
                     ui.add_space(6.0);
                     if ui
-                        .add_sized([ui.available_width(), 26.0], egui::Button::new("Reset Visual Defaults"))
+                        .add_sized(
+                            [ui.available_width(), 26.0],
+                            egui::Button::new("Reset Visual Defaults"),
+                        )
                         .clicked()
                     {
                         self.prefs.card_decor = self.prefs.skin.recommended_decor();
