@@ -59,7 +59,7 @@ djcraft-cli analyze-dettato "D:\audio\track.mp3" --device cuda
 ```
 
 ### MCP Server (`djcraft-mcp`)
-- Transport: line-delimited JSON-RPC 2.0 over stdio (`2024-11-05`).
+- Transport: line-delimited JSON-RPC 2.0 over stdio (`2026-07-28`).
 - **10 Tools**:
   - `djcraft_status`
   - `djcraft_plan_transition`

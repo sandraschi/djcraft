@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![recursion_limit = "256"]
-//! DJCraft MCP Server (stdio, MCP 2024-11-05).
+//! DJCraft MCP Server (stdio, MCP 2026-07-28).
 //!
 //! Line-delimited JSON-RPC: stdout is 100% pure JSON-RPC, every diagnostic
 //! goes to stderr. All tools dispatch through `DjOrchestrator::dispatch`.
@@ -63,7 +63,7 @@ fn main() {
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": "2026-07-28",
                     "capabilities": { "tools": {} },
                     "serverInfo": { "name": "djcraft", "version": VERSION }
                 }

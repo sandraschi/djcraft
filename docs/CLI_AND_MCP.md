@@ -178,7 +178,7 @@ djcraft-cli stop-all
 
 ## 3. MCP Server (`djcraft-mcp`) - 35 Tools (100% CLI & Live Remote Parity)
 
-- **Transport**: line-delimited JSON-RPC 2.0 over stdio (`protocolVersion: "2024-11-05"`).
+- **Transport**: line-delimited JSON-RPC 2.0 over stdio (`protocolVersion: "2026-07-28"`).
 - Every `djcraft-cli` command has a direct MCP tool equivalent:
 
 | MCP Tool | CLI Equivalent | Key Arguments |
