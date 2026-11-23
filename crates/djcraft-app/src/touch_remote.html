@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DJCraft Touch">
+<link rel="manifest" href="/manifest.json">
+<title>DJCraft Touch Remote</title>
+<style>
+  :root {
+    --bg: #080a10;
+    --card: #141824;
+    --border: #2c354c;
+    --text: #f4f6fa;
+    --muted: #98a4bc;
+    --a: #38bdf8;
+    --b: #ef4444;
+    --c: #34d399;
+    --gold: #facc15;
+    --purple: #a855f7;
+    --pink: #ec4899;
+  }
+  * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    touch-action: none;
+  }
+  .app { display: flex; flex-direction: column; height: 100%; padding: env(safe-area-inset-top) 10px env(safe-area-inset-bottom) 10px; gap: 8px; }
+  .topbar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .brand { font-weight: 800; color: var(--a); letter-spacing: 0.5px; margin-right: 6px; }
+  .tabs { display: flex; gap: 6px; flex: 1; }
+  .tab {
+    flex: 1; padding: 10px 8px; border-radius: 8px; border: 1px solid var(--border);
+    background: #1b2132; color: var(--text); font-weight: 700; font-size: 14px; text-align: center;
+  }
+  .tab.active { background: var(--a); color: #000; border-color: var(--a); }
+  .pill { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: #1b2132; color: var(--text); font-weight: 700; font-size: 13px; }
+  .pill.on { background: var(--b); color: #fff; border-color: var(--b); }
+  .pill.ok { background: #16a34a; color: #fff; border-color: #16a34a; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; }
+  .status-dot.off { background: #ef4444; }
+  .view { display: none; flex: 1; min-height: 0; gap: 8px; }
+  .view.active { display: flex; }
+
+  /* Mixer & Decks layout */
+  .deck-col {
+    flex: 1; display: flex; flex-direction: column; gap: 8px;
+    background: var(--card); border: 2px solid var(--border); border-radius: 12px; padding: 10px;
+  }
+  .deck-col.a { border-color: rgba(56, 189, 248, 0.55); }
+  .deck-col.b { border-color: rgba(239, 68, 68, 0.55); }
+  .deck-hdr { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .deck-tag { font-weight: 900; font-size: 18px; }
+  .deck-col.a .deck-tag { color: var(--a); }
+  .deck-col.b .deck-tag { color: var(--b); }
+  .track-name { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .bpm { font-family: ui-monospace, monospace; font-weight: 800; font-size: 15px; color: var(--gold); }
+  .btn-row { display: flex; gap: 6px; }
+  .btn {
+    flex: 1; min-height: 46px; border-radius: 9px; border: 1px solid var(--border);
+    background: #1d2436; color: var(--text); font-weight: 800; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn.play.on { background: #16a34a; border-color: #22c55e; color: #fff; }
+  .btn.cue { background: #78350f; border-color: #f59e0b; color: #fef3c7; }
+  .btn.loop.on { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .pad-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .pad {
+    min-height: 52px; border-radius: 9px; border: 2px solid var(--border);
+    background: #1b2234; color: var(--text); font-weight: 800; font-size: 12px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .pad.set { color: #000; }
+
+  .mixer-col {
+    width: 260px; display: flex; flex-direction: column; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px;
+  }
+  .faders-row { flex: 1; display: flex; gap: 10px; align-items: stretch; justify-content: space-around; min-height: 150px; }
+  .vfader-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .vfader {
+    position: relative; width: 52px; flex: 1; background: #090b12;
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  .vfader-fill { position: absolute; bottom: 0; left: 0; right: 0; opacity: 0.45; pointer-events: none; }
+  .vfader-cap {
+    position: absolute; left: 4px; right: 4px; height: 24px; border-radius: 6px;
+    background: #e2e8f0; border: 2px solid #0f172a; pointer-events: none; transform: translateY(50%);
+  }
+  .vfader-lbl { font-size: 11px; font-weight: 800; color: var(--muted); }
+
+  .slider-row { display: flex; align-items: center; gap: 8px; }
+  .slider-row label { width: 42px; font-size: 11px; font-weight: 700; color: var(--muted); }
+  .hslider {
+    position: relative; flex: 1; height: 34px; background: #090b12;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .hslider-cap {
+    position: absolute; top: 3px; bottom: 3px; width: 22px; border-radius: 5px;
+    background: #f8fafc; border: 2px solid #0f172a; pointer-events: none; transform: translateX(-50%);
+  }
+  .xfader {
+    position: relative; height: 54px; background: #090b12;
+    border: 2px solid var(--border); border-radius: 10px;
+  }
+  .xfader-cap {
+    position: absolute; top: 4px; bottom: 4px; width: 34px; border-radius: 6px;
+    background: linear-gradient(180deg, #f8fafc, #94a3b8); border: 2px solid #020617;
+    pointer-events: none; transform: translateX(-50%);
+  }
+
+  /* Pads & FX tab */
+  .split-half {
+    flex: 1; display: flex; flex-direction: column; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  }
+  .sampler-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .sample-pad {
+    border-radius: 12px; border: 2px solid var(--purple); background: rgba(168,85,247,0.22);
+    color: var(--text); font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center;
+  }
+  .sample-pad:active { background: var(--purple); color: #000; }
+  .xy-pad {
+    flex: 1; position: relative; min-height: 180px; border-radius: 12px;
+    background: radial-gradient(circle at 50% 50%, rgba(168,85,247,0.3), #090b12 75%);
+    border: 2px solid var(--purple); overflow: hidden;
+  }
+  .xy-dot {
+    position: absolute; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--a); border: 3px solid #fff; pointer-events: none;
+    transform: translate(-50%, -50%); box-shadow: 0 0 18px var(--a);
+  }
+  .xy-hint { position: absolute; bottom: 8px; left: 12px; font-size: 12px; color: var(--muted); pointer-events: none; }
+
+  /* Crates tab */
+  .crates-wrap {
+    flex: 1; display: flex; flex-direction: column; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+    min-height: 0;
+  }
+  .search-box {
+    width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: #090b12; color: var(--text); font-size: 15px; touch-action: auto;
+  }
+  .track-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; display: flex; flex-direction: column; gap: 6px; }
+  .track-row {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    background: #1a2030; border: 1px solid var(--border); border-radius: 9px;
+  }
+  .track-meta { flex: 1; min-width: 0; }
+  .track-title { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-sub { font-size: 12px; color: var(--muted); }
+  .load-btn { padding: 10px 14px; border-radius: 8px; border: none; font-weight: 800; font-size: 13px; }
+  .load-a { background: var(--a); color: #000; }
+  .load-b { background: var(--b); color: #fff; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div id="connDot" class="status-dot"></div>
+    <div class="brand">DJCraft Touch</div>
+    <div class="tabs">
+      <div class="tab active" data-tab="mixer">MIXER &amp; DECKS</div>
+      <div class="tab" data-tab="pads">SAMPLER &amp; FX</div>
+      <div class="tab" data-tab="crates">CRATES</div>
+    </div>
+    <button id="syncBtn" class="pill">SYNC</button>
+    <button id="muteBtn" class="pill">MUTE</button>
+  </div>
+
+  <!-- TAB 1: MIXER & DECKS -->
+  <div id="tab-mixer" class="view active">
+    <div class="deck-col a">
+      <div class="deck-hdr">
+        <span class="deck-tag">DECK A</span>
+        <span id="aTitle" class="track-name">No track</span>
+        <span id="aBpm" class="bpm">124.0</span>
+      </div>
+      <div class="btn-row">
+        <button id="aPlay" class="btn play">PLAY</button>
+        <button id="aCue" class="btn cue">CUE</button>
+        <button id="aLoop4" class="btn loop">LOOP 4</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn" data-jump="A:-4">-4B</button>
+        <button class="btn" data-jump="A:-1">-1B</button>
+        <button class="btn" data-jump="A:1">+1B</button>
+        <button class="btn" data-jump="A:4">+4B</button>
+      </div>
+      <div class="pad-grid" id="aPads">
+        <div class="pad" data-cue="A:0">CUE 1</div>
+        <div class="pad" data-cue="A:1">CUE 2</div>
+        <div class="pad" data-cue="A:2">CUE 3</div>
+        <div class="pad" data-cue="A:3">CUE 4</div>
+      </div>
+      <div class="slider-row"><label>FLT A</label><div id="aFlt" class="hslider" data-min="-1" data-max="1" data-val="0"><div class="hslider-cap"></div></div></div>
+      <div class="slider-row"><label>LOW A</label><div id="aLow" class="hslider" data-min="0" data-max="2" data-val="1"><div class="hslider-cap"></div></div></div>
+    </div>
+
+    <div class="mixer-col">
+      <div class="faders-row">
+        <div class="vfader-wrap">
+          <div id="volA" class="vfader" data-val="1"><div class="vfader-fill" style="background:var(--a)"></div><div class="vfader-cap"></div></div>
+          <div class="vfader-lbl">CH A</div>
+        </div>
+        <div class="vfader-wrap">
+          <div id="volMst" class="vfader" data-val="0.75"><div class="vfader-fill" style="background:var(--gold)"></div><div class="vfader-cap"></div></div>
+          <div class="vfader-lbl">MST</div>
+        </div>
+        <div class="vfader-wrap">
+          <div id="volB" class="vfader" data-val="1"><div class="vfader-fill" style="background:var(--b)"></div><div class="vfader-cap"></div></div>
+          <div class="vfader-lbl">CH B</div>
+        </div>
+      </div>
+      <div class="vfader-lbl" style="text-align:center">CROSSFADER (A &lt;--&gt; B)</div>
+      <div id="xfader" class="xfader" data-val="0"><div class="xfader-cap"></div></div>
+    </div>
+
+    <div class="deck-col b">
+      <div class="deck-hdr">
+        <span class="deck-tag">DECK B</span>
+        <span id="bTitle" class="track-name">No track</span>
+        <span id="bBpm" class="bpm">124.0</span>
+      </div>
+      <div class="btn-row">
+        <button id="bPlay" class="btn play">PLAY</button>
+        <button id="bCue" class="btn cue">CUE</button>
+        <button id="bLoop4" class="btn loop">LOOP 4</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn" data-jump="B:-4">-4B</button>
+        <button class="btn" data-jump="B:-1">-1B</button>
+        <button class="btn" data-jump="B:1">+1B</button>
+        <button class="btn" data-jump="B:4">+4B</button>
+      </div>
+      <div class="pad-grid" id="bPads">
+        <div class="pad" data-cue="B:0">CUE 1</div>
+        <div class="pad" data-cue="B:1">CUE 2</div>
+        <div class="pad" data-cue="B:2">CUE 3</div>
+        <div class="pad" data-cue="B:3">CUE 4</div>
+      </div>
+      <div class="slider-row"><label>FLT B</label><div id="bFlt" class="hslider" data-min="-1" data-max="1" data-val="0"><div class="hslider-cap"></div></div></div>
+      <div class="slider-row"><label>LOW B</label><div id="bLow" class="hslider" data-min="0" data-max="2" data-val="1"><div class="hslider-cap"></div></div></div>
+    </div>
+  </div>
+
+  <!-- TAB 2: SAMPLER & FX -->
+  <div id="tab-pads" class="view">
+    <div class="split-half">
+      <div class="btn-row">
+        <button class="pill bank-btn ok" data-bank="0">Bank A</button>
+        <button class="pill bank-btn" data-bank="1">Bank B</button>
+        <button class="pill bank-btn" data-bank="2">Bank C</button>
+        <button class="pill bank-btn" data-bank="3">Bank D</button>
+        <button id="seqBtn" class="pill">BEATMAKER</button>
+      </div>
+      <div class="sampler-grid">
+        <div class="sample-pad" data-slot="0">PAD 1</div>
+        <div class="sample-pad" data-slot="1">PAD 2</div>
+        <div class="sample-pad" data-slot="2">PAD 3</div>
+        <div class="sample-pad" data-slot="3">PAD 4</div>
+        <div class="sample-pad" data-slot="4">PAD 5</div>
+        <div class="sample-pad" data-slot="5">PAD 6</div>
+        <div class="sample-pad" data-slot="6">PAD 7</div>
+        <div class="sample-pad" data-slot="7">PAD 8</div>
+      </div>
+    </div>
+    <div class="split-half">
+      <div class="btn-row">
+        <button id="fx1Btn" class="btn">FX 1: OFF</button>
+        <button id="fx2Btn" class="btn">FX 2: OFF</button>
+      </div>
+      <div id="xyPad" class="xy-pad">
+        <div id="xyDot" class="xy-dot" style="left:50%;top:50%"></div>
+        <div class="xy-hint">X = FX 1 Wet/Dry &nbsp;|&nbsp; Y = Deck A Color Filter</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: CRATES -->
+  <div id="tab-crates" class="view">
+    <div class="crates-wrap">
+      <input id="crateSearch" class="search-box" type="search" placeholder="Filter crate tracks by title, artist, or key...">
+      <div id="trackList" class="track-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentBank = 0;
+let activeDrags = new Set();
+let cachedTracks = [];
+
+function sendCmd(payload) {
+  fetch('/api/cmd', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).catch(() => {});
+}
+
+// Tabs
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('pointerdown', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('tab-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+// Buttons
+document.getElementById('syncBtn').addEventListener('pointerdown', () => sendCmd({ cmd: 'sync' }));
+document.getElementById('muteBtn').addEventListener('pointerdown', () => sendCmd({ cmd: 'toggle_mute' }));
+document.getElementById('aPlay').addEventListener('pointerdown', () => sendCmd({ cmd: 'play_pause', deck: 'A' }));
+document.getElementById('bPlay').addEventListener('pointerdown', () => sendCmd({ cmd: 'play_pause', deck: 'B' }));
+document.getElementById('aCue').addEventListener('pointerdown', () => sendCmd({ cmd: 'cue', deck: 'A' }));
+document.getElementById('bCue').addEventListener('pointerdown', () => sendCmd({ cmd: 'cue', deck: 'B' }));
+document.getElementById('aLoop4').addEventListener('pointerdown', () => sendCmd({ cmd: 'toggle_loop4', deck: 'A' }));
+document.getElementById('bLoop4').addEventListener('pointerdown', () => sendCmd({ cmd: 'toggle_loop4', deck: 'B' }));
+document.getElementById('fx1Btn').addEventListener('pointerdown', () => sendCmd({ cmd: 'toggle_fx', unit: 0 }));
+document.getElementById('fx2Btn').addEventListener('pointerdown', () => sendCmd({ cmd: 'toggle_fx', unit: 1 }));
+document.getElementById('seqBtn').addEventListener('pointerdown', () => sendCmd({ cmd: 'toggle_sequencer' }));
+
+document.querySelectorAll('[data-jump]').forEach(b => {
+  b.addEventListener('pointerdown', () => {
+    const [deck, beats] = b.dataset.jump.split(':');
+    sendCmd({ cmd: 'beatjump', deck, beats: parseFloat(beats) });
+  });
+});
+document.querySelectorAll('[data-cue]').forEach(p => {
+  p.addEventListener('pointerdown', () => {
+    const [deck, slot] = p.dataset.cue.split(':');
+    sendCmd({ cmd: 'hot_cue', deck, slot: parseInt(slot, 10) });
+  });
+});
+document.querySelectorAll('.bank-btn').forEach(b => {
+  b.addEventListener('pointerdown', () => {
+    currentBank = parseInt(b.dataset.bank, 10);
+    document.querySelectorAll('.bank-btn').forEach(x => x.classList.remove('ok'));
+    b.classList.add('ok');
+  });
+});
+document.querySelectorAll('.sample-pad').forEach(p => {
+  p.addEventListener('pointerdown', () => {
+    sendCmd({ cmd: 'trigger_sample', bank: currentBank, slot: parseInt(p.dataset.slot, 10) });
+  });
+});
+
+// Multi-touch vertical faders
+function bindVFader(id, onVal) {
+  const el = document.getElementById(id);
+  const fill = el.querySelector('.vfader-fill');
+  const cap = el.querySelector('.vfader-cap');
+  const render = v => {
+    const p = Math.max(0, Math.min(1, v));
+    fill.style.height = (p * 100) + '%';
+    cap.style.bottom = (p * 100) + '%';
+    el.dataset.val = p;
+  };
+  render(parseFloat(el.dataset.val));
+  const update = e => {
+    const r = el.getBoundingClientRect();
+    const v = 1 - (e.clientY - r.top) / r.height;
+    const clamped = Math.max(0, Math.min(1, v));
+    render(clamped);
+    onVal(clamped);
+  };
+  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); activeDrags.add(id); update(e); });
+  el.addEventListener('pointermove', e => { if (e.buttons || e.pressure > 0) update(e); });
+  el.addEventListener('pointerup', () => activeDrags.delete(id));
+  el.addEventListener('pointercancel', () => activeDrags.delete(id));
+  return render;
+}
+
+const setVolA = bindVFader('volA', v => sendCmd({ cmd: 'set_volume', deck: 'A', value: v }));
+const setVolB = bindVFader('volB', v => sendCmd({ cmd: 'set_volume', deck: 'B', value: v }));
+const setVolMst = bindVFader('volMst', v => sendCmd({ cmd: 'set_master', value: v }));
+
+// Multi-touch horizontal sliders + crossfader
+function bindHSlider(id, min, max, onVal) {
+  const el = document.getElementById(id);
+  const cap = el.querySelector('.hslider-cap, .xfader-cap');
+  const render = v => {
+    const norm = Math.max(0, Math.min(1, (v - min) / (max - min)));
+    cap.style.left = (norm * 100) + '%';
+    el.dataset.val = v;
+  };
+  render(parseFloat(el.dataset.val));
+  const update = e => {
+    const r = el.getBoundingClientRect();
+    const norm = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    const v = min + norm * (max - min);
+    render(v);
+    onVal(v);
+  };
+  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); activeDrags.add(id); update(e); });
+  el.addEventListener('pointermove', e => { if (e.buttons || e.pressure > 0) update(e); });
+  el.addEventListener('pointerup', () => activeDrags.delete(id));
+  el.addEventListener('pointercancel', () => activeDrags.delete(id));
+  return render;
+}
+
+const setXf = bindHSlider('xfader', -1, 1, v => sendCmd({ cmd: 'set_crossfader', value: v }));
+const setAFlt = bindHSlider('aFlt', -1, 1, v => sendCmd({ cmd: 'set_filter', deck: 'A', value: v }));
+const setBFlt = bindHSlider('bFlt', -1, 1, v => sendCmd({ cmd: 'set_filter', deck: 'B', value: v }));
+const setALow = bindHSlider('aLow', 0, 2, v => sendCmd({ cmd: 'set_eq_low', deck: 'A', value: v }));
+const setBLow = bindHSlider('bLow', 0, 2, v => sendCmd({ cmd: 'set_eq_low', deck: 'B', value: v }));
+
+// XY FX Pad
+const xyPad = document.getElementById('xyPad');
+const xyDot = document.getElementById('xyDot');
+function updateXY(e) {
+  const r = xyPad.getBoundingClientRect();
+  const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
+  xyDot.style.left = (x * 100) + '%';
+  xyDot.style.top = (y * 100) + '%';
+  sendCmd({ cmd: 'set_fx_wet', unit: 0, value: x });
+  sendCmd({ cmd: 'set_filter', deck: 'A', value: (0.5 - y) * 2 });
+}
+xyPad.addEventListener('pointerdown', e => { xyPad.setPointerCapture(e.pointerId); updateXY(e); });
+xyPad.addEventListener('pointermove', e => { if (e.buttons || e.pressure > 0) updateXY(e); });
+
+// Crates rendering
+const searchBox = document.getElementById('crateSearch');
+const trackList = document.getElementById('trackList');
+function renderTracks() {
+  const q = searchBox.value.trim().toLowerCase();
+  const filtered = cachedTracks.filter(t =>
+    !q || t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q) || t.key.toLowerCase().includes(q)
+  );
+  trackList.innerHTML = filtered.slice(0, 80).map(t => `
+    <div class="track-row">
+      <div class="track-meta">
+        <div class="track-title">${t.title}</div>
+        <div class="track-sub">${t.artist} | ${t.bpm.toFixed(1)} BPM | ${t.key}</div>
+      </div>
+      <button class="load-btn load-a" onclick="sendCmd({cmd:'load_track',deck:'A',track_id:${t.id}})">-&gt; A</button>
+      <button class="load-btn load-b" onclick="sendCmd({cmd:'load_track',deck:'B',track_id:${t.id}})">-&gt; B</button>
+    </div>
+  `).join('');
+}
+searchBox.addEventListener('input', renderTracks);
+
+// State polling (5 Hz)
+async function pollState() {
+  try {
+    const res = await fetch('/api/state');
+    const st = await res.json();
+    document.getElementById('connDot').classList.remove('off');
+    document.getElementById('aTitle').textContent = st.deck_a.title || 'Empty';
+    document.getElementById('aBpm').textContent = st.deck_a.bpm.toFixed(1);
+    document.getElementById('bTitle').textContent = st.deck_b.title || 'Empty';
+    document.getElementById('bBpm').textContent = st.deck_b.bpm.toFixed(1);
+    document.getElementById('aPlay').classList.toggle('on', st.deck_a.playing);
+    document.getElementById('bPlay').classList.toggle('on', st.deck_b.playing);
+    document.getElementById('aLoop4').classList.toggle('on', st.deck_a.loop4);
+    document.getElementById('bLoop4').classList.toggle('on', st.deck_b.loop4);
+    document.getElementById('muteBtn').classList.toggle('on', st.master_muted);
+    document.getElementById('fx1Btn').textContent = st.fx1_on ? 'FX 1: ON' : 'FX 1: OFF';
+    document.getElementById('fx1Btn').classList.toggle('play', st.fx1_on);
+    document.getElementById('fx1Btn').classList.toggle('on', st.fx1_on);
+    document.getElementById('fx2Btn').textContent = st.fx2_on ? 'FX 2: ON' : 'FX 2: OFF';
+    document.getElementById('fx2Btn').classList.toggle('play', st.fx2_on);
+    document.getElementById('fx2Btn').classList.toggle('on', st.fx2_on);
+    document.getElementById('seqBtn').classList.toggle('ok', st.seq_on);
+
+    if (!activeDrags.has('volA')) setVolA(st.deck_a.volume);
+    if (!activeDrags.has('volB')) setVolB(st.deck_b.volume);
+    if (!activeDrags.has('volMst')) setVolMst(st.master_volume);
+    if (!activeDrags.has('xfader')) setXf(st.crossfader);
+    if (!activeDrags.has('aFlt')) setAFlt(st.deck_a.filter);
+    if (!activeDrags.has('bFlt')) setBFlt(st.deck_b.filter);
+    if (!activeDrags.has('aLow')) setALow(st.deck_a.eq_low);
+    if (!activeDrags.has('bLow')) setBLow(st.deck_b.eq_low);
+
+    const aPads = document.querySelectorAll('#aPads .pad');
+    st.deck_a.cues.forEach((c, i) => {
+      if (aPads[i]) {
+        aPads[i].textContent = c.label || ('CUE ' + (i + 1));
+        aPads[i].classList.toggle('set', c.set);
+        aPads[i].style.background = c.set ? c.color : '#1b2234';
+        aPads[i].style.borderColor = c.color;
+      }
+    });
+    const bPads = document.querySelectorAll('#bPads .pad');
+    st.deck_b.cues.forEach((c, i) => {
+      if (bPads[i]) {
+        bPads[i].textContent = c.label || ('CUE ' + (i + 1));
+        bPads[i].classList.toggle('set', c.set);
+        bPads[i].style.background = c.set ? c.color : '#1b2234';
+        bPads[i].style.borderColor = c.color;
+      }
+    });
+
+    if (st.tracks && st.tracks.length !== cachedTracks.length) {
+      cachedTracks = st.tracks;
+      renderTracks();
+    }
+  } catch (_) {
+    document.getElementById('connDot').classList.add('off');
+  }
+}
+setInterval(pollState, 200);
+pollState();
+</script>
+</body>
+</html>

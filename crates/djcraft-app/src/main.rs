@@ -12,6 +12,7 @@ mod settings;
 mod skins;
 mod studio_dock;
 mod theme;
+mod touch_remote;
 mod video;
 mod widgets;
 
@@ -498,6 +499,8 @@ pub struct DjCraftApp {
     screenshot_frames: u32,
     screenshot_requested: bool,
     ipc_rx: Option<djcraft_core::IpcReceiver>,
+    touch_remote: Option<touch_remote::TouchRemoteServer>,
+    touch_remote_port: u16,
     set_auto: set_and_rooms::SetAutomationState,
     room2: set_and_rooms::Room2AutoplayState,
     lighting: djcraft_core::LightingEngine,
@@ -676,6 +679,8 @@ impl DjCraftApp {
             screenshot_frames: 0,
             screenshot_requested: false,
             ipc_rx: None,
+            touch_remote: None,
+            touch_remote_port: 14119,
             set_auto: set_and_rooms::SetAutomationState::default(),
             room2: set_and_rooms::Room2AutoplayState::default(),
             lighting: djcraft_core::LightingEngine::new(),
@@ -713,6 +718,176 @@ impl DjCraftApp {
         if let Ok((rx, port)) = djcraft_core::start_ipc_server(move || ctx.request_repaint()) {
             self.ipc_rx = Some(rx);
             let _ = port;
+        }
+    }
+
+    fn poll_and_sync_touch_remote(&mut self, palette: &SkinPalette) {
+        let mut actions = Vec::new();
+        if let Some(ref srv) = self.touch_remote {
+            while let Ok(act) = srv.rx.try_recv() {
+                actions.push(act);
+            }
+        } else {
+            return;
+        }
+
+        let parse_deck = |s: &str| match s.to_uppercase().as_str() {
+            "B" => DeckId::DeckB,
+            "C" => DeckId::DeckC,
+            "D" => DeckId::DeckD,
+            _ => DeckId::DeckA,
+        };
+
+        for act in actions {
+            match act {
+                touch_remote::TouchRemoteAction::PlayPause { deck } => {
+                    self.dispatch_and_report(Command::PlayPause {
+                        deck: parse_deck(&deck),
+                    });
+                }
+                touch_remote::TouchRemoteAction::Cue { deck } => {
+                    self.dispatch_and_report(Command::CueReturn {
+                        deck: parse_deck(&deck),
+                    });
+                }
+                touch_remote::TouchRemoteAction::Sync => {
+                    self.execute_catalog_id("commands.auto_sync");
+                }
+                touch_remote::TouchRemoteAction::ToggleMute => {
+                    self.execute_catalog_id("modify.toggle_mute");
+                }
+                touch_remote::TouchRemoteAction::ToggleLoop4 { deck } => {
+                    let d = parse_deck(&deck);
+                    let next = if self.orch.deck(d).loop_bars == Some(4) {
+                        None
+                    } else {
+                        Some(4)
+                    };
+                    self.dispatch_and_report(Command::SetLoopBars {
+                        deck: d,
+                        bars: next,
+                    });
+                }
+                touch_remote::TouchRemoteAction::Beatjump { deck, beats } => {
+                    self.dispatch_and_report(Command::BeatJump {
+                        deck: parse_deck(&deck),
+                        beats,
+                    });
+                }
+                touch_remote::TouchRemoteAction::HotCue { deck, slot } => {
+                    if slot < 4 {
+                        self.handle_pad_click(parse_deck(&deck), slot);
+                    }
+                }
+                touch_remote::TouchRemoteAction::SetVolume { deck, value } => {
+                    let d = parse_deck(&deck);
+                    self.orch.deck_mut(d).volume_fader = value.clamp(0.0, 1.0);
+                }
+                touch_remote::TouchRemoteAction::SetMaster { value } => {
+                    self.orch.master_volume = value.clamp(0.0, 1.0);
+                }
+                touch_remote::TouchRemoteAction::SetCrossfader { value } => {
+                    self.orch.crossfader = value.clamp(-1.0, 1.0);
+                }
+                touch_remote::TouchRemoteAction::SetFilter { deck, value } => {
+                    let d = parse_deck(&deck);
+                    self.orch.deck_mut(d).color_filter = value.clamp(-1.0, 1.0);
+                }
+                touch_remote::TouchRemoteAction::SetEqLow { deck, value } => {
+                    let d = parse_deck(&deck);
+                    self.orch.deck_mut(d).eq_low = value.clamp(0.0, 2.0);
+                }
+                touch_remote::TouchRemoteAction::ToggleFx { unit } => {
+                    if unit == 0 {
+                        self.execute_catalog_id("modify.toggle_fx1");
+                    } else if unit == 1 {
+                        self.execute_catalog_id("modify.toggle_fx2");
+                    }
+                }
+                touch_remote::TouchRemoteAction::SetFxWet { unit, value } => {
+                    if let Some(u) = self.orch.fx_units.get_mut(unit) {
+                        u.wet_dry = value.clamp(0.0, 1.0);
+                    }
+                }
+                touch_remote::TouchRemoteAction::TriggerSample { bank, slot } => {
+                    self.audio_out
+                        .trigger_sample(bank % SAMPLER_BANKS, slot % SAMPLER_SLOTS);
+                }
+                touch_remote::TouchRemoteAction::ToggleSequencer => {
+                    let (on, _, _) = self.audio_out.sequencer_snapshot();
+                    self.audio_out.set_sequencer_enabled(!on);
+                }
+                touch_remote::TouchRemoteAction::LoadTrack { deck, track_id } => {
+                    if let Some(tr) = self
+                        .crate_results
+                        .iter()
+                        .find(|t| t.id == track_id)
+                        .cloned()
+                    {
+                        self.load_crate_track_to_deck(parse_deck(&deck), &tr);
+                    }
+                }
+            }
+        }
+
+        let build_deck_snap = |d: &djcraft_audio::DeckState, d_idx: usize| {
+            let mut cues: [touch_remote::TouchCueSnapshot; 4] =
+                std::array::from_fn(|_| touch_remote::TouchCueSnapshot::default());
+            for (slot, slot_snap) in cues.iter_mut().enumerate() {
+                let meta = &self.hot_cue_metas[d_idx][slot];
+                let c = meta.resolved_color(slot, palette);
+                *slot_snap = touch_remote::TouchCueSnapshot {
+                    set: d.hot_cue_seconds[slot].is_some(),
+                    label: meta.display_label(slot),
+                    color: format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()),
+                };
+            }
+            touch_remote::TouchDeckSnapshot {
+                title: d
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| t.title.clone())
+                    .unwrap_or_else(|| "Empty".to_string()),
+                bpm: d
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| t.bpm * (1.0 + d.pitch_bend_pct / 100.0))
+                    .unwrap_or(124.0),
+                playing: d.is_playing,
+                loop4: d.loop_bars == Some(4),
+                volume: d.volume_fader,
+                filter: d.color_filter,
+                eq_low: d.eq_low,
+                cues,
+            }
+        };
+
+        let (seq_on, _, _) = self.audio_out.sequencer_snapshot();
+        if let Some(ref srv) = self.touch_remote {
+            if let Ok(mut snap) = srv.snapshot.lock() {
+                snap.deck_a = build_deck_snap(&self.orch.deck_a, 0);
+                snap.deck_b = build_deck_snap(&self.orch.deck_b, 1);
+                snap.crossfader = self.orch.crossfader;
+                snap.master_volume = self.orch.master_volume;
+                snap.master_muted = self.orch.master_muted;
+                snap.fx1_on = self.orch.fx_units[0].enabled;
+                snap.fx2_on = self.orch.fx_units[1].enabled;
+                snap.seq_on = seq_on;
+                if snap.tracks.len() != self.crate_results.len() {
+                    snap.tracks = self
+                        .crate_results
+                        .iter()
+                        .take(120)
+                        .map(|t| touch_remote::TouchTrackRow {
+                            id: t.id,
+                            title: t.title.clone(),
+                            artist: t.artist.clone(),
+                            bpm: t.bpm,
+                            key: t.musical_key.clone(),
+                        })
+                        .collect();
+                }
+            }
         }
     }
 
@@ -2613,6 +2788,7 @@ impl eframe::App for DjCraftApp {
             card_opacity: self.prefs.card_opacity,
             color_boost: self.prefs.color_boost,
         });
+        self.poll_and_sync_touch_remote(&palette);
         if !self.typography_applied {
             theme::apply_fleet_typography(&ctx);
             self.typography_applied = true;
@@ -3914,6 +4090,7 @@ mod tests {
             ("skins.rs", include_str!("skins.rs")),
             ("studio_dock.rs", include_str!("studio_dock.rs")),
             ("theme.rs", include_str!("theme.rs")),
+            ("touch_remote.rs", include_str!("touch_remote.rs")),
             ("video.rs", include_str!("video.rs")),
             ("widgets.rs", include_str!("widgets.rs")),
         ];

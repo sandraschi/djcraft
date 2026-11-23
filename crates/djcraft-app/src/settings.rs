@@ -586,6 +586,74 @@ impl DjCraftApp {
 
                     SettingsTab::AiAndBridges => {
                         theme::card_frame(ui, palette, |ui| {
+                            ui.heading("iPad / Tablet Multi-Touch Remote (LAN PWA)");
+                            ui.label(
+                                egui::RichText::new("Control decks, multi-touch faders, crossfader, Hot Cues, Sampler pads, XY FX pad, and Crates from iPad Safari over local Wi-Fi.")
+                                    .small()
+                                    .color(palette.text_secondary),
+                            );
+                            ui.add_space(4.0);
+                            ui.horizontal_wrapped(|ui| {
+                                let running = self.touch_remote.is_some();
+                                ui.add_enabled_ui(!running, |ui| {
+                                    ui.label("Port:");
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.touch_remote_port)
+                                            .range(1024..=65535),
+                                    );
+                                });
+                                let btn = egui::Button::new(if running {
+                                    "Stop Touch Remote"
+                                } else {
+                                    "Start iPad Touch Remote"
+                                })
+                                .fill(if running {
+                                    egui::Color32::from_rgb(220, 38, 38)
+                                } else {
+                                    egui::Color32::from_rgb(22, 163, 74)
+                                });
+                                if ui.add(btn).clicked() {
+                                    if running {
+                                        self.touch_remote = None;
+                                        self.status_msg = "iPad Touch Remote stopped".to_string();
+                                    } else {
+                                        match super::touch_remote::TouchRemoteServer::start(
+                                            self.touch_remote_port,
+                                        ) {
+                                            Ok(srv) => {
+                                                self.status_msg = format!(
+                                                    "iPad Touch Remote LIVE at {}",
+                                                    srv.lan_url
+                                                );
+                                                self.touch_remote = Some(srv);
+                                            }
+                                            Err(e) => {
+                                                self.status_msg = e;
+                                            }
+                                        }
+                                    }
+                                }
+                                if let Some(ref srv) = self.touch_remote {
+                                    ui.strong(
+                                        egui::RichText::new(&srv.lan_url)
+                                            .monospace()
+                                            .color(palette.deck_a),
+                                    );
+                                    if ui.small_button("Copy URL").clicked() {
+                                        ui.ctx().copy_text(srv.lan_url.clone());
+                                        self.status_msg =
+                                            format!("Copied {} to clipboard", srv.lan_url);
+                                    }
+                                }
+                            });
+                            ui.label(
+                                egui::RichText::new("On iPad: open the URL in Safari -> Share -> Add to Home Screen for fullscreen multi-touch DJ mode. (Allow port in Windows Firewall if prompted.)")
+                                    .small()
+                                    .color(palette.text_secondary),
+                            );
+                        });
+                        ui.add_space(8.0);
+                        theme::card_frame(ui, palette, |ui| {
                             ui.heading("AI Booth Assistant (Local & Cloud Providers)");
                             ui.add_space(4.0);
                             self.render_ai_provider_controls(ui, palette, "settings");
