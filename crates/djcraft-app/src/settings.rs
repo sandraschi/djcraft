@@ -299,6 +299,12 @@ impl DjCraftApp {
                         theme::card_frame(ui, palette, |ui| {
                             ui.heading("Fine-Grained Panel Visibility");
                             prefs_changed |= ui
+                                .checkbox(
+                                    &mut self.prefs.show_quick_toolbar,
+                                    "Show Quick Toolbar (optional top button strip; all actions are in the Menu Bar)",
+                                )
+                                .changed();
+                            prefs_changed |= ui
                                 .checkbox(&mut self.prefs.four_deck_layout, "4-Deck Full Layout (A+C Left, B+D Right)")
                                 .changed();
                             prefs_changed |= ui

@@ -12,19 +12,21 @@ DJCraft Pro is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck 
 3. **Start Playback**: Click **`PLAY`** on the deck (turns green **`PAUSE`** while playing), or press **`Space`** for Deck A and **`Shift+Space`** for Deck B.
 4. **Verify Audio Routing**: Make sure the deck's channel volume fader (`CH A` / `CH B`) is raised, `MST` Master Loudness is above 0%, `MUTE` is off, and the Magnetic crossfader is centered (`0.0`) or moved toward the playing deck.
 
-### Workspace Modes & Layouts
-- **Mode dropdown** (top bar):
-  - **`LIVE CONSOLE`**: Full 2-deck or 4-deck hardware console with Battle Mixer, stacked/vertical RGB waveforms, and lower Dock Panel.
-  - **`BOOTH + CRATE`** (`--booth-crate`): Performance split layout with compact `78px` platters, center vertical RGB waveforms, a hideable **`Booth Strip`** (`Hide` | `FX Rack` | `Sampler` | `Video`), and the lower 2-pane crate browser defaulting to your prepared gig crate.
-  - **`CRATES & GIG PREP`** (`--crates`): Full-width 2-pane library manager, setlist sequencer, stem batching, and `.crate` / `.vdjfolder` interop.
-- **Decks dropdown**: **`2-Deck`** (use `-> C` / `-> D` in deck headers to flip layers) or **`4-Deck`** (stacks A+C left, B+D right).
-- **`Panels` menu**: Toggle **`Live Video Strip`**, **`Live Sampler Strip (4x8)`**, **`Parallel Waveforms`**, **`Vertical Waveforms`**, and **`Decks C & D Bottom Bar`**.
+### Menu-First UI, Workspace Modes & Layouts
+- **Standard Menu Bar** (`File / Edit / View / Insert / Modify / Commands / Window / Help`):
+  - **`File -> Settings... (Ctrl+,)`**: Opens the full-window 2-pane Settings workspace (`Esc` returns to the booth).
+  - **`View -> Workspace`**: Switch between **`LIVE CONSOLE`**, **`BOOTH + CRATE`** (`--booth-crate`), **`CRATES & GIG PREP`** (`--crates`), and **`SETTINGS`** (`--settings`).
+  - **`View -> Booth Layouts`**: 7 one-click Serato/VirtualDJ presets (`Classic 2-Deck`, `Serato Vertical`, `Extended 4-Deck`, `Scratch / Battle Focus`, `Performance (Sampler + FX)`, `Library / Gig Prep`, `Video / VJ Booth`).
+  - **`View -> Show Quick Toolbar`**: The legacy top button strip is **hidden by default** so the booth stays clean and menu-driven; re-enable it anytime here or in `Settings -> Booth Layouts`.
+  - **`View` panel toggles**: `4-Deck Layout`, `Parallel Waveforms`, `Vertical Waveforms (between decks)`, `Live Video Strip`, `Live Sampler Strip (4x8)`, `Deck A`, `Deck B`, and `Decks C & D Strip`.
+  - **`Commands`**: `Auto-Sync BPM`, `Phase Sync`, `Stop All Decks`, `Enable/Disable Link Sync (UDP)`, `Enable/Disable Auto-DJ Automix`, and `Show/Hide Booth AI Chat Drawer (Ctrl+L)`.
 
-### Skins, Backdrops, Language & Settings (`Ctrl+,`)
-- **6 Built-in Skins** (top-right dropdown): `Battle Console`, `Club Dark`, `Midnight Booth`, `Carbon Deck`, `Shocking Pink Club`, and `Daylight Booth (Light)` (pure black ink on crisp light surfaces).
-- **4 Backdrops** (next to Skin): `Solid`, `Brushed Metal`, `Carbon Weave`, and `Sparkle Club` (audio-reactive).
+### Skins, Card Decorations, Backdrops & Full-Window Settings (`Ctrl+,`)
+- **9 Built-in Skins** (`View -> Console Skin` or `Settings -> Appearance & Skins`): `Battle Console`, `Club Dark`, `Midnight Booth`, `Carbon Deck`, `Shocking Pink Club`, `Daylight Booth (Light)`, `Star Trek LCARS`, `Baroque Velvet & Gold`, and `Synthwave Outrun`.
+- **6 Bold Backdrops**: `Solid`, `Brushed Metal`, `Carbon Weave`, `Sparkle Club`, `Starfield Warp (LCARS)`, and `Baroque Gold Damask` with a live Pattern Intensity slider.
+- **5 Card Decoration Styles**: `Clean Flat`, `Bold Drop Shadow`, `Neon Outer Glow`, `Baroque Double Frame`, and `LCARS Starfleet Bracket`, plus live Border Thickness, Card Opacity, and Color Boost sliders.
 - **7 Languages (i18n)**: `EN`, `DE`, `FR`, `ES`, `JA`, `KO`, `ZH` (saved to `%LOCALAPPDATA%\djcraft\ui.json`).
-- **Unified Settings (`Ctrl+,`)**: 5-tab modal (`Audio`, `Decks & Booth`, `MIDI & DVS`, `Auto-DJ & Rec`, `AI & Bridges`).
+- **Full-Window 2-Pane Settings (`Ctrl+,`)**: 7 categories (`Appearance & Skins`, `Booth Layouts`, `Audio & Headphone Cue`, `Decks & Beatgrid`, `MIDI & DVS Timecode`, `Auto-DJ & Recording`, `AI & External Bridges` including iPad Touch Remote + optional PIN).
 
 ---
 

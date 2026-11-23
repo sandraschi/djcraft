@@ -36,13 +36,13 @@ Open the dedicated 2-pane **Settings** workspace (`Settings` button, Workspace d
 
 ---
 
-## 2. 2-Deck / 4-Deck Layout, Vertical Waveforms & Internationalization (i18n)
+## 2. Menu-First Navigation, 2-Deck / 4-Deck Layout, Vertical Waveforms & i18n
 
-- **Compact Dropdown Top Bar**: Switch **Mode** (`LIVE CONSOLE` / `CRATES & GIG PREP`), **Decks** (`2-Deck` / `4-Deck`), **`Panels`** (toggle `Live Video Strip`, `Live Sampler Strip`, `Parallel Waveforms`, `Vertical Waveforms (between decks)`, `Decks C & D Bottom Bar`), and **`Sync`** (`Auto-Sync`, `Phase-Sync`, `Command Palette`) from clean dropdowns.
-  - **Horizontal vs. Vertical Waveforms**: Toggle **`Vertical Waveforms (between decks)`** in the **`Panels`** menu for classic battle-style top-to-bottom scrolling Deck A / Deck B waveforms right beside the Battle Mixer.
+- **Menu-First Top Bar (Quick Toolbar Hidden by Default)**: All workspace switching (`View -> Workspace`), 7 Booth Layout Presets (`View -> Booth Layouts`), skin/backdrop selection, panel visibility (`Live Video Strip`, `Live Sampler Strip`, `Parallel Waveforms`, `Vertical Waveforms`, `Decks C & D`), Settings (`File -> Settings...` / `Ctrl+,`), and performance toggles (`Commands -> Link Sync / Auto-DJ / Stop All / Booth AI Chat`) live in the standard desktop Menu Bar. The optional Quick Toolbar strip is hidden by default and can be toggled anytime via **`View -> Show Quick Toolbar`** or **`Settings -> Booth Layouts`**.
+  - **Horizontal vs. Vertical Waveforms**: Toggle **`View -> Vertical Waveforms (between decks)`** (or pick **`Serato Vertical`** under **`View -> Booth Layouts`**) for classic battle-style top-to-bottom scrolling Deck A / Deck B waveforms right beside the Battle Mixer.
   - **`2-DECK`**: Full-height Decks A & B with **`-> C`** / **`-> D`** layer-swap buttons in each deck header plus optional compact Decks C & D strip at the bottom.
   - **`4-DECK`**: Stacks full hardware **Deck A + Deck C** on the left and **Deck B + Deck D** on the right.
-- **i18n (`crates/djcraft-core/src/i18n.rs`)**: Switch languages live in the top-right dropdown across **EN**, **DE**, **FR**, **ES**, **JA**, **KO**, and **ZH**.
+- **i18n (`crates/djcraft-core/src/i18n.rs`)**: Switch languages live in the top-right dropdown or Settings across **EN**, **DE**, **FR**, **ES**, **JA**, **KO**, and **ZH**.
 
 ---
 

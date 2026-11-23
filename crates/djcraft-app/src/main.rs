@@ -266,6 +266,8 @@ struct UiPrefs {
     #[serde(default)]
     show_live_sampler_strip: bool,
     #[serde(default)]
+    show_quick_toolbar: bool,
+    #[serde(default)]
     vertical_waveforms: bool,
     #[serde(default)]
     booth_strip: BoothStripTab,
@@ -332,6 +334,7 @@ impl Default for UiPrefs {
             show_parallel_waveforms: true,
             show_live_video_strip: false,
             show_live_sampler_strip: false,
+            show_quick_toolbar: false,
             vertical_waveforms: false,
             booth_strip: BoothStripTab::None,
             auto_gain_enabled: true,
@@ -3194,6 +3197,11 @@ impl eframe::App for DjCraftApp {
                         ui.close();
                     }
                     ui.separator();
+                    if ui.button("Settings... (Ctrl+,)").clicked() {
+                        self.toggle_settings_workspace();
+                        ui.close();
+                    }
+                    ui.separator();
                     if ui.button("Quit (Ctrl+Q)").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -3225,6 +3233,50 @@ impl eframe::App for DjCraftApp {
                 titles.push(r.response);
 
                 let r = ui.menu_button("View", |ui| {
+                    ui.menu_button("Workspace", |ui| {
+                        for (mode, lbl) in [
+                            (
+                                WorkspaceMode::LiveConsole,
+                                t(I18nKey::LiveConsole, self.locale),
+                            ),
+                            (WorkspaceMode::BoothAndCrate, "BOOTH + CRATE"),
+                            (
+                                WorkspaceMode::CratesGigPrep,
+                                t(I18nKey::CratesGigPrep, self.locale),
+                            ),
+                        ] {
+                            if ui
+                                .selectable_label(self.workspace_mode == mode, lbl)
+                                .clicked()
+                            {
+                                self.workspace_mode = mode;
+                                self.prev_workspace_mode = mode;
+                                ui.close();
+                            }
+                        }
+                        if ui
+                            .selectable_label(
+                                self.workspace_mode == WorkspaceMode::Settings,
+                                "SETTINGS (Ctrl+,)",
+                            )
+                            .clicked()
+                        {
+                            self.toggle_settings_workspace();
+                            ui.close();
+                        }
+                    });
+                    ui.menu_button("Booth Layouts", |ui| {
+                        for preset in BoothLayoutPreset::ALL {
+                            if ui
+                                .button(preset.label())
+                                .on_hover_text(preset.description())
+                                .clicked()
+                            {
+                                self.apply_layout_preset(preset);
+                                ui.close();
+                            }
+                        }
+                    });
                     ui.menu_button("Console Skin", |ui| {
                         for sk in SkinId::ALL {
                             if ui
@@ -3232,6 +3284,21 @@ impl eframe::App for DjCraftApp {
                                 .clicked()
                             {
                                 self.set_skin(sk);
+                                self.prefs.card_decor = sk.recommended_decor();
+                                self.prefs.backdrop = sk.recommended_backdrop();
+                                self.prefs.save();
+                                ui.close();
+                            }
+                        }
+                    });
+                    ui.menu_button("Backdrop Pattern", |ui| {
+                        for bg in BackdropStyle::ALL {
+                            if ui
+                                .selectable_label(self.prefs.backdrop == bg, bg.label())
+                                .clicked()
+                            {
+                                self.prefs.backdrop = bg;
+                                self.prefs.save();
                                 ui.close();
                             }
                         }
@@ -3239,9 +3306,33 @@ impl eframe::App for DjCraftApp {
                     ui.separator();
                     let mut dirty = false;
                     dirty |= ui
+                        .checkbox(&mut self.prefs.show_quick_toolbar, "Show Quick Toolbar")
+                        .changed();
+                    dirty |= ui
+                        .checkbox(&mut self.prefs.four_deck_layout, "4-Deck Layout (Stacked)")
+                        .changed();
+                    dirty |= ui
                         .checkbox(
                             &mut self.prefs.show_parallel_waveforms,
                             "Parallel Waveforms",
+                        )
+                        .changed();
+                    dirty |= ui
+                        .checkbox(
+                            &mut self.prefs.vertical_waveforms,
+                            "Vertical Waveforms (between decks)",
+                        )
+                        .changed();
+                    dirty |= ui
+                        .checkbox(
+                            &mut self.prefs.show_live_video_strip,
+                            "Live Video Strip (A / Mix / B)",
+                        )
+                        .changed();
+                    dirty |= ui
+                        .checkbox(
+                            &mut self.prefs.show_live_sampler_strip,
+                            "Live Sampler Strip (4x8)",
                         )
                         .changed();
                     dirty |= ui.checkbox(&mut self.prefs.show_deck_a, "Deck A").changed();
@@ -3304,6 +3395,44 @@ impl eframe::App for DjCraftApp {
                     }
                     if ui.button("Stop All Decks").clicked() {
                         self.execute_catalog_id("deck.stop_all");
+                        ui.close();
+                    }
+                    ui.separator();
+                    let link_lbl = if self.link_engine.enabled {
+                        "Disable Link Sync (UDP)"
+                    } else {
+                        "Enable Link Sync (UDP)"
+                    };
+                    if ui.button(link_lbl).clicked() {
+                        let next = !self.link_engine.enabled;
+                        self.link_engine.set_enabled(next);
+                        self.status_msg = if next {
+                            format!("Link Sync ON ({:.1} BPM)", self.link_engine.bpm)
+                        } else {
+                            "Link Sync OFF".to_string()
+                        };
+                        ui.close();
+                    }
+                    let autodj_lbl = if self.auto_dj_enabled {
+                        "Disable Auto-DJ Automix"
+                    } else {
+                        "Enable Auto-DJ Automix"
+                    };
+                    if ui.button(autodj_lbl).clicked() {
+                        self.auto_dj_enabled = !self.auto_dj_enabled;
+                        self.status_msg = format!(
+                            "Auto-DJ {}",
+                            if self.auto_dj_enabled { "ON" } else { "OFF" }
+                        );
+                        ui.close();
+                    }
+                    let chat_lbl = if self.show_chat_drawer {
+                        "Hide Booth AI Chat Drawer (Ctrl+L)"
+                    } else {
+                        "Show Booth AI Chat Drawer (Ctrl+L)"
+                    };
+                    if ui.button(chat_lbl).clicked() {
+                        self.show_chat_drawer = !self.show_chat_drawer;
                         ui.close();
                     }
                     ui.separator();
@@ -3452,289 +3581,317 @@ impl eframe::App for DjCraftApp {
         self.render_modals(&ctx);
         self.render_chat_drawer(ui, &palette);
 
-        // 3. TOP WORKSPACE SWITCHER + QUICK BAR + PARALLEL STACKED WAVEFORMS BANNER
-        egui::Panel::top("parallel_waveforms_bar").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.strong(egui::RichText::new("DJCraft Pro").color(palette.deck_a));
-                ui.separator();
-                let mode_lbl = match self.workspace_mode {
-                    WorkspaceMode::LiveConsole => t(I18nKey::LiveConsole, self.locale),
-                    WorkspaceMode::BoothAndCrate => "BOOTH + CRATE",
-                    WorkspaceMode::CratesGigPrep => t(I18nKey::CratesGigPrep, self.locale),
-                    WorkspaceMode::Settings => "SETTINGS",
-                };
-                egui::ComboBox::from_id_salt("top_workspace_mode")
-                    .selected_text(mode_lbl)
-                    .width(135.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.workspace_mode,
-                            WorkspaceMode::LiveConsole,
-                            t(I18nKey::LiveConsole, self.locale),
-                        );
-                        ui.selectable_value(
-                            &mut self.workspace_mode,
-                            WorkspaceMode::BoothAndCrate,
-                            "BOOTH + CRATE",
-                        );
-                        ui.selectable_value(
-                            &mut self.workspace_mode,
-                            WorkspaceMode::CratesGigPrep,
-                            t(I18nKey::CratesGigPrep, self.locale),
+        // 3. OPTIONAL QUICK TOOLBAR (hidden by default; toggle via View -> Show Quick Toolbar)
+        //    + PARALLEL STACKED WAVEFORMS / LIVE VIDEO / LIVE SAMPLER STRIPS
+        let show_wf_banner = self.workspace_mode == WorkspaceMode::LiveConsole
+            && self.prefs.show_parallel_waveforms
+            && !self.prefs.vertical_waveforms;
+        let show_vid_banner =
+            self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_video_strip;
+        let show_smp_banner =
+            self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_sampler_strip;
+        if self.prefs.show_quick_toolbar || show_wf_banner || show_vid_banner || show_smp_banner {
+            egui::Panel::top("parallel_waveforms_bar").show(ui, |ui| {
+                if self.prefs.show_quick_toolbar {
+                    ui.horizontal(|ui| {
+                        ui.strong(egui::RichText::new("DJCraft Pro").color(palette.deck_a));
+                        ui.separator();
+                        let mode_lbl = match self.workspace_mode {
+                            WorkspaceMode::LiveConsole => t(I18nKey::LiveConsole, self.locale),
+                            WorkspaceMode::BoothAndCrate => "BOOTH + CRATE",
+                            WorkspaceMode::CratesGigPrep => t(I18nKey::CratesGigPrep, self.locale),
+                            WorkspaceMode::Settings => "SETTINGS",
+                        };
+                        egui::ComboBox::from_id_salt("top_workspace_mode")
+                            .selected_text(mode_lbl)
+                            .width(135.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.workspace_mode,
+                                    WorkspaceMode::LiveConsole,
+                                    t(I18nKey::LiveConsole, self.locale),
+                                );
+                                ui.selectable_value(
+                                    &mut self.workspace_mode,
+                                    WorkspaceMode::BoothAndCrate,
+                                    "BOOTH + CRATE",
+                                );
+                                ui.selectable_value(
+                                    &mut self.workspace_mode,
+                                    WorkspaceMode::CratesGigPrep,
+                                    t(I18nKey::CratesGigPrep, self.locale),
+                                );
+                                if ui
+                                    .selectable_label(
+                                        self.workspace_mode == WorkspaceMode::Settings,
+                                        "SETTINGS (Ctrl+,)",
+                                    )
+                                    .clicked()
+                                {
+                                    self.toggle_settings_workspace();
+                                }
+                            });
+
+                        ui.menu_button("Layouts", |ui| {
+                            ui.label(
+                                egui::RichText::new("Serato / VirtualDJ Presets")
+                                    .small()
+                                    .color(palette.text_secondary),
+                            );
+                            for preset in BoothLayoutPreset::ALL {
+                                if ui
+                                    .button(preset.label())
+                                    .on_hover_text(preset.description())
+                                    .clicked()
+                                {
+                                    self.apply_layout_preset(preset);
+                                    ui.close();
+                                }
+                            }
+                        });
+
+                        let deck_mode_lbl = if self.prefs.four_deck_layout {
+                            "4-Deck"
+                        } else {
+                            "2-Deck"
+                        };
+                        egui::ComboBox::from_id_salt("top_deck_layout")
+                            .selected_text(deck_mode_lbl)
+                            .width(72.0)
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(
+                                        !self.prefs.four_deck_layout,
+                                        "2-Deck (A/B + Layer)",
+                                    )
+                                    .clicked()
+                                {
+                                    self.prefs.four_deck_layout = false;
+                                    self.prefs.save();
+                                }
+                                if ui
+                                    .selectable_label(
+                                        self.prefs.four_deck_layout,
+                                        "4-Deck (Stacked)",
+                                    )
+                                    .clicked()
+                                {
+                                    self.prefs.four_deck_layout = true;
+                                    self.prefs.save();
+                                }
+                            });
+
+                        ui.menu_button("Panels", |ui| {
+                            if ui
+                                .checkbox(
+                                    &mut self.prefs.show_live_video_strip,
+                                    "Live Video Strip (A / Mix / B)",
+                                )
+                                .changed()
+                            {
+                                self.prefs.save();
+                            }
+                            if ui
+                                .checkbox(
+                                    &mut self.prefs.show_live_sampler_strip,
+                                    "Live Sampler Strip (4x8)",
+                                )
+                                .changed()
+                            {
+                                self.prefs.save();
+                            }
+                            if ui
+                                .checkbox(
+                                    &mut self.prefs.show_parallel_waveforms,
+                                    "Parallel Waveforms",
+                                )
+                                .changed()
+                            {
+                                self.prefs.save();
+                            }
+                            if ui
+                                .checkbox(
+                                    &mut self.prefs.vertical_waveforms,
+                                    "Vertical Waveforms (between decks)",
+                                )
+                                .changed()
+                            {
+                                self.prefs.save();
+                            }
+                            if ui
+                                .checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Bottom Bar")
+                                .changed()
+                            {
+                                self.prefs.save();
+                            }
+                        });
+
+                        ui.menu_button("Sync", |ui| {
+                            if ui.button("Auto-Sync BPM (Deck B -> A)").clicked() {
+                                self.execute_catalog_id("commands.auto_sync");
+                                ui.close();
+                            }
+                            if ui.button("Phase-Sync Beatgrid").clicked() {
+                                self.execute_catalog_id("commands.phase_sync");
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui.button("Command Palette (Ctrl+K)").clicked() {
+                                self.show_command_palette = true;
+                                ui.close();
+                            }
+                        });
+
+                        let link_lbl = if self.link_engine.enabled {
+                            let peers = self.link_engine.peer_count();
+                            if peers > 0 {
+                                format!("LINK ({peers})")
+                            } else {
+                                "LINK ON".to_string()
+                            }
+                        } else {
+                            "LINK".to_string()
+                        };
+                        let link_btn =
+                            egui::Button::new(egui::RichText::new(link_lbl).small().color(
+                                if self.link_engine.enabled {
+                                    egui::Color32::WHITE
+                                } else {
+                                    palette.text_primary
+                                },
+                            ))
+                            .small()
+                            .fill(if self.link_engine.enabled {
+                                egui::Color32::from_rgb(22, 163, 74)
+                            } else {
+                                palette.card_fill
+                            });
+                        if ui
+                            .add(link_btn)
+                            .on_hover_text(
+                                "Toggle UDP Multicast Beat & Tempo Link (224.76.78.75:20808)",
+                            )
+                            .clicked()
+                        {
+                            let next = !self.link_engine.enabled;
+                            self.link_engine.set_enabled(next);
+                            self.status_msg = if next {
+                                format!("Link Sync ON ({:.1} BPM)", self.link_engine.bpm)
+                            } else {
+                                "Link Sync OFF".to_string()
+                            };
+                        }
+
+                        if ui.small_button("Stop All").clicked() {
+                            self.execute_catalog_id("deck.stop_all");
+                        }
+                        let autodj_btn = egui::Button::new(
+                            egui::RichText::new(if self.auto_dj_enabled {
+                                "AUTO-DJ ON"
+                            } else {
+                                "Auto-DJ"
+                            })
+                            .small()
+                            .color(if self.auto_dj_enabled {
+                                egui::Color32::WHITE
+                            } else {
+                                palette.text_primary
+                            }),
+                        )
+                        .small()
+                        .fill(if self.auto_dj_enabled {
+                            egui::Color32::from_rgb(22, 163, 74)
+                        } else {
+                            palette.card_fill
+                        });
+                        if ui
+                            .add(autodj_btn)
+                            .on_hover_text("Toggle Auto-DJ Automix Queue")
+                            .clicked()
+                        {
+                            self.auto_dj_enabled = !self.auto_dj_enabled;
+                            self.status_msg = format!(
+                                "Auto-DJ {}",
+                                if self.auto_dj_enabled { "ON" } else { "OFF" }
+                            );
+                        }
+                        let chat_btn =
+                            egui::Button::new("Chat")
+                                .small()
+                                .fill(if self.show_chat_drawer {
+                                    palette.deck_a
+                                } else {
+                                    palette.card_fill
+                                });
+                        if ui
+                            .add(chat_btn)
+                            .on_hover_text("Toggle Booth AI & Crate Assistant (Ctrl+L)")
+                            .clicked()
+                        {
+                            self.show_chat_drawer = !self.show_chat_drawer;
+                        }
+                        let settings_btn = egui::Button::new("Settings").small().fill(
+                            if self.workspace_mode == WorkspaceMode::Settings {
+                                palette.deck_a
+                            } else {
+                                palette.card_fill
+                            },
                         );
                         if ui
-                            .selectable_label(
-                                self.workspace_mode == WorkspaceMode::Settings,
-                                "SETTINGS (Ctrl+,)",
-                            )
+                            .add(settings_btn)
+                            .on_hover_text("Open Full-Window Settings Workspace (Ctrl+,)")
                             .clicked()
                         {
                             self.toggle_settings_workspace();
                         }
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(&self.status_msg).color(palette.text_secondary),
+                        );
                     });
-
-                ui.menu_button("Layouts", |ui| {
-                    ui.label(
-                        egui::RichText::new("Serato / VirtualDJ Presets")
-                            .small()
-                            .color(palette.text_secondary),
-                    );
-                    for preset in BoothLayoutPreset::ALL {
-                        if ui
-                            .button(preset.label())
-                            .on_hover_text(preset.description())
-                            .clicked()
-                        {
-                            self.apply_layout_preset(preset);
-                            ui.close();
-                        }
+                }
+                if show_wf_banner {
+                    if self.prefs.show_quick_toolbar {
+                        ui.add_space(3.0);
                     }
-                });
-
-                let deck_mode_lbl = if self.prefs.four_deck_layout {
-                    "4-Deck"
-                } else {
-                    "2-Deck"
-                };
-                egui::ComboBox::from_id_salt("top_deck_layout")
-                    .selected_text(deck_mode_lbl)
-                    .width(72.0)
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(!self.prefs.four_deck_layout, "2-Deck (A/B + Layer)")
-                            .clicked()
-                        {
-                            self.prefs.four_deck_layout = false;
-                            self.prefs.save();
-                        }
-                        if ui
-                            .selectable_label(self.prefs.four_deck_layout, "4-Deck (Stacked)")
-                            .clicked()
-                        {
-                            self.prefs.four_deck_layout = true;
-                            self.prefs.save();
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Waveforms:")
+                                .small()
+                                .color(palette.text_secondary),
+                        );
+                        self.render_waveform_zoom_controls(ui, "top_wf_zoom");
+                        if !self.prefs.show_quick_toolbar {
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new(&self.status_msg)
+                                    .small()
+                                    .color(palette.text_secondary),
+                            );
                         }
                     });
-
-                ui.menu_button("Panels", |ui| {
-                    if ui
-                        .checkbox(
-                            &mut self.prefs.show_live_video_strip,
-                            "Live Video Strip (A / Mix / B)",
-                        )
-                        .changed()
-                    {
-                        self.prefs.save();
-                    }
-                    if ui
-                        .checkbox(
-                            &mut self.prefs.show_live_sampler_strip,
-                            "Live Sampler Strip (4x8)",
-                        )
-                        .changed()
-                    {
-                        self.prefs.save();
-                    }
-                    if ui
-                        .checkbox(
-                            &mut self.prefs.show_parallel_waveforms,
-                            "Parallel Waveforms",
-                        )
-                        .changed()
-                    {
-                        self.prefs.save();
-                    }
-                    if ui
-                        .checkbox(
-                            &mut self.prefs.vertical_waveforms,
-                            "Vertical Waveforms (between decks)",
-                        )
-                        .changed()
-                    {
-                        self.prefs.save();
-                    }
-                    if ui
-                        .checkbox(&mut self.prefs.show_decks_cd, "Decks C & D Bottom Bar")
-                        .changed()
-                    {
-                        self.prefs.save();
-                    }
-                });
-
-                ui.menu_button("Sync", |ui| {
-                    if ui.button("Auto-Sync BPM (Deck B -> A)").clicked() {
-                        self.execute_catalog_id("commands.auto_sync");
-                        ui.close();
-                    }
-                    if ui.button("Phase-Sync Beatgrid").clicked() {
-                        self.execute_catalog_id("commands.phase_sync");
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button("Command Palette (Ctrl+K)").clicked() {
-                        self.show_command_palette = true;
-                        ui.close();
-                    }
-                });
-
-                let link_lbl = if self.link_engine.enabled {
-                    let peers = self.link_engine.peer_count();
-                    if peers > 0 {
-                        format!("LINK ({peers})")
-                    } else {
-                        "LINK ON".to_string()
-                    }
-                } else {
-                    "LINK".to_string()
-                };
-                let link_btn = egui::Button::new(egui::RichText::new(link_lbl).small().color(
-                    if self.link_engine.enabled {
-                        egui::Color32::WHITE
-                    } else {
-                        palette.text_primary
-                    },
-                ))
-                .small()
-                .fill(if self.link_engine.enabled {
-                    egui::Color32::from_rgb(22, 163, 74)
-                } else {
-                    palette.card_fill
-                });
-                if ui
-                    .add(link_btn)
-                    .on_hover_text("Toggle UDP Multicast Beat & Tempo Link (224.76.78.75:20808)")
-                    .clicked()
-                {
-                    let next = !self.link_engine.enabled;
-                    self.link_engine.set_enabled(next);
-                    self.status_msg = if next {
-                        format!("Link Sync ON ({:.1} BPM)", self.link_engine.bpm)
-                    } else {
-                        "Link Sync OFF".to_string()
-                    };
-                }
-
-                if ui.small_button("Stop All").clicked() {
-                    self.execute_catalog_id("deck.stop_all");
-                }
-                let autodj_btn = egui::Button::new(
-                    egui::RichText::new(if self.auto_dj_enabled {
-                        "AUTO-DJ ON"
-                    } else {
-                        "Auto-DJ"
-                    })
-                    .small()
-                    .color(if self.auto_dj_enabled {
-                        egui::Color32::WHITE
-                    } else {
-                        palette.text_primary
-                    }),
-                )
-                .small()
-                .fill(if self.auto_dj_enabled {
-                    egui::Color32::from_rgb(22, 163, 74)
-                } else {
-                    palette.card_fill
-                });
-                if ui
-                    .add(autodj_btn)
-                    .on_hover_text("Toggle Auto-DJ Automix Queue")
-                    .clicked()
-                {
-                    self.auto_dj_enabled = !self.auto_dj_enabled;
-                    self.status_msg = format!(
-                        "Auto-DJ {}",
-                        if self.auto_dj_enabled { "ON" } else { "OFF" }
+                    widgets::paint_parallel_waveforms(
+                        ui,
+                        &self.orch.deck_a,
+                        self.deck_waveforms[0].as_ref(),
+                        &self.hot_cue_metas[0],
+                        &self.orch.deck_b,
+                        self.deck_waveforms[1].as_ref(),
+                        &self.hot_cue_metas[1],
+                        &palette,
+                        self.prefs.waveform_zoom,
                     );
                 }
-                let chat_btn = egui::Button::new("Chat")
-                    .small()
-                    .fill(if self.show_chat_drawer {
-                        palette.deck_a
-                    } else {
-                        palette.card_fill
-                    });
-                if ui
-                    .add(chat_btn)
-                    .on_hover_text("Toggle Booth AI & Crate Assistant (Ctrl+L)")
-                    .clicked()
-                {
-                    self.show_chat_drawer = !self.show_chat_drawer;
+                if show_vid_banner {
+                    ui.add_space(4.0);
+                    self.render_collapsible_live_video_strip(ui, &palette);
                 }
-                let settings_btn = egui::Button::new("Settings").small().fill(
-                    if self.workspace_mode == WorkspaceMode::Settings {
-                        palette.deck_a
-                    } else {
-                        palette.card_fill
-                    },
-                );
-                if ui
-                    .add(settings_btn)
-                    .on_hover_text("Open Full-Window Settings Workspace (Ctrl+,)")
-                    .clicked()
-                {
-                    self.toggle_settings_workspace();
+                if show_smp_banner {
+                    ui.add_space(4.0);
+                    self.render_collapsible_sampler_strip(ui, &palette);
                 }
-                ui.separator();
-                ui.label(egui::RichText::new(&self.status_msg).color(palette.text_secondary));
             });
-            if self.workspace_mode == WorkspaceMode::LiveConsole
-                && self.prefs.show_parallel_waveforms
-                && !self.prefs.vertical_waveforms
-            {
-                ui.add_space(3.0);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("Waveforms:")
-                            .small()
-                            .color(palette.text_secondary),
-                    );
-                    self.render_waveform_zoom_controls(ui, "top_wf_zoom");
-                });
-                widgets::paint_parallel_waveforms(
-                    ui,
-                    &self.orch.deck_a,
-                    self.deck_waveforms[0].as_ref(),
-                    &self.hot_cue_metas[0],
-                    &self.orch.deck_b,
-                    self.deck_waveforms[1].as_ref(),
-                    &self.hot_cue_metas[1],
-                    &palette,
-                    self.prefs.waveform_zoom,
-                );
-            }
-            if self.workspace_mode == WorkspaceMode::LiveConsole && self.prefs.show_live_video_strip
-            {
-                ui.add_space(4.0);
-                self.render_collapsible_live_video_strip(ui, &palette);
-            }
-            if self.workspace_mode == WorkspaceMode::LiveConsole
-                && self.prefs.show_live_sampler_strip
-            {
-                ui.add_space(4.0);
-                self.render_collapsible_sampler_strip(ui, &palette);
-            }
-        });
+        }
 
         // Full-Window 2-Pane SETTINGS Workspace (Ctrl+,)
         if self.workspace_mode == WorkspaceMode::Settings {

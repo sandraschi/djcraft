@@ -1137,15 +1137,16 @@ impl super::DjCraftApp {
                             ui.label("- Load audio via AUDIO/LOAD on a deck, drag files/folders from Explorer, or click A/B/C/D in BOOTH + CRATE or CRATES & GIG PREP.");
                             ui.label("- Verify Battle Mixer: CH A/B faders up, MST > 0%, MUTE off, and Magnetic crossfader centered or toward the active deck.");
                             ui.add_space(6.0);
-                            ui.strong("2. Workspace Modes & Layouts");
-                            ui.label("- LIVE CONSOLE: Full 2-Deck or 4-Deck console, Battle Mixer, RGB stacked/vertical waveforms, and lower Dock Panel.");
-                            ui.label("- BOOTH + CRATE (--booth-crate): Compact 78px platters, center vertical RGB waveforms, hideable Booth Strip (Hide/FX/Sampler/Video), and lower 2-pane crate browser defaulting to your gig crate.");
-                            ui.label("- CRATES & GIG PREP (--crates): Full-width 2-pane crate/subcrate tree, setlist reordering, stemming, and .crate / .vdjfolder interop.");
+                            ui.strong("2. Menu-First UI, Workspace Modes & Layouts");
+                            ui.label("- All workspace, layout, panel, sync, Auto-DJ, Link, Chat, and Settings actions live in the standard top Menu Bar (File / Edit / View / Insert / Modify / Commands / Window / Help).");
+                            ui.label("- Optional Quick Toolbar: Hidden by default for a clean booth. Re-enable anytime via View -> Show Quick Toolbar (or Settings -> Booth Layouts).");
+                            ui.label("- View -> Workspace: LIVE CONSOLE, BOOTH + CRATE (--booth-crate), CRATES & GIG PREP (--crates), or SETTINGS (Ctrl+,).");
+                            ui.label("- View -> Booth Layouts: 7 Serato/VirtualDJ presets (Classic 2-Deck, Serato Vertical, Extended 4-Deck, Scratch/Battle, Performance, Library/Prep, Video/VJ).");
                             ui.add_space(6.0);
-                            ui.strong("3. Skins, Backdrops, Language & Settings (Ctrl+,)");
-                            ui.label("- 6 Skins: Battle Console, Club Dark, Midnight Booth, Carbon Deck, Shocking Pink Club, Daylight Booth (Light).");
-                            ui.label("- 4 Backdrops: Solid, Brushed Metal, Carbon Weave, Sparkle Club.");
-                            ui.label("- 7 Languages (EN, DE, FR, ES, JA, KO, ZH) + 5-Tab Settings (Ctrl+,) persisted to %LOCALAPPDATA%\\djcraft\\ui.json.");
+                            ui.strong("3. Skins, Card Decor, Backdrops & Full-Window Settings (Ctrl+,)");
+                            ui.label("- 9 Skins (View -> Console Skin or Settings -> Appearance): Battle Console, Club Dark, Midnight Booth, Carbon Deck, Shocking Pink Club, Daylight Booth, Star Trek LCARS, Baroque Velvet & Gold, Synthwave Outrun.");
+                            ui.label("- 6 Bold Backdrops (Solid, Brushed Metal, Carbon Weave, Sparkle Club, Starfield Warp, Baroque Gold Damask) + 5 Card Decoration Styles + live opacity/border/color/intensity sliders.");
+                            ui.label("- 7 Languages (EN, DE, FR, ES, JA, KO, ZH) + Full-Window 2-Pane Settings (File -> Settings... or Ctrl+,) persisted to %LOCALAPPDATA%\\djcraft\\ui.json.");
                         }
                         HelpTab::Functions => {
                             ui.strong("3-Band RGB & Overview Waveforms, Scratching & DVS");
@@ -1157,13 +1158,13 @@ impl super::DjCraftApp {
                             ui.label("- Dual-Device PFL: Pick a 2nd audio output in Battle Mixer or Settings -> Audio for stereo headphone cue.");
                             ui.label("- Single-Device Split Cue: Enable SPLIT: ON (Left = Cue Mono, Right = Master Mono) for a DJ splitter cable.");
                             ui.label("- Lossless Mix Recorder: WAV (16-bit PCM) or FLAC (via ffmpeg) -> %USERPROFILE%\\Music\\DJCraft_Recordings\\.");
-                            ui.label("- Auto-DJ & LUFS Auto-Gain: Enable Auto-DJ in the top bar for automatic outro crossfading; toggle Auto-Gain in Settings -> Audio.");
-                            ui.label("- UDP Multicast Link: Click LINK in the top bar for clean-room beat/tempo sync on 224.76.78.75:20808.");
+                            ui.label("- Auto-DJ & LUFS Auto-Gain: Enable Auto-DJ in Commands -> Enable Auto-DJ Automix; toggle Auto-Gain in Settings -> Audio.");
+                            ui.label("- UDP Multicast Link: Toggle in Commands -> Enable Link Sync (UDP) for clean-room beat/tempo sync on 224.76.78.75:20808.");
                             ui.add_space(6.0);
-                            ui.strong("Crates, Autosaved Hot Cues, Stems, MIDI & Chat");
-                            ui.label("- Per-File Autosaved Hot Cues: Slots 1-4 save per track path in SQLite (track_cues) and restore on load.");
-                            ui.label("- MIDI (midir): 8 built-in profiles (Rane, Pioneer, Hercules, Denon, Numark, Xone:K2) + MIDI Learn + Import XML Mapper (VDJ/Mixxx).");
-                            ui.label("- Booth AI Chat Drawer (Ctrl+L): Live Deck A/B status, 1-click harmonic crate matches, offline NL commands, and optional LLM chat.");
+                            ui.strong("Crates, Smart Hot Cues, Stems, MIDI, AI & iPad Touch Remote");
+                            ui.label("- Smart Hot Cues: Slots 1-4 save timestamps + custom names, colors & behaviors (Right-click CUE 1..4) per track in SQLite.");
+                            ui.label("- MIDI (midir): 9 built-in profiles (Rane, Pioneer, Hercules, Denon, Numark, Allen & Heath, Reloop Ready) + MIDI Learn + Import XML Mapper.");
+                            ui.label("- Multi-Provider AI Chat (Ctrl+L) & iPad Touch Remote: Configure Ollama/LM Studio/OpenAI/Anthropic/Gemini/OpenRouter and start the opt-in LAN/Tailscale iPad Multi-Touch PWA (with optional PIN) in Settings -> AI & External Bridges.");
                         }
                         HelpTab::Usage => {
                             ui.strong("Desktop Controls & Shortcuts");
