@@ -1,5 +1,24 @@
 # DJCraft Build Log
 
+## 2026-11-23 - v0.4.0 Release & NSIS Installer Build
+
+- **Host:** Goliath (Windows 11, x64)
+- **Phase 1 Audit (`TAURI_PRODUCTION_PITFALLS.md`):**
+  - Pure-Rust `egui` ArtCraft app (no Tauri WebView, no PyInstaller sidecar; sections B-G N/A).
+  - Section A / H-J verified: per-user NSIS (`RequestExecutionLevel user`), bundles `djcraft.exe`, `djcraft-cli.exe`, `README.md`, `HELP.md`, `CHANGELOG.md`.
+- **Gates (`scripts/release.ps1 -Publish`):**
+  - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`: pass (0 warnings)
+  - `cargo test --workspace`: **68 passed, 0 failed**
+  - Smoke: `djcraft-cli.exe` + `djcraft-mcp.exe` initialize: pass
+- **Artifacts uploaded to GitHub Release `v0.4.0`:**
+  - `djcraft.exe` (21.8 MB)
+  - `djcraft-cli.exe` (4.3 MB)
+  - `djcraft-mcp.exe` (4.1 MB)
+  - `djcraft-0.4.0-setup.exe` (7.6 MB, `makensis /V2`: 0 errors)
+  - `djcraft-0.4.0-windows-x64-portable.zip`
+  - `djcraft-v0.4.0.mcpb` (1.8 MB, manifest validated)
+  - `SHA256SUMS.txt`
+
 ## 2026-11-22 - v0.3.0 Release & NSIS Installer Build
 
 - **Host:** Goliath (Windows 11, x64)
