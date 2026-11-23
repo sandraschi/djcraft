@@ -11,13 +11,11 @@
 
 ## Screenshots
 
-| Live Console (Dark) | Daylight Booth (Light) |
+| Live Console (Battle Dark) | Star Trek LCARS + Starfield Warp |
 | :---: | :---: |
-| ![DJCraft Live Console](docs/images/live-console-battle.png) | ![DJCraft Daylight Booth](docs/images/daylight-booth.png) |
-| **Booth + Crate Split (`--booth-crate`)** | **4-Deck Mode** |
-| ![DJCraft Booth + Crate](docs/images/booth-crate-split.png) | ![DJCraft 4-Deck Mode](docs/images/live-console-shocking-pink-4deck.png) |
-| **Crates & Gig Prep** | |
-| ![DJCraft Crates & Gig Prep](docs/images/crates-gig-prep.png) | |
+| ![DJCraft Live Console](docs/images/djcraft-battle.png) | ![DJCraft LCARS](docs/images/djcraft-lcars.png) |
+| **Full-Window Settings (Baroque Velvet & Gold)** | **Crates & Gig Prep (2-Pane)** |
+| ![DJCraft Settings Workspace](docs/images/djcraft-settings.png) | ![DJCraft Crates & Gig Prep](docs/images/djcraft-crates.png) |
 
 Generate fresh local screenshots of all views into `docs/images/`:
 
@@ -35,7 +33,7 @@ Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
 ```
 
-Or download the per-user Windows installer (`djcraft-0.2.2-setup.exe`) or Linux/macOS/Windows binaries from [GitHub Releases](https://github.com/sandraschi/djcraft/releases/tag/v0.2.2).
+Or download the per-user Windows installer (`djcraft-0.4.0-setup.exe`) or plain Windows binaries from [GitHub Releases](https://github.com/sandraschi/djcraft/releases/tag/v0.4.0).
 
 ---
 
@@ -45,7 +43,7 @@ Or download the per-user Windows installer (`djcraft-0.2.2-setup.exe`) or Linux/
 | :--- | :--- | :--- |
 | 4-Deck Audio, 3-Band RGB + Overview Waveforms, Vinyl Scratching, DVS Timecode, Auto-DJ, Quantize, Color Filter, 3-Pack FX, 4x8 Sampler, Dual-Bus/Split PFL, WAV/FLAC Rec & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
 | Dedicated 2-Pane Crates & Gig Prep UI, `BOOTH + CRATE` Split View, Per-File Autosaved Hot Cues, Drag-Drop Ordering, Serato `.crate` & VirtualDJ Interop | **Implemented** | [docs/CRATES_AND_GIG_PREP.md](docs/CRATES_AND_GIG_PREP.md) |
-| 6 Skins (incl. Shocking Pink & Daylight), Sparkle/Metal/Weave Backdrops, 2/4-Deck + Vertical Waveforms, 5-Tab Settings (`Ctrl+,`), i18n, 8 MIDI Profiles + XML Mapper Import, UDP Link & Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
+| 9 Skins (incl. Star Trek LCARS, Baroque Velvet & Gold, Synthwave Outrun, Shocking Pink & Daylight), 5 Card Decoration Styles, 6 Bold Backdrops, 7 Layout Presets, Full-Window 2-Pane Settings (`Ctrl+,`), i18n, 9 MIDI Profiles + XML Mapper Import, UDP Link & Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
 | Side-Drawer Booth AI Chat (`Ctrl+L`), Camelot Setlists, Opt-In External Bridges, Full-Parity CLI (45 commands) & 35-Tool MCP Server (incl. Live GUI Remote Control, Set Macros, Two-Room & Lighting) | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
 | Hands-Free AI Lighting Assistant (Art-Net 4 UDP `6454` & sACN E1.31 UDP `5568`, BPM/Energy Sync, Fixture Patcher & Budget Gear Guide) | **Implemented** | [docs/LIGHTING_AND_LASER_GUIDE.md](docs/LIGHTING_AND_LASER_GUIDE.md) |
 | Standalone Release & Per-User NSIS Installer (`SHA256SUMS.txt`) | **Implemented** | [BUILD_LOG.md](BUILD_LOG.md) |
@@ -56,7 +54,7 @@ Or download the per-user Windows installer (`djcraft-0.2.2-setup.exe`) or Linux/
 ## Quick Verification
 
 ```powershell
-# Full CI gate (fmt, clippy, 65 workspace tests, layer & asset checks)
+# Full CI gate (fmt, clippy, 68 workspace tests, layer & asset checks)
 cargo run -p xtask -- ci
 
 # Headless smoke verification
