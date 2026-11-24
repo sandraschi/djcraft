@@ -686,8 +686,8 @@ impl MidiControllerManager {
             _conn: None,
             queue: Arc::new(Mutex::new(VecDeque::with_capacity(64))),
             connected_port: None,
-            active_profile: ControllerProfileId::RaneSeventyTwoMk2,
-            rules: builtin_profile_rules(ControllerProfileId::RaneSeventyTwoMk2),
+            active_profile: ControllerProfileId::ReloopReady,
+            rules: builtin_profile_rules(ControllerProfileId::ReloopReady),
             learn_target: None,
             last_event: None,
         };
