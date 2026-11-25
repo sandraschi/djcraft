@@ -82,6 +82,46 @@ struct LiveMixState {
     slip_times: [f64; 4],
     sample_counter: u64,
     recorder_tap: Option<RecordingTap>,
+    aux_send_gain: f32,
+    aux_send: Option<AuxSendTap>,
+}
+
+/// Allocation-free stereo PCM UDP sender (`DJFX` 128-frame packets -> `127.0.0.1:20810`)
+/// feeding DJCraft's post-fader mix into SynthCraft's 3U Modular FX rack.
+struct AuxSendTap {
+    socket: std::net::UdpSocket,
+    buf: [u8; 8 + 128 * 8],
+    frames: usize,
+    seq: u32,
+}
+
+impl AuxSendTap {
+    fn new() -> Option<Self> {
+        let sock = std::net::UdpSocket::bind("127.0.0.1:0").ok()?;
+        let _ = sock.set_nonblocking(true);
+        let mut buf = [0u8; 8 + 128 * 8];
+        buf[0..4].copy_from_slice(b"DJFX");
+        Some(Self {
+            socket: sock,
+            buf,
+            frames: 0,
+            seq: 0,
+        })
+    }
+
+    #[inline]
+    fn push_frame(&mut self, l: f32, r: f32) {
+        let off = 8 + self.frames * 8;
+        self.buf[off..off + 4].copy_from_slice(&l.to_le_bytes());
+        self.buf[off + 4..off + 8].copy_from_slice(&r.to_le_bytes());
+        self.frames += 1;
+        if self.frames >= 128 {
+            self.buf[4..8].copy_from_slice(&self.seq.to_le_bytes());
+            let _ = self.socket.send_to(&self.buf, "127.0.0.1:20810");
+            self.seq = self.seq.wrapping_add(1);
+            self.frames = 0;
+        }
+    }
 }
 
 impl LiveMixState {
@@ -129,6 +169,8 @@ impl LiveMixState {
             slip_times: [0.0; 4],
             sample_counter: 0,
             recorder_tap: None,
+            aux_send_gain: 0.0,
+            aux_send: None,
         }
     }
 }
@@ -406,6 +448,20 @@ impl AudioOutput {
         }
         self.active_recording = Some(rec);
         Ok(output_path)
+    }
+
+    /// Set the post-fader stereo Aux Send gain (`0.0..=1.0`) streaming `DJFX` UDP audio packets
+    /// to SynthCraft's 3U Modular FX rack (`127.0.0.1:20810`).
+    pub fn set_synthcraft_aux_send(&self, gain: f32) {
+        if let Ok(mut guard) = self.state.lock() {
+            let g = gain.clamp(0.0, 1.0);
+            guard.aux_send_gain = g;
+            if g > 0.001 && guard.aux_send.is_none() {
+                guard.aux_send = AuxSendTap::new();
+            } else if g <= 0.001 {
+                guard.aux_send = None;
+            }
+        }
     }
 
     /// Stop live Master recording and finalize WAV / transcode FLAC.
@@ -871,6 +927,14 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
     // Feed live Master mix (pre-split) into the non-blocking WAV/FLAC recorder tap
     if let Some(tap) = guard.recorder_tap.as_mut() {
         tap.push_frame(master_l, master_r);
+    }
+
+    // Stream post-fader stereo Aux Send (`DJFX` UDP 127.0.0.1:20810) into SynthCraft's 3U rack
+    let aux_g = guard.aux_send_gain;
+    if aux_g > 0.001 {
+        if let Some(aux) = guard.aux_send.as_mut() {
+            aux.push_frame(master_l * aux_g, master_r * aux_g);
+        }
     }
 
     // Headphone cue side always includes the sampler, so a full-CUE mix still hears pads.

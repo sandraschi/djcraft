@@ -11,9 +11,12 @@ use std::time::{Duration, Instant};
 const LINK_GROUP: Ipv4Addr = Ipv4Addr::new(224, 76, 78, 75);
 const LINK_PORT: u16 = 20808;
 /// Loopback companion port where SynthCraft (and other local Craft apps) listen for Link beacons
-/// with zero Windows Firewall / multicast-loopback friction.
+/// and `DJPD` performance pad triggers with zero Windows Firewall / multicast-loopback friction.
 pub const SYNTHCRAFT_LOOPBACK_PORT: u16 = 20809;
+/// Loopback UDP port where SynthCraft receives live stereo PCM frames (`DJFX`) for 3U FX send.
+pub const SYNTHCRAFT_AUX_FX_PORT: u16 = 20810;
 const MAGIC: &[u8; 4] = b"DJLK";
+const PAD_MAGIC: &[u8; 4] = b"DJPD";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LinkBeacon {
@@ -149,6 +152,29 @@ impl LinkEngine {
 
     pub fn peer_count(&self) -> usize {
         self.peers.len()
+    }
+
+    /// Forward a Reloop Ready / MPC performance pad press or release to SynthCraft over
+    /// loopback UDP (`127.0.0.1:20809`, 12-byte `DJPD` packet).
+    pub fn send_synthcraft_pad(&mut self, pad_index: u8, pressed: bool, velocity: u8, deck: u8) {
+        if self.socket.is_none() {
+            if let Ok(sock) = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)) {
+                let _ = sock.set_nonblocking(true);
+                self.socket = Some(sock);
+            }
+        }
+        if let Some(ref sock) = self.socket {
+            let mut pkt = [0u8; 12];
+            pkt[0..4].copy_from_slice(PAD_MAGIC);
+            pkt[4] = pad_index.min(7);
+            pkt[5] = u8::from(pressed);
+            pkt[6] = velocity.min(127);
+            pkt[7] = deck;
+            let _ = sock.send_to(
+                &pkt,
+                SocketAddrV4::new(Ipv4Addr::LOCALHOST, SYNTHCRAFT_LOOPBACK_PORT),
+            );
+        }
     }
 
     /// Advance local beat phase, broadcast/receive UDP multicast beacons, and return

@@ -480,6 +480,8 @@ pub struct DjCraftApp {
 
     // Pure-Rust UDP Multicast Beat/Tempo Sync (Link) & DVS Timecode Vinyl
     link_engine: LinkEngine,
+    synthcraft_pad_bridge: bool,
+    synthcraft_aux_send: f32,
     dvs_input: Option<DvsInputStream>,
     dvs_devices: Vec<String>,
     dvs_selected_device: Option<String>,
@@ -658,6 +660,8 @@ impl DjCraftApp {
             vfx_preset: "vhs_glitch".to_string(),
 
             link_engine: LinkEngine::new(126.0),
+            synthcraft_pad_bridge: false,
+            synthcraft_aux_send: 0.0,
             dvs_input: None,
             dvs_devices: list_input_devices(),
             dvs_selected_device: app_cfg.dvs_device.clone(),
@@ -1323,6 +1327,22 @@ impl DjCraftApp {
     }
 
     fn handle_pad_click(&mut self, deck: DeckId, pad_idx: usize) {
+        if self.synthcraft_pad_bridge {
+            let deck_num = match deck {
+                DeckId::DeckA => 0,
+                DeckId::DeckB => 1,
+                DeckId::DeckC => 2,
+                DeckId::DeckD => 3,
+            };
+            self.link_engine
+                .send_synthcraft_pad(pad_idx as u8, true, 112, deck_num);
+            self.status_msg = format!(
+                "SynthCraft Pad Bridge: fired Pad {} ({})",
+                pad_idx + 1,
+                deck.label()
+            );
+            return;
+        }
         match pad_idx {
             0..=3 => {
                 let existing = self.orch.deck(deck).hot_cue_seconds[pad_idx];
@@ -3465,6 +3485,31 @@ impl eframe::App for DjCraftApp {
                             "Link Sync OFF".to_string()
                         };
                         ui.close();
+                    }
+                    let pad_lbl = if self.synthcraft_pad_bridge {
+                        "Disable SynthCraft Pad Bridge (Pads -> Synth)"
+                    } else {
+                        "Enable SynthCraft Pad Bridge (Pads -> Synth)"
+                    };
+                    if ui.button(pad_lbl).clicked() {
+                        self.synthcraft_pad_bridge = !self.synthcraft_pad_bridge;
+                        self.status_msg = if self.synthcraft_pad_bridge {
+                            "SynthCraft Pad Bridge ON (Reloop Ready / MPC pads fire SynthCraft)"
+                                .to_string()
+                        } else {
+                            "SynthCraft Pad Bridge OFF (pads restored to Hot Cues/Loops)"
+                                .to_string()
+                        };
+                        ui.close();
+                    }
+                    let prev_aux = self.synthcraft_aux_send;
+                    ui.add(
+                        egui::Slider::new(&mut self.synthcraft_aux_send, 0.0..=1.0)
+                            .text("SynthCraft Aux FX Send"),
+                    );
+                    if (self.synthcraft_aux_send - prev_aux).abs() > 1e-4 {
+                        self.audio_out
+                            .set_synthcraft_aux_send(self.synthcraft_aux_send);
                     }
                     let autodj_lbl = if self.auto_dj_enabled {
                         "Disable Auto-DJ Automix"
