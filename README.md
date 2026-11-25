@@ -47,6 +47,7 @@ Or download the per-user Windows installer (`djcraft-0.4.0-setup.exe`) or plain 
 | Multi-Provider AI Chat (`Ctrl+L`), **iPad Multi-Touch Remote PWA + PIN** (`:14119`), **SynthCraft Live Bridge** (`DJLK`/`DJPD`/`DJFX` Send + Aux Return `:20811`), Full-Parity CLI & **42-Tool MCP Server** | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
 | Hands-Free AI Lighting Assistant (Art-Net 4 UDP `6454` & sACN E1.31 UDP `5568`, BPM/Energy Sync, Fixture Patcher & Budget Gear Guide) | **Implemented** | [docs/LIGHTING_AND_LASER_GUIDE.md](docs/LIGHTING_AND_LASER_GUIDE.md) |
 | Standalone Release & Per-User NSIS Installer (`SHA256SUMS.txt`) | **Implemented** | [BUILD_LOG.md](BUILD_LOG.md) |
+| Bundler-Free WebAssembly DSP (`crates/djcraft-wasm`, `wasm32-unknown-unknown`) & Live Interactive HTML5 DJ Booth Showcase | **Implemented** | [docs/site/index.html](docs/site/index.html) |
 | Out-of-Process CLAP & VST3 Audio Plugin Host Sidecar (crash-isolated FX/Master chain for Kilohearts, Airwindows, FabFilter, Valhalla, ShaperBox) | **Planned** | [docs/TIERED_PLAN.md](docs/TIERED_PLAN.md) |
 
 ---

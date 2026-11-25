@@ -1,0 +1,27 @@
+[package]
+name = "djcraft-wasm"
+description = "Bundler-free WebAssembly (wasm32-unknown-unknown) real-time DJ DSP engine for browser playback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "djcraft_wasm"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+# Raw linear-memory WASM FFI exports require `unsafe`; every block carries a SAFETY comment.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+missing_safety_doc = "deny"
+undocumented_unsafe_blocks = "deny"

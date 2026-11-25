@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DJCraft Pro -- 100% Safe Rust 4-Deck DJ Workstation + Live WASM Booth</title>
+<style>
+  :root {
+    --bg: #07090f;
+    --bg-card: #0e1320;
+    --bg-panel: #131a2b;
+    --border: rgba(130, 165, 255, 0.16);
+    --border-hi: rgba(0, 232, 255, 0.45);
+    --text: #eef3ff;
+    --muted: #8ea0c4;
+    --cyan: #00e8ff;
+    --magenta: #ff2e93;
+    --amber: #ffb830;
+    --green: #22f59e;
+    --deck-a: #00e8ff;
+    --deck-b: #ff2e93;
+    --radius: 14px;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--text);
+    background:
+      radial-gradient(900px 520px at 14% -5%, rgba(0, 232, 255, 0.14), transparent 60%),
+      radial-gradient(820px 520px at 88% 6%, rgba(255, 46, 147, 0.13), transparent 62%),
+      radial-gradient(640px 420px at 50% 45%, rgba(255, 184, 48, 0.05), transparent 70%),
+      var(--bg);
+    line-height: 1.55;
+  }
+  a { color: var(--cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1220px; margin: 0 auto; padding: 0 22px; }
+
+  /* Top Nav */
+  nav {
+    position: sticky; top: 0; z-index: 40;
+    backdrop-filter: blur(14px);
+    background: rgba(7, 9, 15, 0.78);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 62px; gap: 16px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 800; letter-spacing: 0.06em; font-size: 1.05rem;
+    color: var(--text);
+  }
+  .brand-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--cyan), var(--magenta));
+    box-shadow: 0 0 14px var(--cyan);
+  }
+  .nav-links { display: flex; gap: 22px; font-size: 0.92rem; color: var(--muted); }
+  .nav-links a { color: var(--muted); font-weight: 500; }
+  .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+  /* Hero */
+  .hero { padding: 72px 0 44px; text-align: center; }
+  .pill-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 22px; }
+  .pill {
+    font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.04em;
+    padding: 5px 11px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .pill.hi { border-color: rgba(0, 232, 255, 0.45); color: var(--cyan); }
+  .pill.mag { border-color: rgba(255, 46, 147, 0.45); color: #ff77b7; }
+  h1 {
+    margin: 0 auto 16px; max-width: 860px;
+    font-size: clamp(2.2rem, 5vw, 3.8rem); line-height: 1.08;
+    letter-spacing: -0.025em; font-weight: 850;
+    background: linear-gradient(100deg, #ffffff 15%, var(--cyan) 58%, var(--magenta) 95%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lead {
+    margin: 0 auto 30px; max-width: 720px;
+    font-size: 1.08rem; color: var(--muted);
+  }
+  .cta-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px; border-radius: 10px; font-weight: 700; font-size: 0.95rem;
+    border: 1px solid var(--border); background: var(--bg-panel); color: var(--text);
+    cursor: pointer; transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); border-color: var(--border-hi); text-decoration: none; }
+  .btn.primary {
+    background: linear-gradient(135deg, #00c8e8, #ff2e93);
+    border-color: transparent; color: #05070d;
+    box-shadow: 0 8px 28px rgba(0, 232, 255, 0.25);
+  }
+  .btn.primary:hover { box-shadow: 0 10px 34px rgba(255, 46, 147, 0.38); }
+
+  /* Section headers */
+  section { padding: 48px 0; }
+  .sec-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+  .sec-head h2 { margin: 0; font-size: 1.65rem; letter-spacing: -0.015em; }
+  .sec-head p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+  /* Live WASM Booth */
+  .booth {
+    background: linear-gradient(180deg, rgba(19, 26, 43, 0.96), rgba(10, 14, 24, 0.98));
+    border: 1px solid var(--border-hi);
+    border-radius: 18px;
+    padding: 20px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  .booth-top {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 12px; padding-bottom: 14px; margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 0.8rem;
+    padding: 6px 12px; border-radius: 8px;
+    background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border);
+  }
+  .led { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .led.ok { background: var(--green); box-shadow: 0 0 10px var(--green); }
+  .led.err { background: #ff4757; box-shadow: 0 0 10px #ff4757; }
+  .notice {
+    display: none; margin-bottom: 14px; padding: 10px 14px; border-radius: 10px;
+    background: rgba(255, 184, 48, 0.11); border: 1px solid rgba(255, 184, 48, 0.38);
+    color: #ffe2a8; font-size: 0.88rem; font-family: var(--mono);
+  }
+  .notice.show { display: block; }
+
+  .wave-bar {
+    display: grid; grid-template-columns: 1fr 78px; gap: 12px; align-items: stretch;
+    margin-bottom: 18px;
+  }
+  #waveCanvas {
+    width: 100%; height: 86px; display: block; border-radius: 10px;
+    background: #050811; border: 1px solid var(--border);
+  }
+  .vu-wrap {
+    display: flex; gap: 6px; padding: 8px; border-radius: 10px;
+    background: #050811; border: 1px solid var(--border);
+    align-items: flex-end; justify-content: center;
+  }
+  .vu-col {
+    width: 18px; height: 68px; border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06); overflow: hidden;
+    display: flex; align-items: flex-end;
+  }
+  .vu-fill {
+    width: 100%; height: 4%;
+    background: linear-gradient(0deg, var(--green) 0%, var(--amber) 72%, var(--magenta) 100%);
+    transition: height 0.05s linear;
+  }
+
+  .decks-grid {
+    display: grid; grid-template-columns: 1fr 270px 1fr; gap: 16px;
+    align-items: stretch;
+  }
+  @media (max-width: 960px) {
+    .decks-grid { grid-template-columns: 1fr; }
+  }
+  .deck-card, .mixer-card {
+    background: rgba(8, 12, 22, 0.85);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .deck-card.a { border-top: 3px solid var(--deck-a); }
+  .deck-card.b { border-top: 3px solid var(--deck-b); }
+  .deck-hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .deck-title { font-weight: 800; letter-spacing: 0.06em; font-size: 0.95rem; }
+  .deck-card.a .deck-title { color: var(--deck-a); }
+  .deck-card.b .deck-title { color: var(--deck-b); }
+  .key-tag {
+    font-family: var(--mono); font-size: 0.78rem; padding: 3px 8px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06); color: var(--text);
+  }
+  .platter-row { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+  .platter {
+    width: 118px; height: 118px; flex: 0 0 118px;
+    border-radius: 50%; background: #05070c; border: 1px solid var(--border);
+  }
+  .transport { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .play-btn {
+    padding: 11px 14px; border-radius: 10px; font-weight: 800; letter-spacing: 0.06em;
+    border: 1px solid var(--border); background: #141d31; color: var(--text);
+    cursor: pointer; font-family: var(--mono); font-size: 0.86rem;
+  }
+  .play-btn.active-a {
+    background: var(--deck-a); color: #041016; border-color: var(--deck-a);
+    box-shadow: 0 0 22px rgba(0, 232, 255, 0.45);
+  }
+  .play-btn.active-b {
+    background: var(--deck-b); color: #19040e; border-color: var(--deck-b);
+    box-shadow: 0 0 22px rgba(255, 46, 147, 0.45);
+  }
+  .mini-btn {
+    padding: 7px 10px; border-radius: 8px; font-weight: 700;
+    border: 1px solid var(--border); background: rgba(255, 255, 255, 0.04);
+    color: var(--muted); cursor: pointer; font-family: var(--mono); font-size: 0.76rem;
+  }
+  .mini-btn:hover { color: var(--text); border-color: var(--border-hi); }
+  .mini-btn.on { background: rgba(34, 245, 158, 0.16); border-color: var(--green); color: var(--green); }
+
+  .ctrl { margin-bottom: 10px; }
+  .ctrl label {
+    display: flex; justify-content: space-between; font-size: 0.78rem;
+    font-family: var(--mono); color: var(--muted); margin-bottom: 4px;
+  }
+  .ctrl input[type="range"] { width: 100%; accent-color: var(--cyan); cursor: pointer; }
+  .deck-card.b .ctrl input[type="range"] { accent-color: var(--magenta); }
+
+  /* Center Mixer */
+  .mixer-card { display: flex; flex-direction: column; justify-content: space-between; gap: 14px; }
+  .mixer-title {
+    text-align: center; font-family: var(--mono); font-size: 0.8rem;
+    letter-spacing: 0.12em; color: var(--amber); font-weight: 800;
+  }
+  .curve-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .xfader-box {
+    padding: 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+  }
+  .xfader-labels {
+    display: flex; justify-content: space-between; font-family: var(--mono);
+    font-size: 0.74rem; color: var(--muted); margin-bottom: 6px;
+  }
+  .xfader-box input[type="range"] { width: 100%; accent-color: var(--amber); cursor: pointer; }
+
+  /* Sequencer & Sampler Strip */
+  .perf-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;
+  }
+  @media (max-width: 860px) { .perf-grid { grid-template-columns: 1fr; } }
+  .perf-card {
+    background: rgba(8, 12, 22, 0.85);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
+  }
+  .perf-hdr {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 8px; margin-bottom: 12px;
+  }
+  .perf-hdr h3 { margin: 0; font-size: 0.92rem; letter-spacing: 0.05em; font-family: var(--mono); color: var(--text); }
+  select {
+    background: #131c31; color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; font-family: var(--mono); font-size: 0.8rem;
+  }
+  .step-leds { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; }
+  .step-led {
+    height: 18px; border-radius: 4px; background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .step-led.beat { background: rgba(0, 232, 255, 0.14); }
+  .step-led.cur { background: var(--green); box-shadow: 0 0 10px var(--green); }
+
+  .pads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .pad {
+    padding: 11px 6px; border-radius: 9px; font-family: var(--mono); font-size: 0.74rem;
+    font-weight: 700; text-align: center; cursor: pointer;
+    background: #141c30; color: var(--text);
+    border: 1px solid rgba(255, 46, 147, 0.32);
+    transition: transform 0.06s ease, box-shadow 0.12s ease, background 0.12s ease;
+  }
+  .pad:hover { border-color: var(--cyan); }
+  .pad.hit {
+    transform: scale(0.96);
+    background: linear-gradient(135deg, var(--cyan), var(--magenta));
+    color: #050811; box-shadow: 0 0 18px rgba(0, 232, 255, 0.5);
+  }
+
+  /* Screenshots Gallery */
+  .gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  @media (max-width: 780px) { .gallery { grid-template-columns: 1fr; } }
+  .shot {
+    margin: 0; border-radius: var(--radius); overflow: hidden;
+    background: var(--bg-card); border: 1px solid var(--border);
+    cursor: zoom-in; transition: transform 0.16s ease, border-color 0.16s ease;
+  }
+  .shot:hover { transform: translateY(-2px); border-color: var(--border-hi); }
+  .shot img { width: 100%; height: auto; display: block; }
+  .shot figcaption {
+    padding: 12px 14px; font-size: 0.88rem; color: var(--muted);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .shot figcaption strong { color: var(--text); }
+
+  /* Feature Grid */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .features { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .features { grid-template-columns: 1fr; } }
+  .feat {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px;
+  }
+  .feat-tag {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em;
+    color: var(--cyan); text-transform: uppercase; margin-bottom: 8px;
+  }
+  .feat h3 { margin: 0 0 8px; font-size: 1.04rem; }
+  .feat p { margin: 0; font-size: 0.9rem; color: var(--muted); }
+
+  /* CLI & MCP Code Blocks */
+  .code-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .code-grid { grid-template-columns: 1fr; } }
+  .code-card {
+    background: #0a0f1c; border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .code-top {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+  }
+  pre {
+    margin: 0; padding: 14px; overflow-x: auto;
+    font-family: var(--mono); font-size: 0.82rem; color: #d8e6ff; line-height: 1.5;
+  }
+
+  /* Lightbox */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 90; display: none;
+    background: rgba(4, 6, 12, 0.92); backdrop-filter: blur(8px);
+    align-items: center; justify-content: center; padding: 24px; cursor: zoom-out;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 96vw; max-height: 90vh; border-radius: 12px; border: 1px solid var(--border-hi); }
+
+  footer {
+    border-top: 1px solid var(--border); margin-top: 36px; padding: 28px 0 42px;
+    color: var(--muted); font-size: 0.88rem;
+  }
+  .foot-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+</style>
+</head>
+<body>
+<nav>
+  <div class="wrap nav-inner">
+    <div class="brand"><span class="brand-dot"></span>DJCRAFT PRO</div>
+    <div class="nav-links">
+      <a href="#booth">Live WASM Booth</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#features">Capabilities</a>
+      <a href="#quickstart">CLI &amp; MCP</a>
+      <a href="https://github.com/sandraschi/djcraft" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <div class="pill-row">
+    <span class="pill hi">100% Safe Rust Core</span>
+    <span class="pill mag">Live WebAssembly DSP</span>
+    <span class="pill">4 Decks + RTX 4090 Stems</span>
+    <span class="pill">Rekordbox XML + Camelot</span>
+    <span class="pill">42 MCP Tools</span>
+  </div>
+  <h1>Native Rust 4-Deck DJ Workstation.<br>Playable Right Here in WASM.</h1>
+  <p class="lead">
+    DJCraft Pro unites a 4-deck audio + video performance console, NCC keylock, real-time GPU 4-stem separation,
+    12 flagship MIDI profiles, an opt-in iPad multi-touch PWA, and a 42-tool MCP server on one deterministic Rust command bus.
+  </p>
+  <div class="cta-row">
+    <a class="btn primary" href="#booth">Launch Live WASM Booth</a>
+    <a class="btn" href="https://github.com/sandraschi/djcraft/releases/tag/v0.4.0" target="_blank" rel="noopener">Download Windows v0.4.0</a>
+    <a class="btn" href="https://github.com/sandraschi/djcraft" target="_blank" rel="noopener">Source on GitHub</a>
+  </div>
+</header>
+
+<section id="booth" class="wrap">
+  <div class="sec-head">
+    <div>
+      <h2>Live In-Browser WebAssembly DJ Booth</h2>
+      <p>Powered by <code>djcraft_wasm.wasm</code> (bundler-free Rust <code>wasm32-unknown-unknown</code> C ABI over linear memory).</p>
+    </div>
+    <button id="initAudioBtn" class="btn primary" type="button">Power On Audio Engine</button>
+  </div>
+
+  <div class="booth">
+    <div class="booth-top">
+      <div class="status-badge">
+        <span id="statusLed" class="led"></span>
+        <span id="statusText">WASM Standby -- click "Power On Audio Engine" or press Play on either deck</span>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="demoDropBtn" class="mini-btn" type="button">AUTO DEMO GROOVE</button>
+        <button id="stopAllBtn" class="mini-btn" type="button">STOP ALL</button>
+      </div>
+    </div>
+
+    <div id="fileNotice" class="notice">
+      Opened via file:// -- browsers block fetch('./djcraft_wasm.wasm') on local files.
+      Preview locally with: uv run python -m http.server 8765 (from docs/site/) or view via GitHub Pages.
+    </div>
+
+    <div class="wave-bar">
+      <canvas id="waveCanvas" width="960" height="86"></canvas>
+      <div class="vu-wrap" title="Master Stereo Peak Meter">
+        <div class="vu-col"><div id="vuL" class="vu-fill"></div></div>
+        <div class="vu-col"><div id="vuR" class="vu-fill"></div></div>
+      </div>
+    </div>
+
+    <div class="decks-grid">
+      <!-- DECK A -->
+      <div class="deck-card a">
+        <div class="deck-hdr">
+          <span class="deck-title">DECK A -- CLUB SYNTH</span>
+          <span class="key-tag">8A (Am)</span>
+        </div>
+        <div class="platter-row">
+          <canvas id="platterA" class="platter" width="118" height="118"></canvas>
+          <div class="transport">
+            <button id="playA" class="play-btn" type="button">PLAY A</button>
+            <button id="syncA" class="mini-btn" type="button">SYNC TO B</button>
+          </div>
+        </div>
+        <div class="ctrl">
+          <label><span>BPM</span><span id="bpmAVal">126.0</span></label>
+          <input id="bpmA" type="range" min="90" max="160" step="0.5" value="126">
+        </div>
+        <div class="ctrl">
+          <label><span>VOLUME</span><span id="volAVal">90%</span></label>
+          <input id="volA" type="range" min="0" max="1" step="0.01" value="0.90">
+        </div>
+        <div class="ctrl">
+          <label><span>COLOR FILTER (LPF / HPF)</span><span id="fltAVal">0.00</span></label>
+          <input id="fltA" type="range" min="-1" max="1" step="0.02" value="0">
+        </div>
+      </div>
+
+      <!-- CENTER BATTLE MIXER -->
+      <div class="mixer-card">
+        <div class="mixer-title">BATTLE MIXER + CURVE</div>
+        <div>
+          <div style="font-family:var(--mono); font-size:0.74rem; color:var(--muted); margin-bottom:6px;">CROSSFADER CURVE</div>
+          <div class="curve-row">
+            <button class="mini-btn on" data-curve="0" type="button">SMOOTH</button>
+            <button class="mini-btn" data-curve="1" type="button">LINEAR</button>
+            <button class="mini-btn" data-curve="2" type="button">CUT</button>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:center;">
+          <button id="hamsterBtn" class="mini-btn" type="button">HAMSTER REV: OFF</button>
+        </div>
+        <div class="xfader-box">
+          <div class="xfader-labels"><span>DECK A</span><span id="xfVal">CENTER</span><span>DECK B</span></div>
+          <input id="xfader" type="range" min="-1" max="1" step="0.01" value="0">
+        </div>
+        <div style="font-family:var(--mono); font-size:0.72rem; color:var(--muted); text-align:center;">
+          Keys 1-8 trigger Sampler Pads
+        </div>
+      </div>
+
+      <!-- DECK B -->
+      <div class="deck-card b">
+        <div class="deck-hdr">
+          <span class="deck-title">DECK B -- PEAK BASS</span>
+          <span class="key-tag">8B (C)</span>
+        </div>
+        <div class="platter-row">
+          <canvas id="platterB" class="platter" width="118" height="118"></canvas>
+          <div class="transport">
+            <button id="playB" class="play-btn" type="button">PLAY B</button>
+            <button id="syncB" class="mini-btn" type="button">SYNC TO A</button>
+          </div>
+        </div>
+        <div class="ctrl">
+          <label><span>BPM</span><span id="bpmBVal">126.0</span></label>
+          <input id="bpmB" type="range" min="90" max="160" step="0.5" value="126">
+        </div>
+        <div class="ctrl">
+          <label><span>VOLUME</span><span id="volBVal">90%</span></label>
+          <input id="volB" type="range" min="0" max="1" step="0.01" value="0.90">
+        </div>
+        <div class="ctrl">
+          <label><span>COLOR FILTER (LPF / HPF)</span><span id="fltBVal">0.00</span></label>
+          <input id="fltB" type="range" min="-1" max="1" step="0.02" value="0">
+        </div>
+      </div>
+    </div>
+
+    <!-- BEATMAKER & SAMPLER -->
+    <div class="perf-grid">
+      <div class="perf-card">
+        <div class="perf-hdr">
+          <h3>16-STEP STUDIO BEATMAKER</h3>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="seqGenre" aria-label="Beatmaker Genre">
+              <option value="0">House (4/4)</option>
+              <option value="1">Techno (Driving)</option>
+              <option value="2">Hip-Hop (Boom Bap)</option>
+              <option value="3">Trap (Rolling Hats)</option>
+              <option value="4">Drum &amp; Bass</option>
+              <option value="5">Reggaeton (Dembow)</option>
+            </select>
+            <button id="seqToggle" class="mini-btn" type="button">BEAT: OFF</button>
+          </div>
+        </div>
+        <div id="stepLeds" class="step-leds"></div>
+      </div>
+
+      <div class="perf-card">
+        <div class="perf-hdr">
+          <h3>8-PAD CLUB SAMPLER</h3>
+          <span style="font-family:var(--mono); font-size:0.74rem; color:var(--muted);">Click or press 1..8</span>
+        </div>
+        <div class="pads" id="padGrid">
+          <button class="pad" data-slot="0" type="button">1 AIR HORN</button>
+          <button class="pad" data-slot="1" type="button">2 LASER ZAP</button>
+          <button class="pad" data-slot="2" type="button">3 SUB DROP</button>
+          <button class="pad" data-slot="3" type="button">4 RISER</button>
+          <button class="pad" data-slot="4" type="button">5 CLUB CLAP</button>
+          <button class="pad" data-slot="5" type="button">6 RIM SHOT</button>
+          <button class="pad" data-slot="6" type="button">7 DUB SIREN</button>
+          <button class="pad" data-slot="7" type="button">8 CHIRP</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="screenshots" class="wrap">
+  <div class="sec-head">
+    <div>
+      <h2>Real GPU Desktop Captures</h2>
+      <p>Native Rust + egui hardware-accelerated console across 9 skins, 7 layout presets, and 2-pane Gig Prep.</p>
+    </div>
+  </div>
+  <div class="gallery">
+    <figure class="shot">
+      <img src="../images/djcraft-battle.png" alt="DJCraft Live Console in Battle Dark skin" loading="lazy">
+      <figcaption><strong>Live Console</strong><span>Battle Dark + RGB Waveforms</span></figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="../images/djcraft-lcars.png" alt="DJCraft Star Trek LCARS skin with Starfield Warp" loading="lazy">
+      <figcaption><strong>Star Trek LCARS</strong><span>Starfield Warp Backdrop</span></figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="../images/djcraft-settings.png" alt="DJCraft Full-Window Settings in Baroque Velvet & Gold" loading="lazy">
+      <figcaption><strong>Settings Workspace</strong><span>Baroque Velvet &amp; Gold</span></figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="../images/djcraft-crates.png" alt="DJCraft 2-Pane Crates and Gig Prep view" loading="lazy">
+      <figcaption><strong>Crates &amp; Gig Prep</strong><span>Rekordbox XML + Camelot</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="features" class="wrap">
+  <div class="sec-head">
+    <div>
+      <h2>Built for Club Booths, Studios &amp; Agentic Workflows</h2>
+      <p>Every subsystem shares one deterministic L1 Command Bus across GUI, CLI, and MCP.</p>
+    </div>
+  </div>
+  <div class="features">
+    <div class="feat">
+      <div class="feat-tag">Audio Engine</div>
+      <h3>4 Decks, NCC Keylock &amp; Limiter</h3>
+      <p>Zero-allocation CPAL audio thread with 2-stage NCC WSOLA pitch-preserving keylock, Smooth/Linear/Cut crossfader + Hamster reverse, and soft-knee master limiter with live GR readout.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-tag">RTX 4090 GPU Stems</div>
+      <h3>1-Click 4-Stem Hot-Swap</h3>
+      <p>Separate Vocals, Drums, Bass, and Other directly on-deck via local Demucs GPU acceleration and remix live stems without leaving the booth.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-tag">Library &amp; Gig Prep</div>
+      <h3>Rekordbox XML &amp; Camelot Phrases</h3>
+      <p>Native Krumhansl-Schmuckler Camelot key detection, 8-bar energy phrase ribbons, 24-thread parallel crate analysis, and lossless AlphaTheta Rekordbox / Serato / VDJ import &amp; export.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-tag">Hardware &amp; Touch</div>
+      <h3>12 MIDI Profiles + iPad PWA</h3>
+      <p>Plug-and-play mappings for Pioneer DDJ-FLX10, AlphaTheta XDJ-AZ, Traktor S4 MK3, and more with LED feedback, plus an opt-in LAN/Tailscale iPad Multi-Touch Remote with PIN lock.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-tag">Modular Ecosystem</div>
+      <h3>Bidirectional SynthCraft Bridge</h3>
+      <p>Sync BPM/phase via UDP DJLK, stream live pads via DJPD, and route DJCraft FX sends into SynthCraft modular racks with live stereo Aux Return on UDP 20811.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-tag">AI &amp; Automation</div>
+      <h3>42-Tool MCP Server + CLI</h3>
+      <p>Script crate analysis, Camelot harmonic transitions, MIDI profiles, lighting cues (Art-Net 4 / sACN), and live booth controls from Claude, Cursor, Antigravity, or OpenCode.</p>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart" class="wrap">
+  <div class="sec-head">
+    <div>
+      <h2>CLI, Build &amp; MCP Quickstart</h2>
+      <p>Zero-friction local install on Windows, plus bundler-free WASM builds.</p>
+    </div>
+  </div>
+  <div class="code-grid">
+    <div class="code-card">
+      <div class="code-top"><span>PowerShell -- Install &amp; Run</span></div>
+      <pre># Install DJCraft Pro binaries + MCP config
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
+
+# Parallel 24-thread crate analysis (BPM, Camelot Key, Phrases)
+djcraft-cli library analyze-crate --crate "Peak Hour"
+
+# Export crate to AlphaTheta Rekordbox XML
+djcraft-cli library export-rekordbox --crate "Peak Hour" --out rekordbox.xml</pre>
+    </div>
+    <div class="code-card">
+      <div class="code-top"><span>Build WASM &amp; Preview Site</span></div>
+      <pre># Compile bundler-free WASM DSP engine
+cargo build -p djcraft-wasm --target wasm32-unknown-unknown --release
+
+# Stage wasm next to docs/site/index.html
+copy target\wasm32-unknown-unknown\release\djcraft_wasm.wasm docs\site\
+
+# Serve locally
+uv run python -m http.server 8765 --directory docs\site</pre>
+    </div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div class="foot-row">
+    <div>DJCraft Pro -- MIT OR Apache-2.0 -- Built in Vienna with 100% Safe Rust.</div>
+    <div>
+      <a href="https://github.com/sandraschi/djcraft" target="_blank" rel="noopener">Repository</a>
+      &middot;
+      <a href="https://github.com/sandraschi/djcraft/releases" target="_blank" rel="noopener">Releases</a>
+      &middot;
+      <a href="../NEXTGEN_DJ_ROADMAP.md">Roadmap</a>
+    </div>
+  </div>
+</footer>
+
+<div id="lightbox" class="lightbox"><img id="lightboxImg" src="" alt=""></div>
+
+<script>
+(() => {
+  const BLOCK_FRAMES = 512;
+  let audioCtx = null;
+  let scriptNode = null;
+  let wasm = null;
+  let enginePtr = 0;
+  let playingA = false;
+  let playingB = false;
+  let seqOn = false;
+  let curve = 0;
+  let hamster = false;
+  let angleA = 0;
+  let angleB = 0;
+  let peakL = 0;
+  let peakR = 0;
+  let seqStepAcc = 0;
+  const waveRing = new Float32Array(240);
+  let waveWrite = 0;
+
+  const statusLed = document.getElementById('statusLed');
+  const statusText = document.getElementById('statusText');
+  const fileNotice = document.getElementById('fileNotice');
+  const initAudioBtn = document.getElementById('initAudioBtn');
+  const vuL = document.getElementById('vuL');
+  const vuR = document.getElementById('vuR');
+  const waveCanvas = document.getElementById('waveCanvas');
+  const waveCtx = waveCanvas.getContext('2d');
+  const platterA = document.getElementById('platterA');
+  const platterB = document.getElementById('platterB');
+
+  // Build 16 step LEDs
+  const stepLedsEl = document.getElementById('stepLeds');
+  const stepLedEls = [];
+  for (let i = 0; i < 16; i++) {
+    const d = document.createElement('div');
+    d.className = 'step-led' + (i % 4 === 0 ? ' beat' : '');
+    stepLedsEl.appendChild(d);
+    stepLedEls.push(d);
+  }
+
+  if (location.protocol === 'file:') {
+    fileNotice.classList.add('show');
+  }
+
+  function setStatus(state, text) {
+    statusLed.className = 'led' + (state === 'ok' ? ' ok' : state === 'err' ? ' err' : '');
+    statusText.textContent = text;
+  }
+
+  async function ensureAudio() {
+    if (audioCtx && wasm && enginePtr) {
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+      return true;
+    }
+    try {
+      setStatus('warn', 'Loading djcraft_wasm.wasm...');
+      const resp = await fetch('./djcraft_wasm.wasm');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const bytes = await resp.arrayBuffer();
+      const inst = await WebAssembly.instantiate(bytes, {});
+      wasm = inst.instance.exports;
+
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContextCtor();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+      enginePtr = wasm.djw_create(audioCtx.sampleRate, BLOCK_FRAMES);
+      if (!enginePtr) throw new Error('djw_create returned null');
+
+      // Sync initial UI state to WASM engine
+      wasm.djw_set_deck_bpm(enginePtr, 0, parseFloat(document.getElementById('bpmA').value));
+      wasm.djw_set_deck_bpm(enginePtr, 1, parseFloat(document.getElementById('bpmB').value));
+      wasm.djw_set_deck_vol(enginePtr, 0, parseFloat(document.getElementById('volA').value));
+      wasm.djw_set_deck_vol(enginePtr, 1, parseFloat(document.getElementById('volB').value));
+      wasm.djw_set_deck_filter(enginePtr, 0, parseFloat(document.getElementById('fltA').value));
+      wasm.djw_set_deck_filter(enginePtr, 1, parseFloat(document.getElementById('fltB').value));
+      syncCrossfader();
+
+      scriptNode = audioCtx.createScriptProcessor(BLOCK_FRAMES, 0, 2);
+      scriptNode.onaudioprocess = (ev) => {
+        const outL = ev.outputBuffer.getChannelData(0);
+        const outR = ev.outputBuffer.getChannelData(1);
+        const n = wasm.djw_process(enginePtr, outL.length);
+        const lp = wasm.djw_left_ptr(enginePtr) >>> 2;
+        const rp = wasm.djw_right_ptr(enginePtr) >>> 2;
+        const f32 = new Float32Array(wasm.memory.buffer);
+        let pL = 0, pR = 0;
+        for (let i = 0; i < n; i++) {
+          const l = f32[lp + i];
+          const r = f32[rp + i];
+          outL[i] = l;
+          outR[i] = r;
+          const al = Math.abs(l), ar = Math.abs(r);
+          if (al > pL) pL = al;
+          if (ar > pR) pR = ar;
+        }
+        peakL = Math.max(pL, peakL * 0.72);
+        peakR = Math.max(pR, peakR * 0.72);
+        waveRing[waveWrite] = Math.min(1, Math.max(pL, pR));
+        waveWrite = (waveWrite + 1) % waveRing.length;
+      };
+      scriptNode.connect(audioCtx.destination);
+      initAudioBtn.textContent = 'WASM Engine Online';
+      setStatus('ok', 'Live WASM DSP Running @ ' + Math.round(audioCtx.sampleRate) + ' Hz (' + BLOCK_FRAMES + ' frames)');
+      return true;
+    } catch (err) {
+      setStatus('err', 'WASM Load Failed: ' + err.message);
+      fileNotice.classList.add('show');
+      return false;
+    }
+  }
+
+  function syncCrossfader() {
+    if (!wasm || !enginePtr) return;
+    const raw = parseFloat(document.getElementById('xfader').value);
+    const val = hamster ? -raw : raw;
+    wasm.djw_set_crossfader(enginePtr, val, curve);
+  }
+
+  initAudioBtn.addEventListener('click', ensureAudio);
+
+  // Deck A controls
+  const playABtn = document.getElementById('playA');
+  playABtn.addEventListener('click', async () => {
+    if (!(await ensureAudio())) return;
+    playingA = !playingA;
+    wasm.djw_set_deck_play(enginePtr, 0, playingA ? 1 : 0);
+    playABtn.textContent = playingA ? 'PAUSE A' : 'PLAY A';
+    playABtn.classList.toggle('active-a', playingA);
+  });
+
+  const playBBtn = document.getElementById('playB');
+  playBBtn.addEventListener('click', async () => {
+    if (!(await ensureAudio())) return;
+    playingB = !playingB;
+    wasm.djw_set_deck_play(enginePtr, 1, playingB ? 1 : 0);
+    playBBtn.textContent = playingB ? 'PAUSE B' : 'PLAY B';
+    playBBtn.classList.toggle('active-b', playingB);
+  });
+
+  document.getElementById('bpmA').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    document.getElementById('bpmAVal').textContent = v.toFixed(1);
+    if (wasm && enginePtr) wasm.djw_set_deck_bpm(enginePtr, 0, v);
+  });
+  document.getElementById('bpmB').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    document.getElementById('bpmBVal').textContent = v.toFixed(1);
+    if (wasm && enginePtr) wasm.djw_set_deck_bpm(enginePtr, 1, v);
+  });
+  document.getElementById('syncA').addEventListener('click', () => {
+    const b = document.getElementById('bpmB').value;
+    document.getElementById('bpmA').value = b;
+    document.getElementById('bpmA').dispatchEvent(new Event('input'));
+  });
+  document.getElementById('syncB').addEventListener('click', () => {
+    const a = document.getElementById('bpmA').value;
+    document.getElementById('bpmB').value = a;
+    document.getElementById('bpmB').dispatchEvent(new Event('input'));
+  });
+
+  document.getElementById('volA').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    document.getElementById('volAVal').textContent = Math.round(v * 100) + '%';
+    if (wasm && enginePtr) wasm.djw_set_deck_vol(enginePtr, 0, v);
+  });
+  document.getElementById('volB').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    document.getElementById('volBVal').textContent = Math.round(v * 100) + '%';
+    if (wasm && enginePtr) wasm.djw_set_deck_vol(enginePtr, 1, v);
+  });
+
+  document.getElementById('fltA').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    document.getElementById('fltAVal').textContent = (v > 0 ? '+' : '') + v.toFixed(2);
+    if (wasm && enginePtr) wasm.djw_set_deck_filter(enginePtr, 0, v);
+  });
+  document.getElementById('fltB').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    document.getElementById('fltBVal').textContent = (v > 0 ? '+' : '') + v.toFixed(2);
+    if (wasm && enginePtr) wasm.djw_set_deck_filter(enginePtr, 1, v);
+  });
+
+  // Crossfader & curve
+  document.getElementById('xfader').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    const lbl = Math.abs(v) < 0.05 ? 'CENTER' : (v < 0 ? 'A ' + Math.round(-v * 100) + '%' : 'B ' + Math.round(v * 100) + '%');
+    document.getElementById('xfVal').textContent = lbl;
+    syncCrossfader();
+  });
+
+  document.querySelectorAll('[data-curve]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      curve = parseInt(btn.dataset.curve, 10);
+      document.querySelectorAll('[data-curve]').forEach((b) => b.classList.toggle('on', b === btn));
+      syncCrossfader();
+    });
+  });
+
+  const hamsterBtn = document.getElementById('hamsterBtn');
+  hamsterBtn.addEventListener('click', () => {
+    hamster = !hamster;
+    hamsterBtn.textContent = 'HAMSTER REV: ' + (hamster ? 'ON' : 'OFF');
+    hamsterBtn.classList.toggle('on', hamster);
+    syncCrossfader();
+  });
+
+  // Sequencer
+  const seqToggle = document.getElementById('seqToggle');
+  const seqGenre = document.getElementById('seqGenre');
+  function pushSeq() {
+    if (wasm && enginePtr) wasm.djw_set_sequencer(enginePtr, seqOn ? 1 : 0, parseInt(seqGenre.value, 10));
+  }
+  seqToggle.addEventListener('click', async () => {
+    if (!(await ensureAudio())) return;
+    seqOn = !seqOn;
+    seqToggle.textContent = seqOn ? 'BEAT: ON' : 'BEAT: OFF';
+    seqToggle.classList.toggle('on', seqOn);
+    pushSeq();
+  });
+  seqGenre.addEventListener('change', pushSeq);
+
+  // Sampler Pads
+  async function firePad(slot) {
+    if (!(await ensureAudio())) return;
+    wasm.djw_trigger_sample(enginePtr, slot);
+    const el = document.querySelector('.pad[data-slot="' + slot + '"]');
+    if (el) {
+      el.classList.add('hit');
+      setTimeout(() => el.classList.remove('hit'), 150);
+    }
+  }
+  document.querySelectorAll('.pad').forEach((p) => {
+    p.addEventListener('click', () => firePad(parseInt(p.dataset.slot, 10)));
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    if (e.key >= '1' && e.key <= '8') firePad(parseInt(e.key, 10) - 1);
+  });
+
+  // Auto Demo Groove & Stop All
+  document.getElementById('demoDropBtn').addEventListener('click', async () => {
+    if (!(await ensureAudio())) return;
+    playingA = true; playingB = true; seqOn = true;
+    wasm.djw_set_deck_play(enginePtr, 0, 1);
+    wasm.djw_set_deck_play(enginePtr, 1, 1);
+    wasm.djw_set_sequencer(enginePtr, 1, parseInt(seqGenre.value, 10));
+    wasm.djw_trigger_sample(enginePtr, 0);
+    playABtn.textContent = 'PAUSE A'; playABtn.classList.add('active-a');
+    playBBtn.textContent = 'PAUSE B'; playBBtn.classList.add('active-b');
+    seqToggle.textContent = 'BEAT: ON'; seqToggle.classList.add('on');
+  });
+
+  document.getElementById('stopAllBtn').addEventListener('click', () => {
+    playingA = false; playingB = false; seqOn = false;
+    if (wasm && enginePtr) {
+      wasm.djw_set_deck_play(enginePtr, 0, 0);
+      wasm.djw_set_deck_play(enginePtr, 1, 0);
+      wasm.djw_set_sequencer(enginePtr, 0, parseInt(seqGenre.value, 10));
+    }
+    playABtn.textContent = 'PLAY A'; playABtn.classList.remove('active-a');
+    playBBtn.textContent = 'PLAY B'; playBBtn.classList.remove('active-b');
+    seqToggle.textContent = 'BEAT: OFF'; seqToggle.classList.remove('on');
+  });
+
+  // Platter + Waveform Animation Loop
+  function drawPlatter(canvas, angle, accent, active) {
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2, r = w * 0.45;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#070a12';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    for (let g = 14; g < r - 4; g += 7) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cx, cy, g, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.strokeStyle = active ? accent : 'rgba(142,160,196,0.35)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, r - 2, 0, Math.PI * 2); ctx.stroke();
+    // Marker line
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle) * 14, cy + Math.sin(angle) * 14);
+    ctx.lineTo(cx + Math.cos(angle) * (r - 6), cy + Math.sin(angle) * (r - 6));
+    ctx.stroke();
+    // Center spindle
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#05070d';
+    ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  let lastTs = performance.now();
+  function animate(ts) {
+    const dt = Math.min(0.1, (ts - lastTs) / 1000);
+    lastTs = ts;
+    const bpmA = parseFloat(document.getElementById('bpmA').value);
+    const bpmB = parseFloat(document.getElementById('bpmB').value);
+    if (playingA) angleA += dt * (bpmA / 60) * 1.9;
+    if (playingB) angleB += dt * (bpmB / 60) * 1.9;
+
+    drawPlatter(platterA, angleA, '#00e8ff', playingA);
+    drawPlatter(platterB, angleB, '#ff2e93', playingB);
+
+    // VU meters
+    vuL.style.height = Math.max(4, Math.min(100, peakL * 100)).toFixed(1) + '%';
+    vuR.style.height = Math.max(4, Math.min(100, peakR * 100)).toFixed(1) + '%';
+    peakL *= 0.92;
+    peakR *= 0.92;
+
+    // Step LED chase
+    if (seqOn) {
+      seqStepAcc += dt * (bpmA / 60) * 4;
+      const cur = Math.floor(seqStepAcc) % 16;
+      for (let i = 0; i < 16; i++) stepLedEls[i].classList.toggle('cur', i === cur);
+    } else {
+      for (let i = 0; i < 16; i++) stepLedEls[i].classList.remove('cur');
+    }
+
+    // Master scrolling RGB waveform
+    const w = waveCanvas.width, h = waveCanvas.height, mid = h / 2;
+    waveCtx.fillStyle = '#050811';
+    waveCtx.fillRect(0, 0, w, h);
+    waveCtx.strokeStyle = 'rgba(255,255,255,0.07)';
+    waveCtx.beginPath(); waveCtx.moveTo(0, mid); waveCtx.lineTo(w, mid); waveCtx.stroke();
+
+    const barW = w / waveRing.length;
+    for (let i = 0; i < waveRing.length; i++) {
+      const idx = (waveWrite + i) % waveRing.length;
+      const amp = waveRing[idx];
+      if (amp < 0.005) continue;
+      const bh = amp * (h * 0.44);
+      const hue = 185 + amp * 135;
+      waveCtx.fillStyle = 'hsl(' + hue.toFixed(0) + ', 95%, 58%)';
+      waveCtx.fillRect(i * barW, mid - bh, Math.max(1.5, barW - 1), bh * 2);
+    }
+
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+
+  // Lightbox for screenshots
+  const lb = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lightboxImg');
+  document.querySelectorAll('.shot img').forEach((img) => {
+    img.addEventListener('click', () => {
+      lbImg.src = img.src;
+      lbImg.alt = img.alt;
+      lb.classList.add('open');
+    });
+  });
+  lb.addEventListener('click', () => lb.classList.remove('open'));
+})();
+</script>
+</body>
+</html>

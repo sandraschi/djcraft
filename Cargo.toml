@@ -5,6 +5,7 @@ members = [
     "crates/djcraft-core",
     "crates/djcraft-mcp",
     "crates/djcraft-app",
+    "crates/djcraft-wasm",
     "xtask",
 ]
 
