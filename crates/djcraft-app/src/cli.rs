@@ -69,6 +69,14 @@ enum Commands {
     CrateImportVdj { path: String },
     /// Export a crate by id to a VirtualDJ .vdjfolder or .m3u8 file
     CrateExportVdj { crate_id: i64, dest: String },
+    /// Import an AlphaTheta / Pioneer Rekordbox XML library (tracks, playlists, BPM, Camelot, colored cues)
+    CrateImportRekordbox { path: String },
+    /// Export a crate (or full library when crate_id is omitted) to Rekordbox XML
+    CrateExportRekordbox {
+        dest: String,
+        #[arg(long)]
+        crate_id: Option<i64>,
+    },
     /// List connected USB MIDI controller input ports and auto-detected profiles
     MidiList,
     /// Connect to a MIDI controller by index or name substring (e.g. "reloop")
@@ -316,6 +324,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "format": "vdj",
+                    "crate_id": crate_id,
+                    "dest": dest,
+                    "exported_tracks": count
+                }))?
+            );
+        }
+        Commands::CrateImportRekordbox { path } => {
+            let store = CrateStore::open_default()?;
+            let summary = djcraft_core::import_rekordbox_xml_file(&store, Path::new(&path))?;
+            println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Commands::CrateExportRekordbox { dest, crate_id } => {
+            let store = CrateStore::open_default()?;
+            let count =
+                djcraft_core::export_rekordbox_xml_file(&store, crate_id, Path::new(&dest))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "format": "rekordbox_xml",
                     "crate_id": crate_id,
                     "dest": dest,
                     "exported_tracks": count

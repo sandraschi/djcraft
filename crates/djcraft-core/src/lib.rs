@@ -15,6 +15,7 @@ pub mod lighting;
 pub mod link;
 pub mod midi;
 pub mod mixxxxx_osc;
+pub mod rekordbox_xml;
 
 pub use command::{
     parse_dettato_json, resolve_dettato_binary, Command, CommandSpec, DettatoAnalysis,
@@ -24,8 +25,8 @@ pub use config::AppConfig;
 pub use crates_db::{
     batch_stem_folder, encode_m3u, encode_serato_crate_bytes, encode_vdj_folder_xml, parse_m3u,
     parse_serato_crate_bytes, parse_vdj_folder_xml, resolve_demucs_binary,
-    stem_audio_file_transparent, BatchStemSummary, CrateNode, CrateQuery, CrateSortField,
-    CrateStore, CrateTrack, ImportSummary, TrackCueMeta,
+    stem_audio_file_transparent, stem_audio_file_with_device, BatchStemSummary, CrateNode,
+    CrateQuery, CrateSortField, CrateStore, CrateTrack, ImportSummary, TrackCueMeta,
 };
 pub use fleet_ai::{
     butterchurn_sync_bpm, chat_with_booth_ai, fetch_available_models, generate_speech_drop,
@@ -53,6 +54,11 @@ pub use midi::{
 pub use mixxxxx_osc::{
     encode_osc_message, ping_mixxxxx, resolve_mixxxxx_binary, send_deck_video_controls,
     MixxxxxConfig, MixxxxxPingResult, MixxxxxVideoControls, OscArg,
+};
+pub use rekordbox_xml::{
+    decode_rekordbox_location, encode_rekordbox_location, encode_rekordbox_xml,
+    export_rekordbox_xml_file, import_rekordbox_xml_file, parse_rekordbox_xml, tonality_to_camelot,
+    RekordboxCue, RekordboxLibrary, RekordboxPlaylist, RekordboxTrack,
 };
 
 use djcraft_audio::{AudioEngine, DeckId, DeckState, FxUnitParams, TrackMeta};

@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod analysis;
 pub mod dsp;
 pub mod dvs;
 pub mod fx;
@@ -14,6 +15,11 @@ pub mod output;
 pub mod recorder;
 pub mod sampler;
 pub mod studio;
+
+pub use analysis::{
+    analyze_track_full, detect_musical_key, detect_phrases, KeyAnalysis, PhraseKind, PhraseSegment,
+    TrackAnalysis,
+};
 
 pub use dvs::{list_input_devices, DvsCarrier, DvsDecoder, DvsInputStream, DvsTelemetry};
 

@@ -240,26 +240,55 @@ impl WsolaDeckState {
         let min_s = (target - self.search_radius as isize).clamp(0, max_start);
         let max_s = (target + self.search_radius as isize).clamp(0, max_start);
 
-        // Coarse-stepped cross-correlation against previous overlap tail for phase coherence
+        // Two-stage coarse-to-fine Normalized Cross-Correlation (NCC) against previous overlap tail.
+        // Normalizing by candidate energy prevents loud nearby transients from biasing phase alignment.
         let mut best_start = target.clamp(0, max_start) as usize;
         let mut best_score = f32::NEG_INFINITY;
-        let step = 4usize;
         let check_len = (self.hop_out / 2).min(256);
 
+        let mut tail_energy = 1e-8_f32;
+        let mut i = 0;
+        while i < check_len {
+            tail_energy += self.tail_l[i] * self.tail_l[i] + self.tail_r[i] * self.tail_r[i];
+            i += 2;
+        }
+        let inv_tail_norm = tail_energy.sqrt().recip();
+
+        let ncc_score = |c: usize, stride: usize| -> f32 {
+            let mut dot = 0.0_f32;
+            let mut cand_energy = 1e-8_f32;
+            let mut k = 0;
+            while k < check_len {
+                let cl = audio.left[c + k];
+                let cr = audio.right[c + k];
+                dot += self.tail_l[k] * cl + self.tail_r[k] * cr;
+                cand_energy += cl * cl + cr * cr;
+                k += stride;
+            }
+            dot * inv_tail_norm / cand_energy.sqrt()
+        };
+
+        // Stage 1: coarse scan (step = 4) across search_radius
         let mut cand = min_s;
         while cand <= max_s {
             let c = cand as usize;
-            let mut dot = 0.0_f32;
-            let mut i = 0;
-            while i < check_len {
-                dot += self.tail_l[i] * audio.left[c + i] + self.tail_r[i] * audio.right[c + i];
-                i += 2;
-            }
-            if dot > best_score {
-                best_score = dot;
+            let score = ncc_score(c, 2);
+            if score > best_score {
+                best_score = score;
                 best_start = c;
             }
-            cand += step as isize;
+            cand += 4;
+        }
+
+        // Stage 2: sample-accurate fine refinement (step = 1) around coarse peak
+        let fine_min = (best_start as isize - 4).clamp(min_s, max_s) as usize;
+        let fine_max = (best_start as isize + 4).clamp(min_s, max_s) as usize;
+        for c in fine_min..=fine_max {
+            let score = ncc_score(c, 1);
+            if score > best_score {
+                best_score = score;
+                best_start = c;
+            }
         }
 
         // Overlap-add first half with previous tail, store second half as next tail

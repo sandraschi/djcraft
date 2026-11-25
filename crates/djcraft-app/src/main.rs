@@ -379,7 +379,9 @@ impl UiPrefs {
     }
 }
 
-pub struct DjCraftApp {
+pub type PendingStemSwap = (usize, Arc<djcraft_audio::dsp::DecodedStems>, String);
+
+struct DjCraftApp {
     orch: DjOrchestrator,
     locale: AppLocale,
     status_msg: String,
@@ -417,6 +419,9 @@ pub struct DjCraftApp {
     studio_slices: Vec<SampleSlice>,
     deck_decoded: [Option<Arc<DecodedAudio>>; 4],
     deck_waveforms: [Option<WaveformSummary>; 4],
+    deck_phrases: [Vec<djcraft_audio::PhraseSegment>; 4],
+    pending_deck_stems: Arc<Mutex<Vec<PendingStemSwap>>>,
+    deck_stemming: [bool; 4],
 
     // Hardware MIDI Controller Engine (Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer, Hercules)
     midi: MidiControllerManager,
@@ -596,6 +601,9 @@ impl DjCraftApp {
             studio_slices: Vec::new(),
             deck_decoded: [None, None, None, None],
             deck_waveforms: [None, None, None, None],
+            deck_phrases: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            pending_deck_stems: Arc::new(Mutex::new(Vec::new())),
+            deck_stemming: [false; 4],
 
             midi: MidiControllerManager::new(),
             midi_ports,
@@ -1420,7 +1428,8 @@ impl DjCraftApp {
     ) -> Result<String, String> {
         let decoded =
             decode_audio_file(path).map_err(|err| format!("Audio decode failed: {err}"))?;
-        let grid = detect_beatgrid(&decoded);
+        let analysis = djcraft_audio::analyze_track_full(&decoded);
+        let grid = analysis.beatgrid;
         let title = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -1430,11 +1439,12 @@ impl DjCraftApp {
             title: title.clone(),
             artist: "Local Audio".to_string(),
             bpm: grid.bpm,
-            musical_key: "8A".to_string(),
+            musical_key: analysis.key.camelot.clone(),
             duration_seconds: decoded.duration_seconds,
         };
         let deck_idx = deck_index(deck);
         self.deck_waveforms[deck_idx] = Some(WaveformSummary::from_decoded(&decoded));
+        self.deck_phrases[deck_idx] = analysis.phrases;
         let arc_audio = Arc::new(decoded);
         self.deck_decoded[deck_idx] = Some(Arc::clone(&arc_audio));
         self.audio_out.set_deck_audio(deck_idx, Some(arc_audio));
@@ -1459,11 +1469,12 @@ impl DjCraftApp {
             };
         }
         Ok(format!(
-            "Loaded '{}' to {} ({:.1} BPM, beat 1 at {:.2}s){}",
+            "Loaded '{}' to {} ({:.1} BPM, {}, {} phrases){}",
             title,
             deck.label(),
             grid.bpm,
-            grid.first_beat_sec,
+            analysis.key.camelot,
+            self.deck_phrases[deck_idx].len(),
             stems_tag
         ))
     }
@@ -2576,8 +2587,9 @@ impl DjCraftApp {
                 &d,
                 self.deck_waveforms[idx].as_ref(),
                 &self.hot_cue_metas[idx],
+                &self.deck_phrases[idx],
                 palette,
-                28.0,
+                30.0,
             ) {
                 let st = self.orch.deck_mut(deck_id);
                 st.position_seconds = seek_sec;
@@ -2762,13 +2774,62 @@ impl DjCraftApp {
 
             ui.add_space(6.0);
 
-            // 4 Rotary Stem Knobs
+            // 4 Rotary Stem Knobs + 1-Click On-Deck GPU 4-Stem Separation
             theme::card_frame(ui, palette, |ui| {
-                ui.label(
-                    egui::RichText::new(t(I18nKey::StemSeparation, self.locale))
-                        .size(11.5)
-                        .color(palette.text_secondary),
-                );
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(t(I18nKey::StemSeparation, self.locale))
+                            .size(11.5)
+                            .color(palette.text_secondary),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let busy = self.deck_stemming[idx];
+                        let has_audio = d.audio_path.is_some();
+                        let lbl = if busy { "GPU STEMS..." } else { "STEMS (GPU)" };
+                        if ui
+                            .add_enabled(!busy && has_audio, egui::Button::new(lbl).small())
+                            .on_hover_text(
+                                "Separate this deck into 4 stems on RTX GPU (CUDA) and hot-swap live into playback",
+                            )
+                            .clicked()
+                        {
+                            if let Some(ref audio_str) = d.audio_path {
+                                self.deck_stemming[idx] = true;
+                                let p = PathBuf::from(audio_str);
+                                let pending = Arc::clone(&self.pending_deck_stems);
+                                let bg = Arc::clone(&self.bg_status);
+                                let deck_lbl = deck_id.label().to_string();
+                                self.status_msg = format!(
+                                    "Separating 4 stems on GPU for {deck_lbl}..."
+                                );
+                                std::thread::spawn(move || {
+                                    match djcraft_core::stem_audio_file_with_device(&p, true) {
+                                        Ok(_) => {
+                                            if let Some(stems) = load_sidecar_stems(&p) {
+                                                if let Ok(mut q) = pending.lock() {
+                                                    q.push((
+                                                        idx,
+                                                        Arc::new(stems),
+                                                        format!(
+                                                            "4-Stems hot-swapped live on {deck_lbl}"
+                                                        ),
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            if let Ok(mut g) = bg.lock() {
+                                                *g = Some(format!(
+                                                    "GPU stem error on {deck_lbl}: {e}"
+                                                ));
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+                });
                 let mut v = d.stem_vocals_gain;
                 let mut dr = d.stem_drums_gain;
                 let mut ba = d.stem_bass_gain;
@@ -2906,6 +2967,17 @@ impl eframe::App for DjCraftApp {
         // Drain background worker status updates (batch stemming, AI replies)
         if let Ok(mut guard) = self.bg_status.try_lock() {
             if let Some(msg) = guard.take() {
+                self.status_msg = msg;
+                self.deck_stemming = [false; 4];
+            }
+        }
+        // Hot-swap newly separated GPU 4-stems directly into live playing decks
+        if let Ok(mut pending) = self.pending_deck_stems.try_lock() {
+            for (d_idx, stems, msg) in pending.drain(..) {
+                self.audio_out.set_deck_stems(d_idx, Some(stems));
+                if d_idx < 4 {
+                    self.deck_stemming[d_idx] = false;
+                }
                 self.status_msg = msg;
             }
         }
@@ -3267,6 +3339,55 @@ impl eframe::App for DjCraftApp {
                     }
                     if ui.button("Open Audio File -> Deck B...").clicked() {
                         self.load_audio_file_dialog(DeckId::DeckB);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Import Rekordbox XML...").clicked() {
+                        if let Some(xml_path) = rfd::FileDialog::new()
+                            .add_filter("Rekordbox XML", &["xml"])
+                            .pick_file()
+                        {
+                            if let Some(ref store) = self.crate_store {
+                                match djcraft_core::import_rekordbox_xml_file(store, &xml_path) {
+                                    Ok(sum) => {
+                                        self.crate_dirty = true;
+                                        self.status_msg = format!(
+                                            "Imported {} Rekordbox track(s) into {}",
+                                            sum.imported_tracks, sum.crate_path
+                                        );
+                                    }
+                                    Err(e) => {
+                                        self.status_msg = format!("Rekordbox import error: {e}");
+                                    }
+                                }
+                            }
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Export Rekordbox XML...").clicked() {
+                        if let Some(out_path) = rfd::FileDialog::new()
+                            .add_filter("Rekordbox XML", &["xml"])
+                            .set_file_name("djcraft_rekordbox.xml")
+                            .save_file()
+                        {
+                            if let Some(ref store) = self.crate_store {
+                                match djcraft_core::export_rekordbox_xml_file(
+                                    store,
+                                    self.crate_query.crate_id,
+                                    &out_path,
+                                ) {
+                                    Ok(n) => {
+                                        self.status_msg = format!(
+                                            "Exported {n} track(s) -> {}",
+                                            out_path.display()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        self.status_msg = format!("Rekordbox export error: {e}");
+                                    }
+                                }
+                            }
+                        }
                         ui.close();
                     }
                     ui.separator();

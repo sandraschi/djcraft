@@ -1370,6 +1370,12 @@ pub fn resolve_demucs_binary() -> Option<PathBuf> {
 /// Separate one audio file transparently into `<parent>/.djcraft-stems/<stem>/{vocals,drums,bass,other}.wav`.
 /// Skips immediately if all 4 stem WAVs already exist.
 pub fn stem_audio_file_transparent(audio_path: &Path) -> Result<bool, DjError> {
+    stem_audio_file_with_device(audio_path, false)
+}
+
+/// Separate one audio file into transparent sidecar stems, optionally requesting CUDA GPU acceleration
+/// (`-d cuda`, e.g. Goliath's RTX 4090) with automatic fallback to CPU if CUDA fails.
+pub fn stem_audio_file_with_device(audio_path: &Path, prefer_cuda: bool) -> Result<bool, DjError> {
     if !audio_path.is_file() {
         return Err(DjError::Sidecar(format!(
             "Audio file not found: {}",
@@ -1394,12 +1400,27 @@ pub fn stem_audio_file_transparent(audio_path: &Path) -> Result<bool, DjError> {
     std::fs::create_dir_all(&tmp_out)
         .map_err(|e| DjError::Sidecar(format!("Cannot create stem temp dir: {e}")))?;
 
-    let output = std::process::Command::new(&demucs)
-        .args(["-n", "htdemucs", "-o"])
-        .arg(&tmp_out)
-        .arg(audio_path)
-        .output()
-        .map_err(|e| DjError::Sidecar(format!("Failed to launch demucs: {e}")))?;
+    let run_demucs = |device: Option<&str>| -> Result<std::process::Output, DjError> {
+        let mut cmd = std::process::Command::new(&demucs);
+        cmd.args(["-n", "htdemucs"]);
+        if let Some(dev) = device {
+            cmd.args(["-d", dev]);
+        }
+        cmd.arg("-o").arg(&tmp_out).arg(audio_path);
+        cmd.output()
+            .map_err(|e| DjError::Sidecar(format!("Failed to launch demucs: {e}")))
+    };
+
+    let output = if prefer_cuda {
+        let gpu_out = run_demucs(Some("cuda"))?;
+        if gpu_out.status.success() {
+            gpu_out
+        } else {
+            run_demucs(None)?
+        }
+    } else {
+        run_demucs(None)?
+    };
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(DjError::Sidecar(format!(

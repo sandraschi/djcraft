@@ -1221,11 +1221,13 @@ fn paint_waveform_lane(
 }
 
 /// Paint a clickable full-track RGB overview waveform strip (returns seek seconds on click/drag).
+#[allow(clippy::too_many_arguments)]
 pub fn paint_overview_waveform(
     ui: &mut egui::Ui,
     deck: &DeckState,
     waveform: Option<&WaveformSummary>,
     cues: &[HotCueMeta; 4],
+    phrases: &[djcraft_audio::PhraseSegment],
     palette: &SkinPalette,
     height: f32,
 ) -> Option<f64> {
@@ -1243,6 +1245,26 @@ pub fn paint_overview_waveform(
 
     let track = deck.loaded_track.as_ref()?;
     let dur = track.duration_seconds.max(1.0);
+
+    // Colored Phrase Structure ribbon along the bottom 4px (Intro/Buildup/Drop/Breakdown/Outro)
+    if !phrases.is_empty() {
+        let ribbon_top = rect.bottom() - 4.5;
+        for seg in phrases {
+            let x0 = rect.left() + ((seg.start_sec / dur).clamp(0.0, 1.0)) as f32 * rect.width();
+            let x1 = rect.left() + ((seg.end_sec / dur).clamp(0.0, 1.0)) as f32 * rect.width();
+            if x1 > x0 + 1.0 {
+                let [r, g, b] = seg.kind.rgb();
+                painter.rect_filled(
+                    Rect::from_min_max(
+                        Pos2::new(x0, ribbon_top),
+                        Pos2::new(x1, rect.bottom() - 1.0),
+                    ),
+                    CornerRadius::ZERO,
+                    Color32::from_rgba_unmultiplied(r, g, b, 215),
+                );
+            }
+        }
+    }
     let cols = ((rect.width() / 2.0) as usize).clamp(48, 220);
     let col_w = rect.width() / cols as f32;
     let base_y = rect.bottom() - 2.0;
