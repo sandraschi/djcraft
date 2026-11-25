@@ -141,11 +141,11 @@ fn main() {
                         },
                         {
                             "name": "djcraft_crate_import",
-                            "description": "Import a Serato DJ (.crate), VirtualDJ (.vdjfolder / .m3u / .m3u8), or AlphaTheta Rekordbox XML (rekordbox.xml) library into DJCraft.",
+                            "description": "Import a Serato DJ (.crate), VirtualDJ (.vdjfolder / .m3u / .m3u8), AlphaTheta Rekordbox XML (rekordbox.xml), or Traktor Pro 4 (collection.nml) library into DJCraft.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "format": { "type": "string", "enum": ["serato", "vdj", "rekordbox"] },
+                                    "format": { "type": "string", "enum": ["serato", "vdj", "rekordbox", "traktor"] },
                                     "path": { "type": "string" }
                                 },
                                 "required": ["format", "path"]
@@ -153,15 +153,60 @@ fn main() {
                         },
                         {
                             "name": "djcraft_crate_export",
-                            "description": "Export a DJCraft crate by id to Serato DJ (.crate), VirtualDJ (.vdjfolder / .m3u8), or Rekordbox XML (rekordbox.xml).",
+                            "description": "Export a DJCraft crate by id to Serato DJ (.crate), VirtualDJ (.vdjfolder / .m3u8), Rekordbox XML (rekordbox.xml), or Traktor Pro 4 (collection.nml).",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "format": { "type": "string", "enum": ["serato", "vdj", "rekordbox"] },
+                                    "format": { "type": "string", "enum": ["serato", "vdj", "rekordbox", "traktor"] },
                                     "crate_id": { "type": "integer" },
                                     "dest": { "type": "string" }
                                 },
                                 "required": ["format", "crate_id", "dest"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_smart_query",
+                            "description": "Dynamically evaluate a Smart Crate rule (BPM range, Camelot key + harmonic compatibility, genre substring, minimum rating) across the track library.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "min_bpm": { "type": "number" },
+                                    "max_bpm": { "type": "number" },
+                                    "camelot_key": { "type": "string" },
+                                    "harmonic_compatible": { "type": "boolean" },
+                                    "genre_contains": { "type": "string" },
+                                    "min_rating": { "type": "integer" }
+                                }
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_duplicates",
+                            "description": "Find duplicate tracks in the DJCraft SQLite library sharing the same normalized artist and title.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
+                            "name": "djcraft_setlist_history",
+                            "description": "List tracks played during live DJ sessions from the SQLite set_history log.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "session_id": { "type": "string" },
+                                    "limit": { "type": "integer" }
+                                }
+                            }
+                        },
+                        {
+                            "name": "djcraft_setlist_export",
+                            "description": "Export live setlist history to a Mixcloud/YouTube timestamped .txt, CD/DAW .cue sheet, or .csv file.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "format": { "type": "string", "enum": ["txt", "cue", "csv"] },
+                                    "dest": { "type": "string" },
+                                    "title": { "type": "string" },
+                                    "session_id": { "type": "string" }
+                                },
+                                "required": ["format", "dest"]
                             }
                         },
                         {
@@ -630,8 +675,11 @@ fn main() {
                                     "rekordbox" => {
                                         djcraft_core::import_rekordbox_xml_file(&store, Path::new(path))
                                     }
+                                    "traktor" => {
+                                        djcraft_core::import_traktor_nml_file(&store, Path::new(path))
+                                    }
                                     _ => Err(djcraft_core::DjError::Deck(format!(
-                                        "Unsupported format '{fmt}'. Expected serato, vdj, or rekordbox."
+                                        "Unsupported format '{fmt}'. Expected serato, vdj, rekordbox, or traktor."
                                     ))),
                                 };
                                 match res {
@@ -660,8 +708,14 @@ fn main() {
                                         if crate_id > 0 { Some(crate_id) } else { None },
                                         Path::new(dest),
                                     ),
+                                    "traktor" => djcraft_core::export_traktor_nml_file(
+                                        &store,
+                                        if crate_id > 0 { Some(crate_id) } else { None },
+                                        "DJCraft Export",
+                                        Path::new(dest),
+                                    ),
                                     _ => Err(djcraft_core::DjError::Deck(format!(
-                                        "Unsupported format '{fmt}'. Expected serato, vdj, or rekordbox."
+                                        "Unsupported format '{fmt}'. Expected serato, vdj, rekordbox, or traktor."
                                     ))),
                                 };
                                 match res {
@@ -700,6 +754,83 @@ fn main() {
                     "djcraft_midi_led_ports" => {
                         let ports = djcraft_core::list_midi_output_ports();
                         json!({ "output_ports": ports, "count": ports.len() })
+                    }
+                    "djcraft_crate_smart_query" => {
+                        let rule = djcraft_core::SmartCrateRule {
+                            name: "MCP Smart Query".into(),
+                            min_bpm: args.get("min_bpm").and_then(|v| v.as_f64()),
+                            max_bpm: args.get("max_bpm").and_then(|v| v.as_f64()),
+                            camelot_key: args
+                                .get("camelot_key")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                            harmonic_compatible: args
+                                .get("harmonic_compatible")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            genre_contains: args
+                                .get("genre_contains")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                            min_rating: args.get("min_rating").and_then(|v| v.as_i64()),
+                            text_contains: None,
+                        };
+                        match CrateStore::open_default() {
+                            Ok(store) => match store.query_smart_crate(&rule) {
+                                Ok(tracks) => json!({ "count": tracks.len(), "tracks": tracks }),
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crate_duplicates" => match CrateStore::open_default() {
+                        Ok(store) => match store.find_duplicates() {
+                            Ok(groups) => {
+                                json!({ "duplicate_groups": groups.len(), "groups": groups })
+                            }
+                            Err(e) => json!({ "error": e.to_string() }),
+                        },
+                        Err(e) => json!({ "error": e.to_string() }),
+                    },
+                    "djcraft_setlist_history" => {
+                        let sid = args.get("session_id").and_then(|v| v.as_str());
+                        let limit =
+                            args.get("limit").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
+                        match CrateStore::open_default() {
+                            Ok(store) => match store.list_set_history(sid, limit) {
+                                Ok(entries) => {
+                                    json!({ "count": entries.len(), "entries": entries })
+                                }
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_setlist_export" => {
+                        let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("txt");
+                        let dest = args.get("dest").and_then(|v| v.as_str()).unwrap_or("");
+                        let title = args
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("DJCraft Live Set");
+                        let sid = args.get("session_id").and_then(|v| v.as_str());
+                        match CrateStore::open_default() {
+                            Ok(store) => match store.list_set_history(sid, 500) {
+                                Ok(entries) => match djcraft_core::export_setlist_file(
+                                    &entries,
+                                    fmt,
+                                    title,
+                                    Path::new(dest),
+                                ) {
+                                    Ok(n) => {
+                                        json!({ "format": fmt, "dest": dest, "exported_entries": n })
+                                    }
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                },
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
                     }
                     "djcraft_audio_list" => json!({
                         "outputs": AudioOutput::list_output_devices(),

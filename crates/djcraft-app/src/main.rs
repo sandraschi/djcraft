@@ -517,6 +517,9 @@ struct DjCraftApp {
     touch_remote_pin: String,
     crossfader_curve: djcraft_audio::CrossfaderCurve,
     crossfader_reverse: bool,
+    stem_xf_mode: djcraft_audio::StemCrossfaderMode,
+    set_session_id: String,
+    set_started_at: std::time::Instant,
     synthcraft_aux_return: f32,
     set_auto: set_and_rooms::SetAutomationState,
     room2: set_and_rooms::Room2AutoplayState,
@@ -706,6 +709,15 @@ impl DjCraftApp {
             touch_remote_pin: String::new(),
             crossfader_curve: djcraft_audio::CrossfaderCurve::Smooth,
             crossfader_reverse: false,
+            stem_xf_mode: djcraft_audio::StemCrossfaderMode::FullMix,
+            set_session_id: format!(
+                "set-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+            ),
+            set_started_at: std::time::Instant::now(),
             synthcraft_aux_return: 0.0,
             set_auto: set_and_rooms::SetAutomationState::default(),
             room2: set_and_rooms::Room2AutoplayState::default(),
@@ -853,6 +865,21 @@ impl DjCraftApp {
                         self.load_crate_track_to_deck(parse_deck(&deck), &tr);
                     }
                 }
+                touch_remote::TouchRemoteAction::SynthPad { pad } => {
+                    self.link_engine
+                        .send_synthcraft_pad((pad % 8) as u8, true, 127, 0);
+                }
+                touch_remote::TouchRemoteAction::ToggleAuxReturn => {
+                    let on = self.synthcraft_aux_return > 0.01;
+                    self.synthcraft_aux_return = if on { 0.0 } else { 0.85 };
+                    self.audio_out
+                        .set_synthcraft_aux_return(self.synthcraft_aux_return);
+                }
+                touch_remote::TouchRemoteAction::SetStemXfMode { mode } => {
+                    let m = djcraft_audio::StemCrossfaderMode::from_str_lossy(&mode);
+                    self.stem_xf_mode = m;
+                    self.audio_out.set_stem_crossfader_mode(m);
+                }
             }
         }
 
@@ -868,6 +895,33 @@ impl DjCraftApp {
                     color: format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()),
                 };
             }
+            let dur = d
+                .loaded_track
+                .as_ref()
+                .map(|t| t.duration_seconds.max(1.0))
+                .unwrap_or(1.0);
+            let pos_norm = (d.position_seconds / dur).clamp(0.0, 1.0) as f32;
+            let overview = self.deck_waveforms[d_idx]
+                .as_ref()
+                .map(|wf| {
+                    let n = wf.low_peaks.len().max(1);
+                    let bars = 64usize;
+                    (0..bars)
+                        .map(|b| {
+                            let idx = (b * n) / bars;
+                            let lo = wf.low_peaks.get(idx).copied().unwrap_or(0.0);
+                            let mid = wf.mid_peaks.get(idx).copied().unwrap_or(0.0);
+                            let hi = wf.high_peaks.get(idx).copied().unwrap_or(0.0);
+                            ((lo.max(mid).max(hi)).clamp(0.0, 1.0) * 255.0) as u8
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let vu = if d.is_playing {
+                (d.volume_fader as f32 * 0.82).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             touch_remote::TouchDeckSnapshot {
                 title: d
                     .loaded_track
@@ -879,11 +933,19 @@ impl DjCraftApp {
                     .as_ref()
                     .map(|t| t.bpm * (1.0 + d.pitch_bend_pct / 100.0))
                     .unwrap_or(124.0),
+                key: d
+                    .loaded_track
+                    .as_ref()
+                    .map(|t| t.musical_key.clone())
+                    .unwrap_or_default(),
                 playing: d.is_playing,
                 loop4: d.loop_bars == Some(4),
                 volume: d.volume_fader,
                 filter: d.color_filter,
                 eq_low: d.eq_low,
+                position_norm: pos_norm,
+                vu,
+                overview,
                 cues,
             }
         };
@@ -899,6 +961,17 @@ impl DjCraftApp {
                 snap.fx1_on = self.orch.fx_units[0].enabled;
                 snap.fx2_on = self.orch.fx_units[1].enabled;
                 snap.seq_on = seq_on;
+                let any_playing =
+                    self.orch.deck_a.is_playing || self.orch.deck_b.is_playing || seq_on;
+                let mst_vu = if self.orch.master_muted || !any_playing {
+                    0.0
+                } else {
+                    (self.orch.master_volume as f32 * 0.88).clamp(0.0, 1.0)
+                };
+                snap.master_vu_l = mst_vu;
+                snap.master_vu_r = (mst_vu * 0.96).clamp(0.0, 1.0);
+                snap.aux_return_on = self.synthcraft_aux_return > 0.01;
+                snap.stem_xf_mode = self.stem_xf_mode.short_label().to_ascii_lowercase();
                 if snap.tracks.len() != self.crate_results.len() {
                     snap.tracks = self
                         .crate_results
@@ -1561,6 +1634,18 @@ impl DjCraftApp {
 
     fn load_crate_track_to_deck(&mut self, deck: DeckId, track: &CrateTrack) {
         let idx = deck_index(deck);
+        if let Some(ref store) = self.crate_store {
+            let _ = store.log_set_play(
+                &self.set_session_id,
+                deck.label(),
+                &track.path,
+                &track.title,
+                &track.artist,
+                track.bpm,
+                &track.musical_key,
+                self.set_started_at.elapsed().as_secs_f64(),
+            );
+        }
         if track.path.starts_with("demo://") {
             self.deck_waveforms[idx] = None;
             self.audio_out.set_deck_audio(idx, None);
@@ -3390,6 +3475,96 @@ impl eframe::App for DjCraftApp {
                                     }
                                     Err(e) => {
                                         self.status_msg = format!("Rekordbox export error: {e}");
+                                    }
+                                }
+                            }
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Import Traktor NML...").clicked() {
+                        if let Some(nml_path) = rfd::FileDialog::new()
+                            .add_filter("Traktor NML", &["nml", "xml"])
+                            .pick_file()
+                        {
+                            if let Some(ref store) = self.crate_store {
+                                match djcraft_core::import_traktor_nml_file(store, &nml_path) {
+                                    Ok(sum) => {
+                                        self.crate_dirty = true;
+                                        self.status_msg = format!(
+                                            "Imported {} Traktor track(s) into {}",
+                                            sum.imported_tracks, sum.crate_path
+                                        );
+                                    }
+                                    Err(e) => {
+                                        self.status_msg = format!("Traktor import error: {e}");
+                                    }
+                                }
+                            }
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Export Traktor NML...").clicked() {
+                        if let Some(out_path) = rfd::FileDialog::new()
+                            .add_filter("Traktor NML", &["nml"])
+                            .set_file_name("djcraft_collection.nml")
+                            .save_file()
+                        {
+                            if let Some(ref store) = self.crate_store {
+                                match djcraft_core::export_traktor_nml_file(
+                                    store,
+                                    self.crate_query.crate_id,
+                                    "DJCraft Set",
+                                    &out_path,
+                                ) {
+                                    Ok(n) => {
+                                        self.status_msg = format!(
+                                            "Exported {n} Traktor track(s) -> {}",
+                                            out_path.display()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        self.status_msg = format!("Traktor export error: {e}");
+                                    }
+                                }
+                            }
+                        }
+                        ui.close();
+                    }
+                    if ui
+                        .button("Export Setlist History (.txt / .cue)...")
+                        .clicked()
+                    {
+                        if let Some(out_path) = rfd::FileDialog::new()
+                            .add_filter("Tracklist TXT", &["txt"])
+                            .add_filter("CD/DAW CUE Sheet", &["cue"])
+                            .add_filter("CSV Tracklist", &["csv"])
+                            .set_file_name("djcraft_setlist.txt")
+                            .save_file()
+                        {
+                            if let Some(ref store) = self.crate_store {
+                                let fmt = out_path
+                                    .extension()
+                                    .and_then(|e| e.to_str())
+                                    .unwrap_or("txt");
+                                match store.list_set_history(Some(&self.set_session_id), 500) {
+                                    Ok(entries) => match djcraft_core::export_setlist_file(
+                                        &entries,
+                                        fmt,
+                                        "DJCraft Live Set",
+                                        &out_path,
+                                    ) {
+                                        Ok(n) => {
+                                            self.status_msg = format!(
+                                                "Exported {n} setlist track(s) -> {}",
+                                                out_path.display()
+                                            );
+                                        }
+                                        Err(e) => {
+                                            self.status_msg = format!("Setlist export error: {e}");
+                                        }
+                                    },
+                                    Err(e) => {
+                                        self.status_msg = format!("Setlist read error: {e}");
                                     }
                                 }
                             }

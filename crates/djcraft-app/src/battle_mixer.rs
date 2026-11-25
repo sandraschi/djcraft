@@ -401,6 +401,25 @@ impl super::DjCraftApp {
                 };
             }
         });
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("XF STEM:")
+                    .monospace()
+                    .small()
+                    .color(palette.text_secondary),
+            );
+            for mode in djcraft_audio::StemCrossfaderMode::ALL {
+                if ui
+                    .selectable_label(self.stem_xf_mode == mode, mode.short_label())
+                    .on_hover_text(mode.label())
+                    .clicked()
+                {
+                    self.stem_xf_mode = mode;
+                    self.audio_out.set_stem_crossfader_mode(mode);
+                    self.status_msg = format!("Stem Crossfader: {}", mode.label());
+                }
+            }
+        });
     }
 
     fn render_cue_and_recorder(

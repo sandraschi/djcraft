@@ -77,6 +77,50 @@ enum Commands {
         #[arg(long)]
         crate_id: Option<i64>,
     },
+    /// Import a Native Instruments Traktor Pro 4 collection.nml library (tracks, playlists, BPM, Camelot, CUE_V2)
+    CrateImportTraktor { path: String },
+    /// Export a crate (or full library when crate_id is omitted) to Traktor Pro 4 collection.nml
+    CrateExportTraktor {
+        dest: String,
+        #[arg(long)]
+        crate_id: Option<i64>,
+        #[arg(long, default_value = "DJCraft Set")]
+        playlist: String,
+    },
+    /// Dynamically query tracks via Smart Crate rules (BPM range, Camelot harmonic key, genre, rating)
+    CrateSmartQuery {
+        #[arg(long)]
+        min_bpm: Option<f64>,
+        #[arg(long)]
+        max_bpm: Option<f64>,
+        #[arg(long)]
+        key: Option<String>,
+        #[arg(long)]
+        harmonic: bool,
+        #[arg(long)]
+        genre: Option<String>,
+        #[arg(long)]
+        min_rating: Option<i64>,
+    },
+    /// Detect duplicate tracks across the library (matching normalized artist + title)
+    CrateDuplicates,
+    /// List logged live setlist history entries
+    SetlistHistory {
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
+    },
+    /// Export live setlist history to .txt (Mixcloud/YouTube), .cue (CD/DAW), or .csv
+    SetlistExport {
+        dest: String,
+        #[arg(long, default_value = "txt")]
+        format: String,
+        #[arg(long, default_value = "DJCraft Live Set")]
+        title: String,
+        #[arg(long)]
+        session_id: Option<String>,
+    },
     /// Analyze all tracks in a crate (or full library) in parallel across CPU cores (BPM + Camelot Key)
     CrateAnalyze {
         #[arg(long)]
@@ -353,6 +397,84 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "crate_id": crate_id,
                     "dest": dest,
                     "exported_tracks": count
+                }))?
+            );
+        }
+        Commands::CrateImportTraktor { path } => {
+            let store = CrateStore::open_default()?;
+            let summary = djcraft_core::import_traktor_nml_file(&store, Path::new(&path))?;
+            println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Commands::CrateExportTraktor {
+            dest,
+            crate_id,
+            playlist,
+        } => {
+            let store = CrateStore::open_default()?;
+            let count = djcraft_core::export_traktor_nml_file(
+                &store,
+                crate_id,
+                &playlist,
+                Path::new(&dest),
+            )?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "format": "traktor_nml",
+                    "crate_id": crate_id,
+                    "playlist": playlist,
+                    "dest": dest,
+                    "exported_tracks": count
+                }))?
+            );
+        }
+        Commands::CrateSmartQuery {
+            min_bpm,
+            max_bpm,
+            key,
+            harmonic,
+            genre,
+            min_rating,
+        } => {
+            let store = CrateStore::open_default()?;
+            let rule = djcraft_core::SmartCrateRule {
+                name: "CLI Query".into(),
+                min_bpm,
+                max_bpm,
+                camelot_key: key,
+                harmonic_compatible: harmonic,
+                genre_contains: genre,
+                min_rating,
+                text_contains: None,
+            };
+            let tracks = store.query_smart_crate(&rule)?;
+            println!("{}", serde_json::to_string_pretty(&tracks)?);
+        }
+        Commands::CrateDuplicates => {
+            let store = CrateStore::open_default()?;
+            let dups = store.find_duplicates()?;
+            println!("{}", serde_json::to_string_pretty(&dups)?);
+        }
+        Commands::SetlistHistory { session_id, limit } => {
+            let store = CrateStore::open_default()?;
+            let entries = store.list_set_history(session_id.as_deref(), limit)?;
+            println!("{}", serde_json::to_string_pretty(&entries)?);
+        }
+        Commands::SetlistExport {
+            dest,
+            format,
+            title,
+            session_id,
+        } => {
+            let store = CrateStore::open_default()?;
+            let entries = store.list_set_history(session_id.as_deref(), 500)?;
+            let n = djcraft_core::export_setlist_file(&entries, &format, &title, Path::new(&dest))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "format": format,
+                    "dest": dest,
+                    "exported_entries": n
                 }))?
             );
         }

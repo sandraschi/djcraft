@@ -193,6 +193,7 @@
     <div class="tabs">
       <div class="tab active" data-tab="mixer">MIXER &amp; DECKS</div>
       <div class="tab" data-tab="pads">SAMPLER &amp; FX</div>
+      <div class="tab" data-tab="synth">SYNTH &amp; STEMS</div>
       <div class="tab" data-tab="crates">CRATES</div>
     </div>
     <button id="syncBtn" class="pill">SYNC</button>
@@ -205,8 +206,10 @@
       <div class="deck-hdr">
         <span class="deck-tag">DECK A</span>
         <span id="aTitle" class="track-name">No track</span>
+        <span id="aKey" class="pill" style="padding:3px 7px;font-size:11px">--</span>
         <span id="aBpm" class="bpm">124.0</span>
       </div>
+      <canvas id="waveA" width="320" height="32" style="width:100%;height:32px;background:#090b12;border:1px solid var(--border);border-radius:6px"></canvas>
       <div class="btn-row">
         <button id="aPlay" class="btn play">PLAY</button>
         <button id="aCue" class="btn cue">CUE</button>
@@ -243,7 +246,11 @@
           <div class="vfader-lbl">CH B</div>
         </div>
       </div>
-      <div class="vfader-lbl" style="text-align:center">CROSSFADER (A &lt;--&gt; B)</div>
+      <div class="vfader-lbl" style="text-align:center">MASTER VU &amp; CROSSFADER</div>
+      <div style="display:flex;gap:4px;height:10px;background:#090b12;border:1px solid var(--border);border-radius:4px;padding:2px">
+        <div style="flex:1;background:#1e293b;border-radius:2px;overflow:hidden"><div id="vuL" style="height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#facc15,#ef4444)"></div></div>
+        <div style="flex:1;background:#1e293b;border-radius:2px;overflow:hidden"><div id="vuR" style="height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#facc15,#ef4444)"></div></div>
+      </div>
       <div id="xfader" class="xfader" data-val="0"><div class="xfader-cap"></div></div>
     </div>
 
@@ -251,8 +258,10 @@
       <div class="deck-hdr">
         <span class="deck-tag">DECK B</span>
         <span id="bTitle" class="track-name">No track</span>
+        <span id="bKey" class="pill" style="padding:3px 7px;font-size:11px">--</span>
         <span id="bBpm" class="bpm">124.0</span>
       </div>
+      <canvas id="waveB" width="320" height="32" style="width:100%;height:32px;background:#090b12;border:1px solid var(--border);border-radius:6px"></canvas>
       <div class="btn-row">
         <button id="bPlay" class="btn play">PLAY</button>
         <button id="bCue" class="btn cue">CUE</button>
@@ -308,7 +317,37 @@
     </div>
   </div>
 
-  <!-- TAB 3: CRATES -->
+  <!-- TAB 3: SYNTH & STEMS -->
+  <div id="tab-synth" class="view">
+    <div class="split-half">
+      <div class="btn-row">
+        <button id="auxRetBtn" class="btn">SYNTHCRAFT AUX RETURN (:20811)</button>
+      </div>
+      <div class="sampler-grid">
+        <div class="sample-pad synth-pad" data-pad="0">SYNTH 1<br>KICK</div>
+        <div class="sample-pad synth-pad" data-pad="1">SYNTH 2<br>BASS</div>
+        <div class="sample-pad synth-pad" data-pad="2">SYNTH 3<br>ACID 303</div>
+        <div class="sample-pad synth-pad" data-pad="3">SYNTH 4<br>CHORD</div>
+        <div class="sample-pad synth-pad" data-pad="4">SYNTH 5<br>RISER</div>
+        <div class="sample-pad synth-pad" data-pad="5">SYNTH 6<br>LASER</div>
+        <div class="sample-pad synth-pad" data-pad="6">SYNTH 7<br>SNARE</div>
+        <div class="sample-pad synth-pad" data-pad="7">SYNTH 8<br>SUB</div>
+      </div>
+    </div>
+    <div class="split-half">
+      <div style="font-weight:800;color:var(--a);font-size:14px">STEM-AWARE NEURAL CROSSFADER</div>
+      <div style="font-size:12px;color:var(--muted)">Choose which stem group follows the Battle Crossfader (requires 4-stem WAVs on deck).</div>
+      <div class="btn-row" style="flex-wrap:wrap">
+        <button class="btn stem-xf-btn" data-xfmode="full">FULL MIX</button>
+        <button class="btn stem-xf-btn" data-xfmode="voc">VOCALS</button>
+        <button class="btn stem-xf-btn" data-xfmode="drm">DRUMS</button>
+        <button class="btn stem-xf-btn" data-xfmode="bass">BASS SWAP</button>
+        <button class="btn stem-xf-btn" data-xfmode="inst">INSTRUMENTAL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: CRATES -->
   <div id="tab-crates" class="view">
     <div class="crates-wrap">
       <input id="crateSearch" class="search-box" type="search" placeholder="Filter crate tracks by title, artist, or key...">
@@ -496,6 +535,44 @@ function renderTracks() {
 }
 searchBox.addEventListener('input', renderTracks);
 
+// SynthCraft pads, Aux Return, and Stem Crossfader mode
+document.querySelectorAll('.synth-pad').forEach(p => {
+  p.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    sendCmd({ cmd: 'synth_pad', pad: parseInt(p.dataset.pad, 10) });
+  });
+});
+document.getElementById('auxRetBtn').addEventListener('pointerdown', e => {
+  e.preventDefault();
+  sendCmd({ cmd: 'toggle_aux_return' });
+});
+document.querySelectorAll('.stem-xf-btn').forEach(b => {
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    sendCmd({ cmd: 'set_stem_xf_mode', mode: b.dataset.xfmode });
+  });
+});
+
+function drawOverview(canvasId, peaks, posNorm, color) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height, mid = h / 2;
+  ctx.fillStyle = '#090b12';
+  ctx.fillRect(0, 0, w, h);
+  if (peaks && peaks.length) {
+    const bw = w / peaks.length;
+    ctx.fillStyle = color;
+    for (let i = 0; i < peaks.length; i++) {
+      const amp = (peaks[i] / 255) * (h * 0.45);
+      ctx.fillRect(i * bw, mid - amp, Math.max(1.5, bw - 1), amp * 2);
+    }
+  }
+  const px = Math.max(0, Math.min(w - 2, (posNorm || 0) * w));
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(px, 0, 2, h);
+}
+
 // State polling (5 Hz)
 async function pollState() {
   try {
@@ -507,9 +584,22 @@ async function pollState() {
     const st = await res.json();
     document.getElementById('connDot').classList.remove('off');
     document.getElementById('aTitle').textContent = st.deck_a.title || 'Empty';
+    document.getElementById('aKey').textContent = st.deck_a.key || '--';
     document.getElementById('aBpm').textContent = st.deck_a.bpm.toFixed(1);
     document.getElementById('bTitle').textContent = st.deck_b.title || 'Empty';
+    document.getElementById('bKey').textContent = st.deck_b.key || '--';
     document.getElementById('bBpm').textContent = st.deck_b.bpm.toFixed(1);
+    drawOverview('waveA', st.deck_a.overview, st.deck_a.position_norm, '#38bdf8');
+    drawOverview('waveB', st.deck_b.overview, st.deck_b.position_norm, '#ef4444');
+    document.getElementById('vuL').style.width = Math.min(100, Math.round((st.master_vu_l || 0) * 100)) + '%';
+    document.getElementById('vuR').style.width = Math.min(100, Math.round((st.master_vu_r || 0) * 100)) + '%';
+    const auxBtn = document.getElementById('auxRetBtn');
+    auxBtn.classList.toggle('play', !!st.aux_return_on);
+    auxBtn.classList.toggle('on', !!st.aux_return_on);
+    document.querySelectorAll('.stem-xf-btn').forEach(b => {
+      b.classList.toggle('loop', b.dataset.xfmode === (st.stem_xf_mode || 'full'));
+      b.classList.toggle('on', b.dataset.xfmode === (st.stem_xf_mode || 'full'));
+    });
     document.getElementById('aPlay').classList.toggle('on', st.deck_a.playing);
     document.getElementById('bPlay').classList.toggle('on', st.deck_b.playing);
     document.getElementById('aLoop4').classList.toggle('on', st.deck_a.loop4);

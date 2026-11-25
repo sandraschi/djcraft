@@ -29,11 +29,15 @@ pub struct TouchCueSnapshot {
 pub struct TouchDeckSnapshot {
     pub title: String,
     pub bpm: f64,
+    pub key: String,
     pub playing: bool,
     pub loop4: bool,
     pub volume: f64,
     pub filter: f64,
     pub eq_low: f64,
+    pub position_norm: f32,
+    pub vu: f32,
+    pub overview: Vec<u8>,
     pub cues: [TouchCueSnapshot; 4],
 }
 
@@ -56,6 +60,10 @@ pub struct TouchRemoteSnapshot {
     pub fx1_on: bool,
     pub fx2_on: bool,
     pub seq_on: bool,
+    pub master_vu_l: f32,
+    pub master_vu_r: f32,
+    pub aux_return_on: bool,
+    pub stem_xf_mode: String,
     pub tracks: Vec<TouchTrackRow>,
 }
 
@@ -79,6 +87,9 @@ pub enum TouchRemoteAction {
     TriggerSample { bank: usize, slot: usize },
     ToggleSequencer,
     LoadTrack { deck: String, track_id: i64 },
+    SynthPad { pad: usize },
+    ToggleAuxReturn,
+    SetStemXfMode { mode: String },
 }
 
 pub struct TouchRemoteServer {
