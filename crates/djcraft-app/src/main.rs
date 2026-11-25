@@ -277,6 +277,8 @@ struct UiPrefs {
     pitch_range_pct: f64,
     #[serde(default)]
     quantize_default: bool,
+    #[serde(default)]
+    auto_write_id3_cues: bool,
     #[serde(default = "default_auto_dj_fade")]
     auto_dj_fade_sec: f64,
 }
@@ -340,6 +342,7 @@ impl Default for UiPrefs {
             auto_gain_enabled: true,
             pitch_range_pct: 16.0,
             quantize_default: false,
+            auto_write_id3_cues: false,
             auto_dj_fade_sec: 8.0,
         }
     }
@@ -1107,7 +1110,16 @@ impl DjCraftApp {
 
     fn restore_hot_cues_for_deck(&mut self, deck: DeckId, track_path: &str) {
         if let Some(ref store) = self.crate_store {
-            if let Ok(cues) = store.get_track_hot_cues(track_path) {
+            if let Ok(mut cues) = store.get_track_hot_cues(track_path) {
+                if cues.iter().all(Option::is_none) {
+                    if let Ok(n) = store.import_id3_into_track(track_path) {
+                        if n > 0 {
+                            if let Ok(loaded) = store.get_track_hot_cues(track_path) {
+                                cues = loaded;
+                            }
+                        }
+                    }
+                }
                 self.orch.deck_mut(deck).hot_cue_seconds = cues;
             }
             if let Ok(metas) = store.get_track_hot_cue_metas(track_path) {
@@ -1123,6 +1135,27 @@ impl DjCraftApp {
         }
     }
 
+    fn sync_deck_cues_to_id3_if_enabled(&self, deck: DeckId, track_path: &str) {
+        if !self.prefs.auto_write_id3_cues {
+            return;
+        }
+        let d = self.orch.deck(deck);
+        let d_idx = deck_index(deck);
+        let metas: [djcraft_core::TrackCueMeta; 4] = std::array::from_fn(|i| {
+            let m = &self.hot_cue_metas[d_idx][i];
+            djcraft_core::TrackCueMeta {
+                label: m.label.clone(),
+                color: m.color,
+                behavior: m.behavior.as_str().to_string(),
+            }
+        });
+        let _ = djcraft_core::write_id3_hot_cues(
+            std::path::Path::new(track_path),
+            &d.hot_cue_seconds,
+            &metas,
+        );
+    }
+
     fn autosave_hot_cue_for_deck(&self, deck: DeckId, slot: usize) {
         if slot < 4 {
             let d = self.orch.deck(deck);
@@ -1130,6 +1163,7 @@ impl DjCraftApp {
                 if let Some(ref store) = self.crate_store {
                     let _ = store.set_track_hot_cue(track_path, slot, d.hot_cue_seconds[slot]);
                 }
+                self.sync_deck_cues_to_id3_if_enabled(deck, track_path);
             }
         }
     }
@@ -1147,6 +1181,7 @@ impl DjCraftApp {
                     };
                     let _ = store.set_track_hot_cue_meta(track_path, slot, &persisted);
                 }
+                self.sync_deck_cues_to_id3_if_enabled(deck, track_path);
             }
         }
     }

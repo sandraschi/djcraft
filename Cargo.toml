@@ -29,3 +29,4 @@ symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "aac", "
 rfd = "0.15"
 midir = "0.10"
 ureq = { version = "2", features = ["json"] }
+id3 = "1"

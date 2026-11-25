@@ -408,13 +408,17 @@ impl CrateStore {
                 params![path, title, artist, genre, bpm, musical_key, duration_seconds, now],
             )
             .map_err(|e| DjError::Deck(format!("Upsert track failed: {e}")))?;
-        self.conn
+        let track_id: i64 = self
+            .conn
             .query_row(
                 "SELECT id FROM tracks WHERE path = ?1",
                 params![path],
                 |r| r.get(0),
             )
-            .map_err(|e| DjError::Deck(format!("Lookup track id failed: {e}")))
+            .map_err(|e| DjError::Deck(format!("Lookup track id failed: {e}")))?;
+        // Opportunistically harvest ID3 metadata and Serato Markers2 cue points on import.
+        let _ = self.import_id3_into_track(path);
+        Ok(track_id)
     }
 
     pub fn add_track_to_crate(&self, crate_id: i64, track_id: i64) -> Result<(), DjError> {
@@ -1193,6 +1197,125 @@ impl CrateStore {
             }
         }
         Ok(metas)
+    }
+
+    /// Opportunistically read ID3v2 tags (`TBPM`, `TKEY`, `TIT2`, `TPE1`, `TCON`, and
+    /// `Serato Markers2` GEOB cues) from `track_path`. Fills missing track metadata and
+    /// populates hot cues only when DJCraft has no local cues saved for this track yet.
+    pub fn import_id3_into_track(&self, track_path: &str) -> Result<usize, DjError> {
+        let p = Path::new(track_path);
+        if !p.is_file() {
+            return Ok(0);
+        }
+        let info = crate::id3_cues::read_id3_track_info(p)?;
+        let title = info.title.as_deref().unwrap_or("");
+        let artist = info.artist.as_deref().unwrap_or("");
+        let genre = info.genre.as_deref().unwrap_or("");
+        let bpm = info.bpm.unwrap_or(0.0);
+        let key = info.musical_key.as_deref().unwrap_or("");
+        if !title.is_empty()
+            || !artist.is_empty()
+            || !genre.is_empty()
+            || bpm > 0.0
+            || !key.is_empty()
+        {
+            let _ = self.conn.execute(
+                "UPDATE tracks SET
+                    title = CASE WHEN title = '' AND ?2 != '' THEN ?2 ELSE title END,
+                    artist = CASE WHEN artist = '' AND ?3 != '' THEN ?3 ELSE artist END,
+                    genre = CASE WHEN genre = '' AND ?4 != '' THEN ?4 ELSE genre END,
+                    bpm = CASE WHEN bpm <= 0 AND ?5 > 0 THEN ?5 ELSE bpm END,
+                    musical_key = CASE WHEN musical_key = '' AND ?6 != '' THEN ?6 ELSE musical_key END
+                 WHERE path = ?1",
+                params![track_path, title, artist, genre, bpm, key],
+            );
+        }
+
+        if info.cue_count == 0 {
+            return Ok(0);
+        }
+        let existing = self.get_track_hot_cues(track_path)?;
+        if existing.iter().any(Option::is_some) {
+            return Ok(0);
+        }
+        let mut imported = 0usize;
+        for (slot, (pos_opt, meta)) in info.cues.iter().zip(info.cue_metas.iter()).enumerate() {
+            if let Some(pos) = pos_opt {
+                self.set_track_hot_cue(track_path, slot, Some(*pos))?;
+                if !meta.label.is_empty() || meta.color.is_some() {
+                    self.set_track_hot_cue_meta(track_path, slot, meta)?;
+                }
+                imported += 1;
+            }
+        }
+        Ok(imported)
+    }
+
+    /// Batch-read ID3v2 metadata & `Serato Markers2` cue points for every track in `crate_id`.
+    pub fn batch_read_id3_cues_for_crate(
+        &self,
+        crate_id: i64,
+    ) -> Result<crate::id3_cues::BatchId3Summary, DjError> {
+        let tracks = self.query_tracks(&CrateQuery {
+            crate_id: Some(crate_id),
+            ..Default::default()
+        })?;
+        let mut sum = crate::id3_cues::BatchId3Summary {
+            tracks_scanned: tracks.len(),
+            ..Default::default()
+        };
+        for t in tracks {
+            if !Path::new(&t.path).is_file() {
+                sum.skipped += 1;
+                continue;
+            }
+            match self.import_id3_into_track(&t.path) {
+                Ok(n) if n > 0 => {
+                    sum.tracks_updated += 1;
+                    sum.cues_processed += n;
+                }
+                Ok(_) => sum.skipped += 1,
+                Err(_) => sum.failed += 1,
+            }
+        }
+        Ok(sum)
+    }
+
+    /// Batch-write DJCraft's saved hot cues & labels into `Serato Markers2` ID3v2 tags
+    /// for every track in `crate_id` that has at least one cue point.
+    pub fn batch_write_id3_cues_for_crate(
+        &self,
+        crate_id: i64,
+    ) -> Result<crate::id3_cues::BatchId3Summary, DjError> {
+        let tracks = self.query_tracks(&CrateQuery {
+            crate_id: Some(crate_id),
+            ..Default::default()
+        })?;
+        let mut sum = crate::id3_cues::BatchId3Summary {
+            tracks_scanned: tracks.len(),
+            ..Default::default()
+        };
+        for t in tracks {
+            let p = Path::new(&t.path);
+            if !p.is_file() {
+                sum.skipped += 1;
+                continue;
+            }
+            let cues = self.get_track_hot_cues(&t.path)?;
+            if cues.iter().all(Option::is_none) {
+                sum.skipped += 1;
+                continue;
+            }
+            let metas = self.get_track_hot_cue_metas(&t.path)?;
+            match crate::id3_cues::write_id3_hot_cues(p, &cues, &metas) {
+                Ok(n) => {
+                    sum.tracks_updated += 1;
+                    sum.cues_processed += n;
+                }
+                Err(_) => sum.failed += 1,
+            }
+        }
+        Ok(sum)
     }
 }
 

@@ -122,6 +122,49 @@ impl super::DjCraftApp {
                     }
                 }
                 if ui
+                    .small_button("Read ID3 Cues")
+                    .on_hover_text("Scan selected crate for ID3 BPM/Key and Serato Markers2 cue points")
+                    .clicked()
+                {
+                    if let Some(cid) = self.crate_query.crate_id {
+                        if let Some(ref store) = self.crate_store {
+                            match store.batch_read_id3_cues_for_crate(cid) {
+                                Ok(s) => {
+                                    self.status_msg = format!(
+                                        "ID3 read: {} cues imported across {}/{} tracks ({} skipped, {} failed)",
+                                        s.cues_processed, s.tracks_updated, s.tracks_scanned, s.skipped, s.failed
+                                    );
+                                    self.crate_dirty = true;
+                                }
+                                Err(e) => self.status_msg = format!("ID3 read error: {e}"),
+                            }
+                        }
+                    } else {
+                        self.status_msg = "Select a crate first to read ID3 cues".to_string();
+                    }
+                }
+                if ui
+                    .small_button("Write ID3 Cues")
+                    .on_hover_text("Write selected crate's DJCraft hot cues & labels into Serato Markers2 ID3v2 tags")
+                    .clicked()
+                {
+                    if let Some(cid) = self.crate_query.crate_id {
+                        if let Some(ref store) = self.crate_store {
+                            match store.batch_write_id3_cues_for_crate(cid) {
+                                Ok(s) => {
+                                    self.status_msg = format!(
+                                        "ID3 write: {} cues written across {}/{} tracks ({} skipped, {} failed)",
+                                        s.cues_processed, s.tracks_updated, s.tracks_scanned, s.skipped, s.failed
+                                    );
+                                }
+                                Err(e) => self.status_msg = format!("ID3 write error: {e}"),
+                            }
+                        }
+                    } else {
+                        self.status_msg = "Select a crate first to write ID3 cues".to_string();
+                    }
+                }
+                if ui
                     .small_button("Batch Stem Folder...")
                     .on_hover_text("Run Demucs into transparent .djcraft-stems/<track>/ subfolders")
                     .clicked()

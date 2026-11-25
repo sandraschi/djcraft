@@ -167,7 +167,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
  "wl-clipboard-rs",
  "x11rb",
 ]
@@ -487,6 +487,12 @@ dependencies = [
  "quote",
  "syn 3.0.9",
 ]
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "byteorder-lite"
@@ -911,6 +917,7 @@ version = "0.4.0"
 dependencies = [
  "chrono",
  "djcraft-audio",
+ "id3",
  "midir",
  "rusqlite",
  "serde",
@@ -1778,6 +1785,17 @@ dependencies = [
  "zerofrom",
  "zerotrie",
  "zerovec",
+]
+
+[[package]]
+name = "id3"
+version = "1.17.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "978b6fd2b9abc73c8b8db74f2d011dfa04f0f3497b2f7789852dbae51fe5f9ae"
+dependencies = [
+ "bitflags 2.13.2",
+ "byteorder",
+ "flate2",
 ]
 
 [[package]]
@@ -2719,7 +2737,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ pub mod config;
 pub mod crates_db;
 pub mod fleet_ai;
 pub mod i18n;
+pub mod id3_cues;
 pub mod ipc;
 pub mod lighting;
 pub mod link;
@@ -30,6 +31,10 @@ pub use fleet_ai::{
     butterchurn_sync_bpm, chat_with_booth_ai, fetch_available_models, generate_speech_drop,
     parse_natural_language_command, plan_harmonic_setlist, probe_fleet_health, sfx_search,
     vfx_apply_preset, AiChatConfig, AiProvider, FleetEndpoints, FleetHealthReport,
+};
+pub use id3_cues::{
+    encode_serato_markers2, parse_serato_markers2, read_id3_track_info, write_id3_hot_cues,
+    BatchId3Summary, Id3TrackInfo, SeratoCue,
 };
 pub use ipc::{
     live_port_path, send_ipc_request, send_ipc_request_to_port, start_ipc_server, IpcReceiver,

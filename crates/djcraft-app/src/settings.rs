@@ -468,6 +468,16 @@ impl DjCraftApp {
                                 self.orch.deck_b.quantize = self.prefs.quantize_default;
                                 prefs_changed = true;
                             }
+                            if ui
+                                .checkbox(
+                                    &mut self.prefs.auto_write_id3_cues,
+                                    "Auto-write hot cues & labels to ID3 tags (Serato Markers2 GEOB)",
+                                )
+                                .on_hover_text("When enabled, setting or renaming a hot cue writes it into the track's MP3/AIFF/WAV ID3v2 Serato Markers2 tag. ID3 cue reading on import/load is always automatic.")
+                                .changed()
+                            {
+                                prefs_changed = true;
+                            }
                             ui.add_space(6.0);
                             ui.label(
                                 egui::RichText::new("Tip: Right-click any CUE 1..4 pad on a deck to rename it (Intro/Drop/Break), pick its flag color, or assign Gate / Auto-Loop / Cue & Pause behavior.")
