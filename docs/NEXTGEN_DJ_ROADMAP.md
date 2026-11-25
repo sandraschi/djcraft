@@ -86,3 +86,17 @@ Dedicated DJ controllers and club CDJs (CDJ-3000 / Opus Quad) run embedded ARM/S
 ### Priority 7 -- 24-Thread Parallel Crate Analyzer & ONNX/Candle In-Process GPU Stems
 - Parallel `std::thread::scope` crate analyzer computing BPM, Camelot key, LUFS, and phrases across entire libraries at 24x throughput.
 - Optional in-process ONNX Runtime / Candle HTDemucs execution on RTX 4090 (DirectML/CUDA) eliminating external Python/demucs dependency.
+
+---
+
+## 5. Implementation Status (2026-11-25)
+
+All 7 roadmap priorities are now implemented and verified (`cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, `cargo test --workspace`: **76 passed, 0 failed**):
+- **Priority 1 (Rekordbox XML):** Implemented in `rekordbox_xml.rs`, `File -> Import/Export Rekordbox XML`, `djcraft-cli crate-import-rekordbox / crate-export-rekordbox`, and MCP `djcraft_crate_import / djcraft_crate_export` (`format: "rekordbox"`).
+- **Priority 2 (Key & Phrase Analysis):** Implemented in `djcraft-audio/src/analysis.rs`, auto-populated on deck load, and rendered as a 4px Phrase Ribbon on the overview scrubber.
+- **Priority 3 (NCC Keylock & GPU Stems):** Implemented 2-stage NCC WSOLA in `dsp.rs`, `stem_audio_file_with_device(path, prefer_cuda)`, and 1-click `STEMS (GPU)` hot-swap on each deck.
+- **Priority 4 (Crossfader Curves & Limiter GR):** Implemented `CrossfaderCurve` (`Smooth`, `Linear`, `ScratchCut`) + `REV` (Hamster) + soft-knee Master Limiter with live `LIM -X.XdB` GR readout in `battle_mixer.rs` & `output.rs`.
+- **Priority 5 (SynthCraft Aux Return):** Implemented non-blocking UDP `AuxReturnTap` (`127.0.0.1:20811`, `DJFX` stereo PCM) with Battle Mixer `RET` toggle.
+- **Priority 6 (Flagship MIDI & LED Out):** Added `PioneerDdjFlx10`, `AlphaThetaXdjAz`, and `TraktorKontrolS4Mk3` (12 built-in profiles) + `encode_midi_led` & `list_midi_output_ports` (`djcraft_midi_led_ports` MCP tool).
+- **Priority 7 (24-Thread Parallel Crate Analyzer & CLI/MCP Parity):** Implemented `CrateStore::analyze_crate_parallel` (`std::thread::scope`), `djcraft-cli crate-analyze` / `analyze-audio`, and MCP `djcraft_crate_analyze` / `djcraft_analyze_audio` (42 MCP tools total).
+

@@ -78,10 +78,10 @@ DJCraft Pro is a local-first, 100% Safe Rust (`#![forbid(unsafe_code)]`) 4-deck 
   - **Config (`ui.json`)**: `config-show`, `config-set <key> <value>`, `config-reset` (controls `skin`, `backdrop`, `locale`, `workspace`, `four-deck`, `zoom`, `pitch-range`, `quantize`, `auto-gain`, `auto-dj-fade`, `headphone-device`, `split-cue`, `recording-format`, `dvs-device`, `dvs-carrier`, `ai-endpoint`, `ai-model`, `bridges-enabled`)
   - **Audio & Probes**: `audio-list`, `dvs-probe [--device] [--carrier 1k|2k] [--ms]`, `link-probe [--bpm] [--ms]`
   - **MIDI**: `midi-list`, `midi-connect [query]`, `midi-profile <profile>`, `midi-import-xml <path>`, `midi-rules`
-  - **Crates & Hot Cues**: `crate-list`, `crate-create <name> [--parent-id]`, `crate-scan <folder> [--crate-id]`, `crate-import-serato`, `crate-export-serato`, `crate-import-vdj`, `crate-export-vdj`, `crate-cues <track>`, `crate-set-cue <track> <slot> <sec|clear>`
+  - **Crates & Hot Cues**: `crate-list`, `crate-create <name> [--parent-id]`, `crate-scan <folder> [--crate-id]`, `crate-analyze [--crate-id]` (24-thread parallel BPM + Camelot Key), `analyze-audio <path>`, `crate-import-serato`, `crate-export-serato`, `crate-import-vdj`, `crate-export-vdj`, `crate-import-rekordbox <xml>`, `crate-export-rekordbox <dest> [--crate-id]`, `crate-cues <track>`, `crate-set-cue <track> <slot> <sec|clear>`
   - **Live Remote Control (IPC)**: `live-status`, `dispatch <json>`, `load <deck> <path>`, `load-video <deck> <path>`, `play <deck>`, `cue <deck>`, `stop-all`, `sync`, `crossfader <val>`, `volume <deck> <val>`, `master <val>`, `pfl <deck>`, `mute`, `run-set <path>`, `set-play <start|stop|status>`, `macro-rec <start|stop|status>`, `room2 <status|configure|play|pause|stop|next>`
   - **Analysis & OSC**: `status`, `transition`, `camelot <a> <b>`, `commands`, `analyze-dettato <audio>`, `mixxxxx-ping`, `mixxxxx-video`
-- **MCP (`djcraft-mcp`)**: stdio JSON-RPC 2.0 server exposing **34 tools** with 100% CLI & live remote-control parity. See [docs/CLI_AND_MCP.md](docs/CLI_AND_MCP.md) for the complete command & tool reference.
+- **MCP (`djcraft-mcp`)**: stdio JSON-RPC 2.0 server exposing **42 tools** with 100% CLI & live remote-control parity (incl. Rekordbox XML, parallel crate analysis, native audio analysis, and MIDI LED output ports). See [docs/CLI_AND_MCP.md](docs/CLI_AND_MCP.md) and [docs/NEXTGEN_DJ_ROADMAP.md](docs/NEXTGEN_DJ_ROADMAP.md).
 
 ---
 

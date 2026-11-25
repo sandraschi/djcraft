@@ -1205,9 +1205,10 @@ impl super::DjCraftApp {
                             ui.label("- UDP Multicast Link: Toggle in Commands -> Enable Link Sync (UDP) for clean-room beat/tempo sync on 224.76.78.75:20808.");
                             ui.add_space(6.0);
                             ui.strong("Crates, Smart Hot Cues, Stems, MIDI, AI & iPad Touch Remote");
-                            ui.label("- Smart Hot Cues: Slots 1-4 save timestamps + custom names, colors & behaviors (Right-click CUE 1..4) per track in SQLite.");
-                            ui.label("- MIDI (midir): 9 built-in profiles (Rane, Pioneer, Hercules, Denon, Numark, Allen & Heath, Reloop Ready) + MIDI Learn + Import XML Mapper.");
-                            ui.label("- Multi-Provider AI Chat (Ctrl+L) & iPad Touch Remote: Configure Ollama/LM Studio/OpenAI/Anthropic/Gemini/OpenRouter and start the opt-in LAN/Tailscale iPad Multi-Touch PWA (with optional PIN) in Settings -> AI & External Bridges.");
+                            ui.label("- Smart Hot Cues & Rekordbox XML: Slots 1-4 save timestamps + custom names, colors & behaviors in SQLite, Serato ID3 Markers2, and Rekordbox XML (File -> Import/Export Rekordbox XML...).");
+                            ui.label("- Native Key/Phrase, NCC Keylock & GPU Stems: Auto-detects Camelot Key + 8-bar Phrases on load, uses 2-stage NCC WSOLA keylock, Crossfader Curves + Limiter GR, and 1-click STEMS (GPU) live hot-swap.");
+                            ui.label("- MIDI (midir): 12 built-in profiles (Reloop Ready, DDJ-FLX10, XDJ-AZ, Kontrol S4 MK3, Rane, Pioneer, Hercules, Denon, Numark, Xone:K2) + LED feedback + XML Mapper import.");
+                            ui.label("- SynthCraft Bridge, AI Chat (Ctrl+L) & iPad Remote: DJLK/DJPD/DJFX Send + Aux Return (:20811), multi-provider AI, and LAN/Tailscale iPad Multi-Touch PWA + PIN in Settings -> AI & External Bridges.");
                         }
                         HelpTab::Usage => {
                             ui.strong("Desktop Controls & Shortcuts");

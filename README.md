@@ -41,10 +41,10 @@ Or download the per-user Windows installer (`djcraft-0.4.0-setup.exe`) or plain 
 
 | Area | Status | Guide |
 | :--- | :--- | :--- |
-| 4-Deck Audio, 3-Band RGB + Overview Waveforms, Vinyl Scratching, DVS Timecode, Auto-DJ, Quantize, Color Filter, 3-Pack FX, 4x8 Sampler, Dual-Bus/Split PFL, WAV/FLAC Rec & `.djcraft-stems/` | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
-| Dedicated 2-Pane Crates & Gig Prep UI, `BOOTH + CRATE` Split View, Per-File Autosaved Hot Cues, Drag-Drop Ordering, Serato `.crate` & VirtualDJ Interop | **Implemented** | [docs/CRATES_AND_GIG_PREP.md](docs/CRATES_AND_GIG_PREP.md) |
-| 9 Skins (incl. Star Trek LCARS, Baroque Velvet & Gold, Synthwave Outrun, Shocking Pink & Daylight), 5 Card Decoration Styles, 6 Bold Backdrops, 7 Layout Presets, Full-Window 2-Pane Settings (`Ctrl+,`), i18n, 9 MIDI Profiles + XML Mapper Import, UDP Link & Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
-| Multi-Provider AI Booth Chat (`Ctrl+L`, Ollama/LM Studio/OpenAI/Anthropic/Gemini/OpenRouter + live model dropdown), **iPad / Tablet Multi-Touch Remote PWA** (`:14119`), Camelot Setlists, Opt-In Bridges, CLI & MCP | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
+| 4-Deck Audio, 3-Band RGB + Overview Waveforms + Phrase Ribbons, Native Camelot Key Analysis, NCC Keylock, Crossfader Curves + Limiter GR, 1-Click GPU 4-Stems, Vinyl Scratching, DVS, Auto-DJ, 3-Pack FX, 4x8 Sampler, Dual-Bus PFL & WAV/FLAC Rec | **Implemented** | [docs/AUDIO_AND_MIXING.md](docs/AUDIO_AND_MIXING.md) |
+| Dedicated 2-Pane Crates & Gig Prep UI, `BOOTH + CRATE` Split View, 24-Thread Parallel Crate Analyzer, Autosaved Smart Hot Cues, Serato `.crate`/ID3, VirtualDJ & **AlphaTheta Rekordbox XML** Import/Export | **Implemented** | [docs/CRATES_AND_GIG_PREP.md](docs/CRATES_AND_GIG_PREP.md) |
+| 9 Skins (incl. LCARS, Baroque, Synthwave, Daylight), 5 Card Decor Styles, 6 Bold Backdrops, 7 Layout Presets, Full-Window Settings (`Ctrl+,`), **12 MIDI Profiles** (incl. DDJ-FLX10, XDJ-AZ, S4 MK3) + LED Out + XML Import, UDP Link & Video | **Implemented** | [docs/SKINS_MIDI_AND_VIDEO.md](docs/SKINS_MIDI_AND_VIDEO.md) |
+| Multi-Provider AI Chat (`Ctrl+L`), **iPad Multi-Touch Remote PWA + PIN** (`:14119`), **SynthCraft Live Bridge** (`DJLK`/`DJPD`/`DJFX` Send + Aux Return `:20811`), Full-Parity CLI & **42-Tool MCP Server** | **Implemented** | [docs/AI_FLEET_AND_MCP.md](docs/AI_FLEET_AND_MCP.md) |
 | Hands-Free AI Lighting Assistant (Art-Net 4 UDP `6454` & sACN E1.31 UDP `5568`, BPM/Energy Sync, Fixture Patcher & Budget Gear Guide) | **Implemented** | [docs/LIGHTING_AND_LASER_GUIDE.md](docs/LIGHTING_AND_LASER_GUIDE.md) |
 | Standalone Release & Per-User NSIS Installer (`SHA256SUMS.txt`) | **Implemented** | [BUILD_LOG.md](BUILD_LOG.md) |
 | Out-of-Process CLAP & VST3 Audio Plugin Host Sidecar (crash-isolated FX/Master chain for Kilohearts, Airwindows, FabFilter, Valhalla, ShaperBox) | **Planned** | [docs/TIERED_PLAN.md](docs/TIERED_PLAN.md) |
@@ -54,7 +54,7 @@ Or download the per-user Windows installer (`djcraft-0.4.0-setup.exe`) or plain 
 ## Quick Verification
 
 ```powershell
-# Full CI gate (fmt, clippy, 69 workspace tests, layer & asset checks)
+# Full CI gate (fmt, clippy, 76 workspace tests, layer & asset checks)
 cargo run -p xtask -- ci
 
 # Headless smoke verification
