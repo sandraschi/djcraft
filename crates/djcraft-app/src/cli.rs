@@ -107,6 +107,19 @@ enum Commands {
         slot: usize,
         value: String,
     },
+    /// Read ID3v2 metadata and Serato Markers2 cue points from an audio file
+    CrateId3Read {
+        track_path: String,
+        /// Also import found metadata & cues into SQLite (when no local cues exist)
+        #[arg(long)]
+        import: bool,
+    },
+    /// Write DJCraft's saved hot cues & labels for a track into its Serato Markers2 ID3v2 tag
+    CrateId3Write { track_path: String },
+    /// Batch-read ID3v2 metadata and Serato Markers2 cue points for every track in a crate
+    CrateId3BatchRead { crate_id: i64 },
+    /// Batch-write DJCraft's saved hot cues & labels to Serato Markers2 ID3v2 tags for a crate
+    CrateId3BatchWrite { crate_id: i64 },
     /// Probe live DVS timecode vinyl input signal
     DvsProbe {
         #[arg(long)]
@@ -511,6 +524,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "hot_cues": cues
                 }))?
             );
+        }
+        Commands::CrateId3Read { track_path, import } => {
+            let info = djcraft_core::read_id3_track_info(Path::new(&track_path))?;
+            let imported = if import {
+                let store = CrateStore::open_default()?;
+                store.import_id3_into_track(&track_path)?
+            } else {
+                0
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "track_path": track_path,
+                    "title": info.title,
+                    "artist": info.artist,
+                    "genre": info.genre,
+                    "bpm": info.bpm,
+                    "musical_key": info.musical_key,
+                    "cue_count": info.cue_count,
+                    "cues": info.cues,
+                    "cue_metas": info.cue_metas,
+                    "imported_to_sqlite": imported
+                }))?
+            );
+        }
+        Commands::CrateId3Write { track_path } => {
+            let store = CrateStore::open_default()?;
+            let cues = store.get_track_hot_cues(&track_path)?;
+            let metas = store.get_track_hot_cue_metas(&track_path)?;
+            let written = djcraft_core::write_id3_hot_cues(Path::new(&track_path), &cues, &metas)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "track_path": track_path,
+                    "cues_written": written
+                }))?
+            );
+        }
+        Commands::CrateId3BatchRead { crate_id } => {
+            let store = CrateStore::open_default()?;
+            let summary = store.batch_read_id3_cues_for_crate(crate_id)?;
+            println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Commands::CrateId3BatchWrite { crate_id } => {
+            let store = CrateStore::open_default()?;
+            let summary = store.batch_write_id3_cues_for_crate(crate_id)?;
+            println!("{}", serde_json::to_string_pretty(&summary)?);
         }
         Commands::DvsProbe {
             device,

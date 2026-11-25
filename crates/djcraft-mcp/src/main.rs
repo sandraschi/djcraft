@@ -282,6 +282,51 @@ fn main() {
                             }
                         },
                         {
+                            "name": "djcraft_crate_id3_read",
+                            "description": "Read ID3v2 metadata (title, artist, genre, BPM, key) and Serato Markers2 GEOB cue points from an audio file; optionally import into SQLite.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "track_path": { "type": "string" },
+                                    "import": { "type": "boolean" }
+                                },
+                                "required": ["track_path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_id3_write",
+                            "description": "Write DJCraft's saved hot cues and labels for a track into its Serato Markers2 ID3v2 GEOB tag (MP3/AIFF/WAV).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "track_path": { "type": "string" }
+                                },
+                                "required": ["track_path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_id3_batch_read",
+                            "description": "Batch-read ID3v2 metadata and Serato Markers2 cue points for all tracks in a crate.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "crate_id": { "type": "integer" }
+                                },
+                                "required": ["crate_id"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_crate_id3_batch_write",
+                            "description": "Batch-write DJCraft's saved hot cues and labels into Serato Markers2 ID3v2 tags for all tracks in a crate.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "crate_id": { "type": "integer" }
+                                },
+                                "required": ["crate_id"]
+                            }
+                        },
+                        {
                             "name": "djcraft_dvs_probe",
                             "description": "Probe live DVS timecode vinyl input signal.",
                             "inputSchema": {
@@ -831,6 +876,87 @@ fn main() {
                                 Err(e) => json!({ "error": e.to_string() }),
                             },
                             Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_crate_id3_read" => {
+                        let track_path = args
+                            .get("track_path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let import = args
+                            .get("import")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        match djcraft_core::read_id3_track_info(Path::new(track_path)) {
+                            Ok(info) => {
+                                let imported = if import {
+                                    CrateStore::open_default()
+                                        .and_then(|s| s.import_id3_into_track(track_path))
+                                        .unwrap_or(0)
+                                } else {
+                                    0
+                                };
+                                json!({
+                                    "track_path": track_path,
+                                    "title": info.title,
+                                    "artist": info.artist,
+                                    "genre": info.genre,
+                                    "bpm": info.bpm,
+                                    "musical_key": info.musical_key,
+                                    "cue_count": info.cue_count,
+                                    "cues": info.cues,
+                                    "cue_metas": info.cue_metas,
+                                    "imported_to_sqlite": imported
+                                })
+                            }
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crate_id3_write" => {
+                        let track_path = args
+                            .get("track_path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        match CrateStore::open_default() {
+                            Ok(store) => match store
+                                .get_track_hot_cues(track_path)
+                                .and_then(|cues| {
+                                    store
+                                        .get_track_hot_cue_metas(track_path)
+                                        .map(|metas| (cues, metas))
+                                })
+                                .and_then(|(cues, metas)| {
+                                    djcraft_core::write_id3_hot_cues(
+                                        Path::new(track_path),
+                                        &cues,
+                                        &metas,
+                                    )
+                                }) {
+                                Ok(written) => json!({
+                                    "track_path": track_path,
+                                    "cues_written": written
+                                }),
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crate_id3_batch_read" => {
+                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                        match CrateStore::open_default()
+                            .and_then(|s| s.batch_read_id3_cues_for_crate(crate_id))
+                        {
+                            Ok(summary) => json!(summary),
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_crate_id3_batch_write" => {
+                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                        match CrateStore::open_default()
+                            .and_then(|s| s.batch_write_id3_cues_for_crate(crate_id))
+                        {
+                            Ok(summary) => json!(summary),
+                            Err(e) => json!({ "error": e.to_string() }),
                         }
                     }
                     "djcraft_dvs_probe" => {
