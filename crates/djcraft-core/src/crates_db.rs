@@ -1319,6 +1319,94 @@ impl CrateStore {
     }
 }
 
+/// Summary of a multi-threaded crate analysis sweep (`std::thread::scope`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParallelAnalysisReport {
+    pub analyzed: usize,
+    pub skipped: usize,
+    pub threads_used: usize,
+}
+
+impl CrateStore {
+    /// Analyze all local audio files in a crate (or full library when `crate_id` is `None`)
+    /// in parallel across available CPU threads, computing BPM + Krumhansl-Schmuckler Camelot Key
+    /// and persisting updated metadata into SQLite.
+    pub fn analyze_crate_parallel(
+        &self,
+        crate_id: Option<i64>,
+    ) -> Result<ParallelAnalysisReport, DjError> {
+        let tracks = self.query_tracks(&CrateQuery {
+            crate_id,
+            ..Default::default()
+        })?;
+        let candidates: Vec<(i64, PathBuf)> = tracks
+            .iter()
+            .filter_map(|t| {
+                let p = PathBuf::from(&t.path);
+                if p.is_file() {
+                    Some((t.id, p))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let skipped = tracks.len().saturating_sub(candidates.len());
+        if candidates.is_empty() {
+            return Ok(ParallelAnalysisReport {
+                analyzed: 0,
+                skipped,
+                threads_used: 0,
+            });
+        }
+
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(candidates.len())
+            .max(1);
+        let chunk_size = candidates.len().div_ceil(threads);
+        let results: std::sync::Mutex<Vec<(i64, f64, String, f64)>> =
+            std::sync::Mutex::new(Vec::with_capacity(candidates.len()));
+
+        std::thread::scope(|s| {
+            for chunk in candidates.chunks(chunk_size) {
+                let out_ref = &results;
+                s.spawn(move || {
+                    for (tid, path) in chunk {
+                        if let Ok(decoded) = djcraft_audio::dsp::decode_audio_file(path) {
+                            let analysis = djcraft_audio::analyze_track_full(&decoded);
+                            if let Ok(mut g) = out_ref.lock() {
+                                g.push((
+                                    *tid,
+                                    analysis.beatgrid.bpm,
+                                    analysis.key.camelot,
+                                    decoded.duration_seconds,
+                                ));
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        let computed = results.into_inner().unwrap_or_default();
+        let mut analyzed = 0usize;
+        for (tid, bpm, key, dur) in computed {
+            let _ = self.conn.execute(
+                "UPDATE tracks SET bpm = ?1, musical_key = ?2, duration_seconds = ?3 WHERE id = ?4",
+                params![bpm, key, dur, tid],
+            );
+            analyzed += 1;
+        }
+
+        Ok(ParallelAnalysisReport {
+            analyzed,
+            skipped: tracks.len().saturating_sub(analyzed),
+            threads_used: threads,
+        })
+    }
+}
+
 /// Persisted custom metadata (name, optional RGB color, trigger behavior) for one Hot Cue slot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackCueMeta {

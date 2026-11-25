@@ -77,6 +77,13 @@ enum Commands {
         #[arg(long)]
         crate_id: Option<i64>,
     },
+    /// Analyze all tracks in a crate (or full library) in parallel across CPU cores (BPM + Camelot Key)
+    CrateAnalyze {
+        #[arg(long)]
+        crate_id: Option<i64>,
+    },
+    /// Analyze a single local audio file (BPM, downbeat, Camelot key, phrases, LUFS auto-gain)
+    AnalyzeAudio { path: String },
     /// List connected USB MIDI controller input ports and auto-detected profiles
     MidiList,
     /// Connect to a MIDI controller by index or name substring (e.g. "reloop")
@@ -348,6 +355,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "exported_tracks": count
                 }))?
             );
+        }
+        Commands::CrateAnalyze { crate_id } => {
+            let store = CrateStore::open_default()?;
+            let report = store.analyze_crate_parallel(crate_id)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Commands::AnalyzeAudio { path } => {
+            let decoded = djcraft_audio::dsp::decode_audio_file(Path::new(&path))
+                .map_err(djcraft_core::DjError::Sidecar)?;
+            let analysis = djcraft_audio::analyze_track_full(&decoded);
+            println!("{}", serde_json::to_string_pretty(&analysis)?);
         }
         Commands::MidiList => {
             let ports = MidiControllerManager::list_input_ports();

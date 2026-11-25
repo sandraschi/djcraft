@@ -10,6 +10,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -72,6 +73,8 @@ struct LiveMixState {
     sequencer: StepSequencer,
     sampler_rx: Option<Receiver<SamplerCmd>>,
     crossfader: f64,
+    crossfader_curve: crate::CrossfaderCurve,
+    crossfader_reverse: bool,
     master_volume: f64,
     muted: bool,
     cue_volume: f64,
@@ -84,6 +87,76 @@ struct LiveMixState {
     recorder_tap: Option<RecordingTap>,
     aux_send_gain: f32,
     aux_send: Option<AuxSendTap>,
+    aux_return_gain: f32,
+    aux_return: Option<AuxReturnTap>,
+    limiter_env: f32,
+    limiter_gr_db: Arc<AtomicU32>,
+}
+
+/// Non-blocking stereo PCM UDP receiver (`DJFX` packets on `127.0.0.1:20811`)
+/// mixing SynthCraft's live 3U FX / synth output back into DJCraft's Master bus.
+pub struct AuxReturnTap {
+    socket: std::net::UdpSocket,
+    ring: VecDeque<(f32, f32)>,
+    pkt_buf: [u8; 8 + 512 * 8],
+    packets: Arc<AtomicU64>,
+}
+
+impl AuxReturnTap {
+    pub fn bind(port: u16) -> Option<Self> {
+        let socket = std::net::UdpSocket::bind(("127.0.0.1", port)).ok()?;
+        let _ = socket.set_nonblocking(true);
+        Some(Self {
+            socket,
+            ring: VecDeque::with_capacity(4096),
+            pkt_buf: [0u8; 8 + 512 * 8],
+            packets: Arc::new(AtomicU64::new(0)),
+        })
+    }
+
+    pub fn local_port(&self) -> u16 {
+        self.socket.local_addr().map(|a| a.port()).unwrap_or(0)
+    }
+
+    pub fn packet_count(&self) -> u64 {
+        self.packets.load(Ordering::Relaxed)
+    }
+
+    pub fn poll_and_pop(&mut self) -> (f32, f32) {
+        // Drain any ready UDP packets (capped at 4 per sample call for RT safety)
+        for _ in 0..4 {
+            match self.socket.recv(&mut self.pkt_buf) {
+                Ok(n) if n >= 16 && &self.pkt_buf[0..4] == b"DJFX" => {
+                    let frame_count = (n - 8) / 8;
+                    for i in 0..frame_count {
+                        let off = 8 + i * 8;
+                        let l = f32::from_le_bytes([
+                            self.pkt_buf[off],
+                            self.pkt_buf[off + 1],
+                            self.pkt_buf[off + 2],
+                            self.pkt_buf[off + 3],
+                        ]);
+                        let r = f32::from_le_bytes([
+                            self.pkt_buf[off + 4],
+                            self.pkt_buf[off + 5],
+                            self.pkt_buf[off + 6],
+                            self.pkt_buf[off + 7],
+                        ]);
+                        if self.ring.len() >= 4096 {
+                            self.ring.pop_front();
+                        }
+                        if l.is_finite() && r.is_finite() {
+                            self.ring
+                                .push_back((l.clamp(-2.0, 2.0), r.clamp(-2.0, 2.0)));
+                        }
+                    }
+                    self.packets.fetch_add(1, Ordering::Relaxed);
+                }
+                _ => break,
+            }
+        }
+        self.ring.pop_front().unwrap_or((0.0, 0.0))
+    }
 }
 
 /// Allocation-free stereo PCM UDP sender (`DJFX` 128-frame packets -> `127.0.0.1:20810`)
@@ -159,6 +232,8 @@ impl LiveMixState {
             sequencer: StepSequencer::new(sample_rate),
             sampler_rx: None,
             crossfader: 0.0,
+            crossfader_curve: crate::CrossfaderCurve::Smooth,
+            crossfader_reverse: false,
             master_volume: 0.75,
             muted: false,
             cue_volume: 0.85,
@@ -171,6 +246,10 @@ impl LiveMixState {
             recorder_tap: None,
             aux_send_gain: 0.0,
             aux_send: None,
+            aux_return_gain: 0.0,
+            aux_return: None,
+            limiter_env: 0.0,
+            limiter_gr_db: Arc::new(AtomicU32::new(0.0_f32.to_bits())),
         }
     }
 }
@@ -464,6 +543,36 @@ impl AudioOutput {
         }
     }
 
+    /// Enable or disable the bidirectional SynthCraft stereo Aux Return receiver (`127.0.0.1:20811`).
+    pub fn set_synthcraft_aux_return(&self, gain: f32) {
+        if let Ok(mut guard) = self.state.lock() {
+            let g = gain.clamp(0.0, 1.5);
+            guard.aux_return_gain = g;
+            if g > 0.001 && guard.aux_return.is_none() {
+                guard.aux_return = AuxReturnTap::bind(20811);
+            } else if g <= 0.001 {
+                guard.aux_return = None;
+            }
+        }
+    }
+
+    /// Configure crossfader curve (`Smooth`, `Linear`, `ScratchCut`) and Hamster reverse switch.
+    pub fn set_crossfader_curve(&self, curve: crate::CrossfaderCurve, reverse: bool) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.crossfader_curve = curve;
+            guard.crossfader_reverse = reverse;
+        }
+    }
+
+    /// Latest Master Bus soft-knee limiter gain reduction in dB (`0.0` = clean, `> 0.0` = limiting).
+    pub fn master_limiter_gr_db(&self) -> f32 {
+        if let Ok(guard) = self.state.lock() {
+            f32::from_bits(guard.limiter_gr_db.load(Ordering::Relaxed))
+        } else {
+            0.0
+        }
+    }
+
     /// Stop live Master recording and finalize WAV / transcode FLAC.
     pub fn stop_recording(&mut self) -> Result<RecordingStopReport, String> {
         let Some(rec) = self.active_recording.take() else {
@@ -744,9 +853,13 @@ fn drain_sampler_queue(guard: &mut LiveMixState) {
 /// Compute one dual-bus frame: `((master_out_l, master_out_r), (cue_l, cue_r))`.
 fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, f32)) {
     drain_sampler_queue(guard);
-    let xf = ((guard.crossfader + 1.0) * 0.5).clamp(0.0, 1.0);
-    let gain_left = (xf * std::f64::consts::FRAC_PI_2).cos() as f32;
-    let gain_right = (xf * std::f64::consts::FRAC_PI_2).sin() as f32;
+    let (ga, gb) = AudioEngine::crossfader_gains_curved(
+        guard.crossfader,
+        guard.crossfader_curve,
+        guard.crossfader_reverse,
+    );
+    let gain_left = ga as f32;
+    let gain_right = gb as f32;
     let out_sr = 1.0 / dt.max(1e-9);
     let idx = guard.sample_counter;
 
@@ -923,6 +1036,43 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
             master_r = wr.tanh();
         }
     }
+
+    // Mix optional SynthCraft stereo Aux Return (`DJFX` UDP 127.0.0.1:20811) into Master bus
+    let aux_ret_g = guard.aux_return_gain;
+    if aux_ret_g > 0.001 {
+        if let Some(ret) = guard.aux_return.as_mut() {
+            let (rl, rr) = ret.poll_and_pop();
+            master_l += rl * aux_ret_g;
+            master_r += rr * aux_ret_g;
+        }
+    }
+
+    // Soft-knee Club Master Limiter (threshold 0.88, fast attack / smooth release) + live GR meter
+    let peak = master_l.abs().max(master_r.abs());
+    let coeff = if peak > guard.limiter_env {
+        0.35
+    } else {
+        0.002
+    };
+    guard.limiter_env += coeff * (peak - guard.limiter_env);
+    let thresh = 0.88_f32;
+    let lim_gain = if guard.limiter_env > thresh {
+        let excess = guard.limiter_env / thresh;
+        let compressed = 1.0 + (excess - 1.0) * 0.25;
+        (compressed / excess).clamp(0.1, 1.0)
+    } else {
+        1.0
+    };
+    master_l = (master_l * lim_gain).tanh();
+    master_r = (master_r * lim_gain).tanh();
+    let gr_db = if lim_gain < 0.999 {
+        (-20.0 * lim_gain.log10()).clamp(0.0, 24.0)
+    } else {
+        0.0
+    };
+    guard
+        .limiter_gr_db
+        .store(gr_db.to_bits(), Ordering::Relaxed);
 
     // Feed live Master mix (pre-split) into the non-blocking WAV/FLAC recorder tap
     if let Some(tap) = guard.recorder_tap.as_mut() {
@@ -1397,6 +1547,34 @@ impl Room2AudioOutput {
 #[cfg(test)]
 mod mix_fix_tests {
     use super::*;
+
+    #[test]
+    fn crossfader_curves_and_hamster_reverse_behave_accurately() {
+        let (a_cut, b_cut) =
+            AudioEngine::crossfader_gains_curved(-0.5, crate::CrossfaderCurve::ScratchCut, false);
+        assert!((a_cut - 1.0).abs() < 1e-6 && (b_cut - 1.0).abs() < 1e-6);
+
+        let (a_rev, b_rev) =
+            AudioEngine::crossfader_gains_curved(-1.0, crate::CrossfaderCurve::Linear, true);
+        assert!(a_rev < 1e-6 && (b_rev - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn aux_return_udp_receives_djfx_stereo_pcm_packet() {
+        let mut tap = AuxReturnTap::bind(0).expect("bind ephemeral aux return");
+        let port = tap.local_port();
+        let tx = std::net::UdpSocket::bind("127.0.0.1:0").expect("tx sock");
+        let mut pkt = vec![0u8; 8 + 4 * 8];
+        pkt[0..4].copy_from_slice(b"DJFX");
+        pkt[4..8].copy_from_slice(&1u32.to_le_bytes());
+        pkt[8..12].copy_from_slice(&0.5_f32.to_le_bytes());
+        pkt[12..16].copy_from_slice(&(-0.25_f32).to_le_bytes());
+        tx.send_to(&pkt, ("127.0.0.1", port)).expect("send djfx");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let (l, r) = tap.poll_and_pop();
+        assert!((l - 0.5).abs() < 1e-5 && (r + 0.25).abs() < 1e-5);
+        assert_eq!(tap.packet_count(), 1);
+    }
     use crate::dsp::DecodedAudio;
     use crate::fx::{FxKind, FxSlotParams, FxStemScope, FxTarget, FxUnitParams};
     use crate::TrackMeta;

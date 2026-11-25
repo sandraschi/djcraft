@@ -141,11 +141,11 @@ fn main() {
                         },
                         {
                             "name": "djcraft_crate_import",
-                            "description": "Import a Serato DJ (.crate) or VirtualDJ (.vdjfolder / .m3u / .m3u8) crate into DJCraft.",
+                            "description": "Import a Serato DJ (.crate), VirtualDJ (.vdjfolder / .m3u / .m3u8), or AlphaTheta Rekordbox XML (rekordbox.xml) library into DJCraft.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "format": { "type": "string", "enum": ["serato", "vdj"] },
+                                    "format": { "type": "string", "enum": ["serato", "vdj", "rekordbox"] },
                                     "path": { "type": "string" }
                                 },
                                 "required": ["format", "path"]
@@ -153,16 +153,42 @@ fn main() {
                         },
                         {
                             "name": "djcraft_crate_export",
-                            "description": "Export a DJCraft crate by id to Serato DJ (.crate) or VirtualDJ (.vdjfolder / .m3u8).",
+                            "description": "Export a DJCraft crate by id to Serato DJ (.crate), VirtualDJ (.vdjfolder / .m3u8), or Rekordbox XML (rekordbox.xml).",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "format": { "type": "string", "enum": ["serato", "vdj"] },
+                                    "format": { "type": "string", "enum": ["serato", "vdj", "rekordbox"] },
                                     "crate_id": { "type": "integer" },
                                     "dest": { "type": "string" }
                                 },
                                 "required": ["format", "crate_id", "dest"]
                             }
+                        },
+                        {
+                            "name": "djcraft_crate_analyze",
+                            "description": "Analyze all local audio files in a crate (or full library when crate_id is omitted) in parallel across CPU cores for BPM and Krumhansl-Schmuckler Camelot Key.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "crate_id": { "type": "integer" }
+                                }
+                            }
+                        },
+                        {
+                            "name": "djcraft_analyze_audio",
+                            "description": "Run native Rust audio analysis on a local audio file: BPM, downbeat, Camelot key, 8-bar phrase structure (Intro/Buildup/Drop/Breakdown/Outro), and LUFS auto-gain.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "path": { "type": "string" }
+                                },
+                                "required": ["path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_midi_led_ports",
+                            "description": "List connected MIDI output ports available for bidirectional controller LED feedback.",
+                            "inputSchema": { "type": "object", "properties": {} }
                         },
                         {
                             "name": "djcraft_audio_list",
@@ -601,8 +627,11 @@ fn main() {
                                 let res = match fmt {
                                     "serato" => store.import_serato_crate(Path::new(path)),
                                     "vdj" => store.import_vdj_file(Path::new(path)),
+                                    "rekordbox" => {
+                                        djcraft_core::import_rekordbox_xml_file(&store, Path::new(path))
+                                    }
                                     _ => Err(djcraft_core::DjError::Deck(format!(
-                                        "Unsupported format '{fmt}'. Expected serato or vdj."
+                                        "Unsupported format '{fmt}'. Expected serato, vdj, or rekordbox."
                                     ))),
                                 };
                                 match res {
@@ -626,8 +655,13 @@ fn main() {
                                         store.export_serato_crate(crate_id, Path::new(dest))
                                     }
                                     "vdj" => store.export_vdj_file(crate_id, Path::new(dest)),
+                                    "rekordbox" => djcraft_core::export_rekordbox_xml_file(
+                                        &store,
+                                        if crate_id > 0 { Some(crate_id) } else { None },
+                                        Path::new(dest),
+                                    ),
                                     _ => Err(djcraft_core::DjError::Deck(format!(
-                                        "Unsupported format '{fmt}'. Expected serato or vdj."
+                                        "Unsupported format '{fmt}'. Expected serato, vdj, or rekordbox."
                                     ))),
                                 };
                                 match res {
@@ -642,6 +676,30 @@ fn main() {
                             }
                             Err(e) => json!({ "error": e.to_string() }),
                         }
+                    }
+                    "djcraft_crate_analyze" => {
+                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
+                        match CrateStore::open_default() {
+                            Ok(store) => match store.analyze_crate_parallel(crate_id) {
+                                Ok(rep) => serde_json::to_value(rep).unwrap_or_else(|_| json!({})),
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e.to_string() }),
+                        }
+                    }
+                    "djcraft_analyze_audio" => {
+                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                        match djcraft_audio::dsp::decode_audio_file(Path::new(path)) {
+                            Ok(decoded) => {
+                                let analysis = djcraft_audio::analyze_track_full(&decoded);
+                                serde_json::to_value(analysis).unwrap_or_else(|_| json!({}))
+                            }
+                            Err(e) => json!({ "error": e }),
+                        }
+                    }
+                    "djcraft_midi_led_ports" => {
+                        let ports = djcraft_core::list_midi_output_ports();
+                        json!({ "output_ports": ports, "count": ports.len() })
                     }
                     "djcraft_audio_list" => json!({
                         "outputs": AudioOutput::list_output_devices(),

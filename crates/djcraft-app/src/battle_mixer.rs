@@ -345,6 +345,62 @@ impl super::DjCraftApp {
         if rxf.committed {
             self.dispatch_and_report(Command::SetCrossfader { value: xf });
         }
+        ui.add_space(3.0);
+        ui.horizontal(|ui| {
+            let mut curve_dirty = false;
+            for c in djcraft_audio::CrossfaderCurve::ALL {
+                if ui
+                    .selectable_label(self.crossfader_curve == c, c.short_label())
+                    .on_hover_text(c.label())
+                    .clicked()
+                {
+                    self.crossfader_curve = c;
+                    curve_dirty = true;
+                }
+            }
+            if ui
+                .selectable_label(self.crossfader_reverse, "REV")
+                .on_hover_text("Hamster crossfader reverse (swaps A/B edges)")
+                .clicked()
+            {
+                self.crossfader_reverse = !self.crossfader_reverse;
+                curve_dirty = true;
+            }
+            if curve_dirty {
+                self.audio_out
+                    .set_crossfader_curve(self.crossfader_curve, self.crossfader_reverse);
+            }
+            let gr_db = self.audio_out.master_limiter_gr_db();
+            let gr_col = if gr_db > 1.5 {
+                egui::Color32::from_rgb(239, 68, 68)
+            } else if gr_db > 0.2 {
+                egui::Color32::from_rgb(245, 158, 11)
+            } else {
+                palette.text_secondary
+            };
+            ui.label(
+                egui::RichText::new(format!("LIM -{gr_db:.1}dB"))
+                    .monospace()
+                    .small()
+                    .color(gr_col),
+            )
+            .on_hover_text("Master soft-knee club limiter gain reduction");
+            let ret_on = self.synthcraft_aux_return > 0.01;
+            if ui
+                .selectable_label(ret_on, if ret_on { "RET ON" } else { "RET" })
+                .on_hover_text("SynthCraft stereo Aux Return (UDP 127.0.0.1:20811)")
+                .clicked()
+            {
+                self.synthcraft_aux_return = if ret_on { 0.0 } else { 0.85 };
+                self.audio_out
+                    .set_synthcraft_aux_return(self.synthcraft_aux_return);
+                self.status_msg = if self.synthcraft_aux_return > 0.01 {
+                    "SynthCraft Aux Return LIVE on 127.0.0.1:20811".to_string()
+                } else {
+                    "SynthCraft Aux Return OFF".to_string()
+                };
+            }
+        });
     }
 
     fn render_cue_and_recorder(

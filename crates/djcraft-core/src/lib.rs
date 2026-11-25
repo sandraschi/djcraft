@@ -26,7 +26,8 @@ pub use crates_db::{
     batch_stem_folder, encode_m3u, encode_serato_crate_bytes, encode_vdj_folder_xml, parse_m3u,
     parse_serato_crate_bytes, parse_vdj_folder_xml, resolve_demucs_binary,
     stem_audio_file_transparent, stem_audio_file_with_device, BatchStemSummary, CrateNode,
-    CrateQuery, CrateSortField, CrateStore, CrateTrack, ImportSummary, TrackCueMeta,
+    CrateQuery, CrateSortField, CrateStore, CrateTrack, ImportSummary, ParallelAnalysisReport,
+    TrackCueMeta,
 };
 pub use fleet_ai::{
     butterchurn_sync_bpm, chat_with_booth_ai, fetch_available_models, generate_speech_drop,
@@ -47,9 +48,10 @@ pub use lighting::{
 };
 pub use link::{LinkBeacon, LinkEngine};
 pub use midi::{
-    action_to_command, builtin_profile_rules, parse_mixxx_midi_xml, parse_raw_midi,
-    parse_vdj_mapper_xml, ControllerProfileId, MidiBindingKey, MidiControllerManager,
-    MidiMappingRule, MidiMsgKind, MidiTargetAction, RawMidiEvent,
+    action_to_command, builtin_profile_rules, encode_midi_led, list_midi_output_ports,
+    parse_mixxx_midi_xml, parse_raw_midi, parse_vdj_mapper_xml, ControllerProfileId,
+    MidiBindingKey, MidiControllerManager, MidiMappingRule, MidiMsgKind, MidiTargetAction,
+    RawMidiEvent,
 };
 pub use mixxxxx_osc::{
     encode_osc_message, ping_mixxxxx, resolve_mixxxxx_binary, send_deck_video_controls,

@@ -103,9 +103,74 @@ fn default_pitch_range() -> f64 {
     16.0
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum CrossfaderCurve {
+    #[default]
+    Smooth,
+    Linear,
+    ScratchCut,
+}
+
+impl CrossfaderCurve {
+    pub const ALL: [Self; 3] = [Self::Smooth, Self::Linear, Self::ScratchCut];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Smooth => "Smooth (Equal-Power)",
+            Self::Linear => "Club Linear",
+            Self::ScratchCut => "Battle Scratch Cut",
+        }
+    }
+
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Smooth => "Smooth",
+            Self::Linear => "Linear",
+            Self::ScratchCut => "Cut",
+        }
+    }
+
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "linear" | "club" => Self::Linear,
+            "cut" | "scratch" | "scratchcut" | "sharp" => Self::ScratchCut,
+            _ => Self::Smooth,
+        }
+    }
+}
+
 pub struct AudioEngine;
 
 impl AudioEngine {
+    /// Compute `(gain_a, gain_b)` for crossfader position `x` in `-1.0..=1.0`
+    /// using the selected club curve and optional Hamster reverse switch.
+    pub fn crossfader_gains_curved(x: f64, curve: CrossfaderCurve, reverse: bool) -> (f64, f64) {
+        let mut t = ((x.clamp(-1.0, 1.0) + 1.0) * 0.5).clamp(0.0, 1.0);
+        if reverse {
+            t = 1.0 - t;
+        }
+        match curve {
+            CrossfaderCurve::Smooth => {
+                let angle = t * std::f64::consts::FRAC_PI_2;
+                (angle.cos(), angle.sin())
+            }
+            CrossfaderCurve::Linear => (1.0 - t, t),
+            CrossfaderCurve::ScratchCut => {
+                // Sharp battle cut: full gain within 10% of the opposite edge
+                let ga = if t < 0.90 {
+                    1.0
+                } else {
+                    ((1.0 - t) / 0.10).clamp(0.0, 1.0)
+                };
+                let gb = if t > 0.10 {
+                    1.0
+                } else {
+                    (t / 0.10).clamp(0.0, 1.0)
+                };
+                (ga, gb)
+            }
+        }
+    }
     pub fn create_deck(id: DeckId) -> DeckState {
         DeckState {
             deck_id: id,

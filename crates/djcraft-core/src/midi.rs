@@ -24,6 +24,9 @@ pub enum ControllerProfileId {
     RaneTwelveMk2,
     RaneSeventyTwoMk2,
     PioneerDdjFlx4,
+    PioneerDdjFlx10,
+    AlphaThetaXdjAz,
+    TraktorKontrolS4Mk3,
     HerculesDjControl,
     DenonSc6000,
     NumarkMixtrackProFx,
@@ -33,10 +36,13 @@ pub enum ControllerProfileId {
 }
 
 impl ControllerProfileId {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::RaneTwelveMk2,
         Self::RaneSeventyTwoMk2,
         Self::PioneerDdjFlx4,
+        Self::PioneerDdjFlx10,
+        Self::AlphaThetaXdjAz,
+        Self::TraktorKontrolS4Mk3,
         Self::HerculesDjControl,
         Self::DenonSc6000,
         Self::NumarkMixtrackProFx,
@@ -50,6 +56,9 @@ impl ControllerProfileId {
             Self::RaneTwelveMk2 => "Rane Twelve MKII (Motorized Deck)",
             Self::RaneSeventyTwoMk2 => "Rane Seventy-Two MKII (Battle Mixer)",
             Self::PioneerDdjFlx4 => "Pioneer DDJ-FLX4 / DDJ-400",
+            Self::PioneerDdjFlx10 => "Pioneer DDJ-FLX10 (4-Deck Stems)",
+            Self::AlphaThetaXdjAz => "AlphaTheta XDJ-AZ (4-Deck Club)",
+            Self::TraktorKontrolS4Mk3 => "NI Traktor Kontrol S4 MK3",
             Self::HerculesDjControl => "Hercules DJControl",
             Self::DenonSc6000 => "Denon DJ SC6000 / Prime",
             Self::NumarkMixtrackProFx => "Numark Mixtrack Pro FX",
@@ -66,6 +75,12 @@ impl ControllerProfileId {
         } else if lc.contains("seventy-two") || lc.contains("seventy two") || lc.contains("rane 72")
         {
             Self::RaneSeventyTwoMk2
+        } else if lc.contains("flx10") || lc.contains("flx-10") {
+            Self::PioneerDdjFlx10
+        } else if lc.contains("xdj-az") || lc.contains("alphatheta") {
+            Self::AlphaThetaXdjAz
+        } else if lc.contains("kontrol s4") || lc.contains("traktor") {
+            Self::TraktorKontrolS4Mk3
         } else if lc.contains("ddj") || lc.contains("pioneer") || lc.contains("flx4") {
             Self::PioneerDdjFlx4
         } else if lc.contains("hercules") || lc.contains("djcontrol") {
@@ -612,9 +627,109 @@ pub fn builtin_profile_rules(profile: ControllerProfileId) -> Vec<MidiMappingRul
                 }
             }
         }
+        ControllerProfileId::PioneerDdjFlx10
+        | ControllerProfileId::AlphaThetaXdjAz
+        | ControllerProfileId::TraktorKontrolS4Mk3 => {
+            // 4-deck club controller layout (Decks A/B/C/D transport, faders, 3-band EQ, 4 hot cues, crossfader)
+            rules.push(MidiMappingRule {
+                key: MidiBindingKey {
+                    kind: MidiMsgKind::ControlChange,
+                    channel: 6,
+                    number: 0x1F,
+                },
+                action: MidiTargetAction::Crossfader,
+            });
+            for (ch, deck) in [
+                (0u8, DeckId::DeckA),
+                (1u8, DeckId::DeckB),
+                (2u8, DeckId::DeckC),
+                (3u8, DeckId::DeckD),
+            ] {
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::NoteOn,
+                        channel: ch,
+                        number: 0x0B,
+                    },
+                    action: MidiTargetAction::PlayPause(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::NoteOn,
+                        channel: ch,
+                        number: 0x0C,
+                    },
+                    action: MidiTargetAction::CueReturn(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x13,
+                    },
+                    action: MidiTargetAction::DeckVolume(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x07,
+                    },
+                    action: MidiTargetAction::DeckEqHigh(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x0B,
+                    },
+                    action: MidiTargetAction::DeckEqMid(deck),
+                });
+                rules.push(MidiMappingRule {
+                    key: MidiBindingKey {
+                        kind: MidiMsgKind::ControlChange,
+                        channel: ch,
+                        number: 0x0F,
+                    },
+                    action: MidiTargetAction::DeckEqLow(deck),
+                });
+                for slot in 0u8..4 {
+                    rules.push(MidiMappingRule {
+                        key: MidiBindingKey {
+                            kind: MidiMsgKind::NoteOn,
+                            channel: ch + 7,
+                            number: slot,
+                        },
+                        action: MidiTargetAction::HotCue(deck, slot),
+                    });
+                }
+            }
+        }
         ControllerProfileId::CustomLearn => {}
     }
     rules
+}
+
+/// Encode a standard 3-byte MIDI Note-On LED feedback message (`0x90 | ch, note, velocity`)
+/// for controller pad/play/cue LED illumination.
+pub fn encode_midi_led(channel: u8, note: u8, active: bool, on_velocity: u8) -> [u8; 3] {
+    [
+        0x90 | (channel & 0x0F),
+        note & 0x7F,
+        if active { on_velocity.min(127) } else { 0 },
+    ]
+}
+
+/// Enumerate connected MIDI output ports available for bidirectional controller LED feedback.
+pub fn list_midi_output_ports() -> Vec<String> {
+    let Ok(midi_out) = midir::MidiOutput::new("djcraft-led-probe") else {
+        return Vec::new();
+    };
+    midi_out
+        .ports()
+        .iter()
+        .filter_map(|p| midi_out.port_name(p).ok())
+        .collect()
 }
 
 /// Translate a matched MIDI action + 7-bit value (0..=127) into an L1 `Command`.
