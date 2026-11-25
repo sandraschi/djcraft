@@ -75,6 +75,7 @@ struct LiveMixState {
     crossfader: f64,
     crossfader_curve: crate::CrossfaderCurve,
     crossfader_reverse: bool,
+    stem_xf_mode: crate::StemCrossfaderMode,
     master_volume: f64,
     muted: bool,
     cue_volume: f64,
@@ -234,6 +235,7 @@ impl LiveMixState {
             crossfader: 0.0,
             crossfader_curve: crate::CrossfaderCurve::Smooth,
             crossfader_reverse: false,
+            stem_xf_mode: crate::StemCrossfaderMode::FullMix,
             master_volume: 0.75,
             muted: false,
             cue_volume: 0.85,
@@ -561,6 +563,13 @@ impl AudioOutput {
         if let Ok(mut guard) = self.state.lock() {
             guard.crossfader_curve = curve;
             guard.crossfader_reverse = reverse;
+        }
+    }
+
+    /// Configure the stem-aware neural crossfader routing mode (`FullMix`, `VocalsOnly`, `DrumsOnly`, `BassSwap`, `InstrumentalOnly`).
+    pub fn set_stem_crossfader_mode(&self, mode: crate::StemCrossfaderMode) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.stem_xf_mode = mode;
         }
     }
 
@@ -919,10 +928,22 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
                 }
             }
 
-            let gv = deck.stem_vocals_gain as f32;
-            let gd = deck.stem_drums_gain as f32;
-            let gb = deck.stem_bass_gain as f32;
-            let go = deck.stem_other_gain as f32;
+            let xf_deck = if i == 0 || i == 2 {
+                gain_left
+            } else {
+                gain_right
+            };
+            let (xf_v, xf_d, xf_b, xf_o) = match guard.stem_xf_mode {
+                crate::StemCrossfaderMode::FullMix => (1.0, 1.0, 1.0, 1.0),
+                crate::StemCrossfaderMode::VocalsOnly => (xf_deck, 1.0, 1.0, 1.0),
+                crate::StemCrossfaderMode::DrumsOnly => (1.0, xf_deck, 1.0, 1.0),
+                crate::StemCrossfaderMode::BassSwap => (1.0, 1.0, xf_deck, 1.0),
+                crate::StemCrossfaderMode::InstrumentalOnly => (1.0, xf_deck, xf_deck, xf_deck),
+            };
+            let gv = deck.stem_vocals_gain as f32 * xf_v;
+            let gd = deck.stem_drums_gain as f32 * xf_d;
+            let gb = deck.stem_bass_gain as f32 * xf_b;
+            let go = deck.stem_other_gain as f32 * xf_o;
             let l = vl * gv + dl * gd + bl * gb + ol * go;
             let r = vr * gv + dr * gd + br * gb + or * go;
             guard.eqs[i].process_stereo(
@@ -1011,12 +1032,37 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
     let (mut master_l, mut master_r) = if guard.muted || guard.master_volume <= 0.0 {
         (0.0, 0.0)
     } else {
-        let sum_l = (deck_post[0].0 + deck_post[2].0) * gain_left
-            + (deck_post[1].0 + deck_post[3].0) * gain_right
+        let stem_split = guard.stem_xf_mode != crate::StemCrossfaderMode::FullMix;
+        let g0 = if stem_split && guard.decoded_stems[0].is_some() {
+            1.0
+        } else {
+            gain_left
+        };
+        let g2 = if stem_split && guard.decoded_stems[2].is_some() {
+            1.0
+        } else {
+            gain_left
+        };
+        let g1 = if stem_split && guard.decoded_stems[1].is_some() {
+            1.0
+        } else {
+            gain_right
+        };
+        let g3 = if stem_split && guard.decoded_stems[3].is_some() {
+            1.0
+        } else {
+            gain_right
+        };
+        let sum_l = deck_post[0].0 * g0
+            + deck_post[2].0 * g2
+            + deck_post[1].0 * g1
+            + deck_post[3].0 * g3
             + samp_l
             + seq_l;
-        let sum_r = (deck_post[0].1 + deck_post[2].1) * gain_left
-            + (deck_post[1].1 + deck_post[3].1) * gain_right
+        let sum_r = deck_post[0].1 * g0
+            + deck_post[2].1 * g2
+            + deck_post[1].1 * g1
+            + deck_post[3].1 * g3
             + samp_r
             + seq_r;
         let mv = guard.master_volume.clamp(0.0, 1.0) as f32;
@@ -1693,5 +1739,68 @@ mod mix_fix_tests {
         }
         assert!(cue > 1.0, "queued pad hit must reach the cue bus, e={cue}");
         assert!(guard.sampler.active_mask(0)[2]);
+    }
+
+    #[test]
+    fn stem_crossfader_mode_isolates_vocals_while_keeping_drums_at_unity() {
+        let sr = 44100;
+        let len = 4096;
+        let silent = DecodedAudio {
+            sample_rate: sr,
+            left: vec![0.0; len],
+            right: vec![0.0; len],
+            duration_seconds: len as f64 / sr as f64,
+        };
+        let tone = |freq: f32| DecodedAudio {
+            sample_rate: sr,
+            left: (0..len)
+                .map(|i| (std::f32::consts::TAU * freq * i as f32 / sr as f32).sin() * 0.5)
+                .collect(),
+            right: (0..len)
+                .map(|i| (std::f32::consts::TAU * freq * i as f32 / sr as f32).sin() * 0.5)
+                .collect(),
+            duration_seconds: len as f64 / sr as f64,
+        };
+        // Deck A has Drums only (no vocals). Push crossfader all the way to Deck B (+1.0).
+        let stems_a = Arc::new(DecodedStems {
+            vocals: silent.clone(),
+            drums: tone(120.0),
+            bass: silent.clone(),
+            other: silent,
+        });
+        let mut guard = LiveMixState::new(sr);
+        guard.master_volume = 1.0;
+        guard.crossfader = 1.0; // full Deck B
+        guard.decks[0].is_playing = true;
+        guard.decks[0].loaded_track = Some(TrackMeta {
+            title: "Stem Test".into(),
+            artist: "Test".into(),
+            bpm: 126.0,
+            musical_key: "8A".into(),
+            duration_seconds: 1.0,
+        });
+        guard.decoded_stems[0] = Some(stems_a);
+
+        // In FullMix, Deck A is silenced when crossfader = +1.0
+        guard.stem_xf_mode = crate::StemCrossfaderMode::FullMix;
+        let mut full_energy = 0.0_f32;
+        for _ in 0..512 {
+            let ((l, r), _) = next_dual_bus_frame(&mut guard, 1.0 / sr as f64);
+            full_energy += l.abs() + r.abs();
+        }
+        assert!(full_energy < 1e-3, "FullMix at +1.0 must silence Deck A");
+
+        // In VocalsOnly, Deck A's Drums remain audible at full level even at crossfader = +1.0
+        guard.play_times[0] = 0.0;
+        guard.stem_xf_mode = crate::StemCrossfaderMode::VocalsOnly;
+        let mut voc_mode_energy = 0.0_f32;
+        for _ in 0..512 {
+            let ((l, r), _) = next_dual_bus_frame(&mut guard, 1.0 / sr as f64);
+            voc_mode_energy += l.abs() + r.abs();
+        }
+        assert!(
+            voc_mode_energy > 20.0,
+            "VocalsOnly must keep Deck A drums playing, energy={voc_mode_energy}"
+        );
     }
 }

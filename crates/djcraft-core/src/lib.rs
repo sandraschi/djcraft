@@ -16,6 +16,8 @@ pub mod link;
 pub mod midi;
 pub mod mixxxxx_osc;
 pub mod rekordbox_xml;
+pub mod smart_crates;
+pub mod traktor_nml;
 
 pub use command::{
     parse_dettato_json, resolve_dettato_binary, Command, CommandSpec, DettatoAnalysis,
@@ -61,6 +63,15 @@ pub use rekordbox_xml::{
     decode_rekordbox_location, encode_rekordbox_location, encode_rekordbox_xml,
     export_rekordbox_xml_file, import_rekordbox_xml_file, parse_rekordbox_xml, tonality_to_camelot,
     RekordboxCue, RekordboxLibrary, RekordboxPlaylist, RekordboxTrack,
+};
+pub use smart_crates::{
+    export_setlist_file, format_setlist_csv, format_setlist_cue, format_setlist_txt,
+    DuplicateGroup, SavedSmartCrate, SetHistoryEntry, SmartCrateRule,
+};
+pub use traktor_nml::{
+    camelot_to_traktor_key, decode_traktor_location, encode_traktor_location, encode_traktor_nml,
+    export_traktor_nml_file, import_traktor_nml_file, parse_traktor_nml, traktor_key_to_camelot,
+    TraktorCue, TraktorLibrary, TraktorPlaylist, TraktorTrack,
 };
 
 use djcraft_audio::{AudioEngine, DeckId, DeckState, FxUnitParams, TrackMeta};

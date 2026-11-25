@@ -139,6 +139,57 @@ impl CrossfaderCurve {
     }
 }
 
+/// Stem-aware neural crossfader routing mode (inspired by djay Pro Neural Mix & Serato Stems).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum StemCrossfaderMode {
+    #[default]
+    FullMix,
+    VocalsOnly,
+    DrumsOnly,
+    BassSwap,
+    InstrumentalOnly,
+}
+
+impl StemCrossfaderMode {
+    pub const ALL: [Self; 5] = [
+        Self::FullMix,
+        Self::VocalsOnly,
+        Self::DrumsOnly,
+        Self::BassSwap,
+        Self::InstrumentalOnly,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::FullMix => "Full Mix",
+            Self::VocalsOnly => "Vocals Crossfade",
+            Self::DrumsOnly => "Drums Crossfade",
+            Self::BassSwap => "Bass Swap",
+            Self::InstrumentalOnly => "Instrumental Crossfade",
+        }
+    }
+
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::FullMix => "FULL",
+            Self::VocalsOnly => "VOC",
+            Self::DrumsOnly => "DRM",
+            Self::BassSwap => "BASS",
+            Self::InstrumentalOnly => "INST",
+        }
+    }
+
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "voc" | "vocal" | "vocals" | "vocals_only" => Self::VocalsOnly,
+            "drm" | "drum" | "drums" | "drums_only" => Self::DrumsOnly,
+            "bass" | "bass_swap" | "low" => Self::BassSwap,
+            "inst" | "instrumental" | "instrumental_only" => Self::InstrumentalOnly,
+            _ => Self::FullMix,
+        }
+    }
+}
+
 pub struct AudioEngine;
 
 impl AudioEngine {

@@ -134,7 +134,7 @@ pub struct BatchStemSummary {
 }
 
 pub struct CrateStore {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl CrateStore {
@@ -219,6 +219,24 @@ impl CrateStore {
                     color_rgb TEXT,
                     behavior TEXT NOT NULL DEFAULT 'standard',
                     PRIMARY KEY (track_path, slot)
+                );
+                CREATE TABLE IF NOT EXISTS smart_crates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    rule_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS set_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    deck TEXT NOT NULL,
+                    track_path TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    artist TEXT NOT NULL DEFAULT '',
+                    bpm REAL NOT NULL DEFAULT 0.0,
+                    musical_key TEXT NOT NULL DEFAULT '',
+                    played_at_sec REAL NOT NULL DEFAULT 0.0,
+                    played_at_utc TEXT NOT NULL
                 );
                 ",
             )
