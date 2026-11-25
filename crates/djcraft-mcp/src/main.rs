@@ -18,6 +18,8 @@ use djcraft_core::{
 };
 use serde_json::{json, Value};
 
+mod mcp_app;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
@@ -64,15 +66,35 @@ fn main() {
                 "id": id,
                 "result": {
                     "protocolVersion": "2026-07-28",
-                    "capabilities": { "tools": {} },
+                    "capabilities": {
+                        "tools": {},
+                        "resources": { "listChanged": false }
+                    },
                     "serverInfo": { "name": "djcraft", "version": VERSION }
                 }
             }),
+            "resources/list" => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": mcp_app::resources_list()
+            }),
+            "resources/read" => {
+                let uri = params.get("uri").and_then(|u| u.as_str()).unwrap_or("");
+                match mcp_app::resource_read(uri) {
+                    Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                    Err((code, message)) => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": code, "message": message }
+                    }),
+                }
+            }
             "tools/list" => json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {
                     "tools": [
+                        mcp_app::tool_spec(),
                         {
                             "name": "djcraft_status",
                             "description": "Inspect 4-deck states, loaded tracks, crossfader, and dettato sidecar readiness.",
@@ -549,6 +571,13 @@ fn main() {
             }),
             "tools/call" => {
                 let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                if name == mcp_app::TOOL_NAME {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": mcp_app::call_dashboard(&mut orch)
+                    })
+                } else {
                 let args = params
                     .get("arguments")
                     .cloned()
@@ -1446,6 +1475,7 @@ fn main() {
                         ]
                     }
                 })
+                }
             }
             _ => json!({
                 "jsonrpc": "2.0",
