@@ -3014,11 +3014,29 @@ impl eframe::App for DjCraftApp {
             }
         }
 
-        // Tick pure-Rust UDP multicast Link tempo/beat clock
+        // Tick pure-Rust UDP multicast + SynthCraft loopback Link tempo/beat/key clock
         if self.link_engine.enabled {
-            if let Some(t) = &self.orch.deck_a.loaded_track {
-                self.link_engine.bpm =
-                    (t.bpm * (1.0 + self.orch.deck_a.pitch_bend_pct / 100.0)).clamp(40.0, 240.0);
+            let master_deck =
+                if self.orch.deck_a.is_playing && self.orch.deck_a.loaded_track.is_some() {
+                    Some(&self.orch.deck_a)
+                } else if self.orch.deck_b.is_playing && self.orch.deck_b.loaded_track.is_some() {
+                    Some(&self.orch.deck_b)
+                } else if self.orch.deck_a.loaded_track.is_some() {
+                    Some(&self.orch.deck_a)
+                } else if self.orch.deck_b.loaded_track.is_some() {
+                    Some(&self.orch.deck_b)
+                } else {
+                    None
+                };
+            if let Some(md) = master_deck {
+                self.link_engine.playing = md.is_playing;
+                if let Some(t) = &md.loaded_track {
+                    self.link_engine.bpm =
+                        (t.bpm * (1.0 + md.pitch_bend_pct / 100.0)).clamp(40.0, 240.0);
+                    self.link_engine.camelot_key.clone_from(&t.musical_key);
+                }
+            } else {
+                self.link_engine.playing = false;
             }
             if let Some(peer_bpm) = self.link_engine.tick(dt_play) {
                 if let Some(t) = &self.orch.deck_a.loaded_track {
