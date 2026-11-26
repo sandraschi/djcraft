@@ -64,6 +64,8 @@ cargo run -p xtask -- ci
 
 See also: [HELP.md](HELP.md) | [CHANGELOG.md](CHANGELOG.md) | [docs/TIERED_PLAN.md](docs/TIERED_PLAN.md) | [BUILD_LOG.md](BUILD_LOG.md).
 
+Crate sub-READMEs: [`djcraft-core`](crates/djcraft-core/README.md) · [`djcraft-audio`](crates/djcraft-audio/README.md) · [`djcraft-mcp`](crates/djcraft-mcp/README.md) · [`djcraft-app`](crates/djcraft-app/README.md) · [`djcraft-wasm`](crates/djcraft-wasm/README.md).
+
 ---
 
 ## Lineage - the Storytold craft-app pattern
