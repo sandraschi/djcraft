@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/djcraft-audio",
     "crates/djcraft-core",
+    "crates/djcraft-stems",
     "crates/djcraft-mcp",
     "crates/djcraft-app",
     "crates/djcraft-wasm",

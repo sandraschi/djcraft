@@ -1,0 +1,26 @@
+[package]
+name = "djcraft-stems"
+description = "Native stem separation for DJCraft: HTDemucs / Mel-Band RoFormer on ONNX Runtime (DirectML GPU on Windows, CPU elsewhere), progressive live separation, FLAC stem cache. Ported from ClubCraft."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+djcraft-audio = { path = "../djcraft-audio" }
+anyhow = "1"
+log = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+realfft = "3.5"
+flacenc = { version = "0.5", features = ["par"] }
+# FLAC stem cache decoding uses the symphonia 0.6 API, as upstream; djcraft-audio stays on 0.5.
+symphonia = { version = "0.6", default-features = false, features = ["flac"] }
+ort = { version = "=2.0.0-rc.9", default-features = false, features = ["download-binaries", "copy-dylibs"] }
+ort-sys = { version = "=2.0.0-rc.9", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+ort = { version = "=2.0.0-rc.9", default-features = false, features = ["download-binaries", "copy-dylibs", "directml"] }
+
+[dev-dependencies]
+hound = "3.5"
