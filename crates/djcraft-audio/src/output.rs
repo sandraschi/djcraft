@@ -17,14 +17,19 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream};
 
-use crate::dsp::{sample_varispeed, DecodedAudio, DecodedStems, ThreeBandEq, WsolaDeckState};
+use crate::dsp::{sample_varispeed, DecodedAudio, ThreeBandEq, WsolaDeckState};
 use crate::fx::{BipolarFilter, FxStemScope, FxTarget, FxUnitDsp, FxUnitParams};
 use crate::recorder::{ActiveRecording, RecordingFormat, RecordingStopReport, RecordingTap};
 use crate::sampler::{SamplePlayMode, SamplerEngine, SAMPLER_SLOTS};
+use crate::stem_track::{StemTrack, STEM_CHUNK_FRAMES, STEM_SAMPLE_RATE};
 use crate::studio::{DrumGenre, StepSequencer, STEP_COUNT, STEP_LANES};
 use crate::{AudioEngine, DeckId, DeckState};
 
 const CUE_RING_CAPACITY: usize = 8192;
+/// Stem fade per output sample (about 23 ms at 44.1 kHz), as in ClubCraft's deck.
+const STEM_RAMP: f32 = 1.0 / 1024.0;
+/// Stems fade out this many stem frames before a region that is not separated yet.
+const STEM_LOOKAHEAD: usize = 2048;
 
 enum SamplerCmd {
     Trigger {
@@ -63,7 +68,9 @@ enum SamplerCmd {
 struct LiveMixState {
     decks: [DeckState; 4],
     decoded: [Option<Arc<DecodedAudio>>; 4],
-    decoded_stems: [Option<Arc<DecodedStems>>; 4],
+    decoded_stems: [Option<Arc<StemTrack>>; 4],
+    /// Per-deck stem blend 0..1, ramped towards 1 where stems are ready and 0 where not.
+    stem_amt: [f32; 4],
     wsola: [WsolaDeckState; 4],
     eqs: [ThreeBandEq; 4],
     filters: [BipolarFilter; 4],
@@ -209,6 +216,7 @@ impl LiveMixState {
             ],
             decoded: [None, None, None, None],
             decoded_stems: [None, None, None, None],
+            stem_amt: [0.0; 4],
             wsola: [
                 WsolaDeckState::new(sample_rate),
                 WsolaDeckState::new(sample_rate),
@@ -623,17 +631,20 @@ impl AudioOutput {
             }
             guard.decoded[deck_idx] = audio;
             guard.decoded_stems[deck_idx] = None;
+            guard.stem_amt[deck_idx] = 0.0;
             guard.play_times[deck_idx] = 0.0;
         }
     }
 
-    /// Attach transparent 4-stem WAV buffers for real-time stem knob isolation on a deck (0..4).
-    pub fn set_deck_stems(&self, deck_idx: usize, stems: Option<Arc<DecodedStems>>) {
+    /// Attach a (possibly still filling) stem track to a deck (0..4). Chunks that are not separated
+    /// yet play the original; the stem knobs take effect per chunk as separation progresses.
+    pub fn set_deck_stems(&self, deck_idx: usize, stems: Option<Arc<StemTrack>>) {
         if deck_idx >= 4 {
             return;
         }
         if let Ok(mut guard) = self.state.lock() {
             guard.decoded_stems[deck_idx] = stems;
+            guard.stem_amt[deck_idx] = 0.0;
         }
     }
 
@@ -859,6 +870,28 @@ fn drain_sampler_queue(guard: &mut LiveMixState) {
     guard.sampler_rx = Some(rx);
 }
 
+/// Residual stem mix (ClubCraft): `out = orig + amt * delta` with
+/// `delta = (r - 1) * orig + sum(g_k * fx_k - r * s_k)`, `r` the mean stem gain. The part of the
+/// track no stem holds (`orig - sum(s)`) follows `r`, so all gains at 1 without stem FX gives
+/// exactly `orig` (delta is 0.0) and all gains at 0 gives silence. `s` are the raw stems, `fx` the
+/// same stems after stem-scoped effects; `amt` fades the stems in and out (0..1).
+fn residual_mix(
+    orig: (f32, f32),
+    raw: (&[f32; 4], &[f32; 4]),
+    fx: (&[f32; 4], &[f32; 4]),
+    gains: &[f32; 4],
+    amt: f32,
+) -> (f32, f32) {
+    let rest = gains.iter().sum::<f32>() * 0.25;
+    let mut dl = (rest - 1.0) * orig.0;
+    let mut dr = (rest - 1.0) * orig.1;
+    for (k, g) in gains.iter().enumerate() {
+        dl += g * fx.0[k] - rest * raw.0[k];
+        dr += g * fx.1[k] - rest * raw.1[k];
+    }
+    (orig.0 + amt * dl, orig.1 + amt * dr)
+}
+
 /// Compute one dual-bus frame: `((master_out_l, master_out_r), (cue_l, cue_r))`.
 fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, f32)) {
     drain_sampler_queue(guard);
@@ -899,53 +932,103 @@ fn next_dual_bus_frame(guard: &mut LiveMixState, dt: f64) -> ((f32, f32), (f32, 
             Some(vel) => vel.clamp(-4.0, 4.0),
             None => (1.0 + deck.pitch_bend_pct / 100.0).clamp(0.5, 2.0),
         };
-        let (mut pre_l, mut pre_r) = if let Some(stems) = guard.decoded_stems[i].as_ref() {
-            let sample_pos = (guard.play_times[i] * stems.sample_rate() as f64).max(0.0);
-            let (mut vl, mut vr) = sample_varispeed(&stems.vocals, sample_pos);
-            let (mut dl, mut dr) = sample_varispeed(&stems.drums, sample_pos);
-            let (bl, br) = sample_varispeed(&stems.bass, sample_pos);
-            let (ol, or) = sample_varispeed(&stems.other, sample_pos);
+        // Stem gains in StemKind order (drums, bass, other, vocals), crossfader routing applied.
+        let xf_deck = if i == 0 || i == 2 {
+            gain_left
+        } else {
+            gain_right
+        };
+        let (xf_v, xf_d, xf_b, xf_o) = match guard.stem_xf_mode {
+            crate::StemCrossfaderMode::FullMix => (1.0, 1.0, 1.0, 1.0),
+            crate::StemCrossfaderMode::VocalsOnly => (xf_deck, 1.0, 1.0, 1.0),
+            crate::StemCrossfaderMode::DrumsOnly => (1.0, xf_deck, 1.0, 1.0),
+            crate::StemCrossfaderMode::BassSwap => (1.0, 1.0, xf_deck, 1.0),
+            crate::StemCrossfaderMode::InstrumentalOnly => (1.0, xf_deck, xf_deck, xf_deck),
+        };
+        let gains = [
+            deck.stem_drums_gain as f32 * xf_d,
+            deck.stem_bass_gain as f32 * xf_b,
+            deck.stem_other_gain as f32 * xf_o,
+            deck.stem_vocals_gain as f32 * xf_v,
+        ];
+        let stem_fx_active = fx_params_snap.iter().any(|fp| {
+            fp.enabled
+                && fp.target.matches_deck(deck_ids[i])
+                && fp.stem_scope != FxStemScope::FullDeck
+        });
+        // Stems are only engaged when they change something; otherwise the deck plays the
+        // original (with keylock if enabled), bit-exact.
+        let stems_engaged = guard.decoded_stems[i].is_some()
+            && (guard.decoded[i].is_none()
+                || stem_fx_active
+                || gains.iter().any(|g| (*g - 1.0).abs() > f32::EPSILON));
+
+        let (mut pre_l, mut pre_r) = if let (true, Some(stems)) =
+            (stems_engaged, guard.decoded_stems[i].clone())
+        {
+            let pos_sec = guard.play_times[i].max(0.0);
+            // Original at its native rate (None for a stems-only deck).
+            let orig = guard.decoded[i]
+                .as_ref()
+                .map(|a| sample_varispeed(a, pos_sec * a.sample_rate as f64));
+            // Stems at 44.1 kHz, linearly interpolated between frames.
+            let fpos = pos_sec * STEM_SAMPLE_RATE as f64;
+            let f0 = fpos.floor() as usize;
+            let frac = (fpos - f0 as f64) as f32;
+            let frame = match (stems.frame(f0), stems.frame(f0 + 1)) {
+                (Some(a), Some(b)) => Some(std::array::from_fn::<f32, 8, _>(|c| {
+                    a[c] + (b[c] - a[c]) * frac
+                })),
+                (Some(a), None) => Some(a),
+                _ => None,
+            };
+            // Fade towards stems only if the region ahead (in play direction) is ready too.
+            let look = if rate >= 0.0 {
+                f0 + STEM_LOOKAHEAD
+            } else {
+                f0.saturating_sub(STEM_LOOKAHEAD)
+            };
+            let look_ok = look >= stems.frames || stems.is_chunk_ready(look / STEM_CHUNK_FRAMES);
             guard.play_times[i] = (guard.play_times[i] + dt * rate).max(0.0);
 
-            // Stem-targeted FX (e.g. Vocal Echo Out while Drums stay dry!)
-            for (u_idx, fp) in fx_params_snap.iter().enumerate() {
-                if fp.enabled && fp.target.matches_deck(deck_ids[i]) {
-                    match fp.stem_scope {
-                        FxStemScope::VocalsOnly => {
-                            let (wl, wr) =
-                                guard.fx_units[u_idx].process_stereo(vl, vr, fp, deck_bpm);
-                            vl = wl;
-                            vr = wr;
-                        }
-                        FxStemScope::DrumsOnly => {
-                            let (wl, wr) =
-                                guard.fx_units[u_idx].process_stereo(dl, dr, fp, deck_bpm);
-                            dl = wl;
-                            dr = wr;
-                        }
-                        FxStemScope::FullDeck => {}
-                    }
-                }
-            }
+            let (l, r) = match frame {
+                Some(s) => {
+                    let target = if look_ok { 1.0 } else { 0.0 };
+                    let amt = if orig.is_none() {
+                        1.0
+                    } else if guard.stem_amt[i] < target {
+                        (guard.stem_amt[i] + STEM_RAMP).min(1.0)
+                    } else {
+                        (guard.stem_amt[i] - STEM_RAMP).max(0.0)
+                    };
+                    guard.stem_amt[i] = amt;
 
-            let xf_deck = if i == 0 || i == 2 {
-                gain_left
-            } else {
-                gain_right
+                    let raw_l = [s[0], s[2], s[4], s[6]];
+                    let raw_r = [s[1], s[3], s[5], s[7]];
+                    let (mut fx_l, mut fx_r) = (raw_l, raw_r);
+                    // Stem-targeted FX (e.g. Vocal Echo Out while drums stay dry).
+                    for (u_idx, fp) in fx_params_snap.iter().enumerate() {
+                        if fp.enabled && fp.target.matches_deck(deck_ids[i]) {
+                            let k = match fp.stem_scope {
+                                FxStemScope::VocalsOnly => 3,
+                                FxStemScope::DrumsOnly => 0,
+                                FxStemScope::FullDeck => continue,
+                            };
+                            let (wl, wr) = guard.fx_units[u_idx]
+                                .process_stereo(fx_l[k], fx_r[k], fp, deck_bpm);
+                            fx_l[k] = wl;
+                            fx_r[k] = wr;
+                        }
+                    }
+                    let orig = orig.unwrap_or((raw_l.iter().sum(), raw_r.iter().sum()));
+                    residual_mix(orig, (&raw_l, &raw_r), (&fx_l, &fx_r), &gains, amt)
+                }
+                None => {
+                    // Not separated here yet: the original plays (silence for stems-only).
+                    guard.stem_amt[i] = 0.0;
+                    orig.unwrap_or((0.0, 0.0))
+                }
             };
-            let (xf_v, xf_d, xf_b, xf_o) = match guard.stem_xf_mode {
-                crate::StemCrossfaderMode::FullMix => (1.0, 1.0, 1.0, 1.0),
-                crate::StemCrossfaderMode::VocalsOnly => (xf_deck, 1.0, 1.0, 1.0),
-                crate::StemCrossfaderMode::DrumsOnly => (1.0, xf_deck, 1.0, 1.0),
-                crate::StemCrossfaderMode::BassSwap => (1.0, 1.0, xf_deck, 1.0),
-                crate::StemCrossfaderMode::InstrumentalOnly => (1.0, xf_deck, xf_deck, xf_deck),
-            };
-            let gv = deck.stem_vocals_gain as f32 * xf_v;
-            let gd = deck.stem_drums_gain as f32 * xf_d;
-            let gb = deck.stem_bass_gain as f32 * xf_b;
-            let go = deck.stem_other_gain as f32 * xf_o;
-            let l = vl * gv + dl * gd + bl * gb + ol * go;
-            let r = vr * gv + dr * gd + br * gb + or * go;
             guard.eqs[i].process_stereo(
                 l,
                 r,
@@ -1762,12 +1845,12 @@ mod mix_fix_tests {
             duration_seconds: len as f64 / sr as f64,
         };
         // Deck A has Drums only (no vocals). Push crossfader all the way to Deck B (+1.0).
-        let stems_a = Arc::new(DecodedStems {
+        let stems_a = Arc::new(StemTrack::from_decoded_stems(&crate::dsp::DecodedStems {
             vocals: silent.clone(),
             drums: tone(120.0),
             bass: silent.clone(),
             other: silent,
-        });
+        }));
         let mut guard = LiveMixState::new(sr);
         guard.master_volume = 1.0;
         guard.crossfader = 1.0; // full Deck B
@@ -1801,6 +1884,136 @@ mod mix_fix_tests {
         assert!(
             voc_mode_energy > 20.0,
             "VocalsOnly must keep Deck A drums playing, energy={voc_mode_energy}"
+        );
+    }
+
+    #[test]
+    fn residual_mix_unity_is_bit_exact_and_zero_is_silence() {
+        let raw_l = [0.31_f32, -0.12, 0.07, 0.205];
+        let raw_r = [-0.29_f32, 0.11, 0.013, -0.4];
+        // The original is NOT the stem sum: it holds a residual no stem has.
+        let orig = (0.4417_f32, -0.6031_f32);
+        let unity = residual_mix(orig, (&raw_l, &raw_r), (&raw_l, &raw_r), &[1.0; 4], 1.0);
+        assert_eq!(
+            unity, orig,
+            "all gains 1, no stem FX: must be the original, bit-exact"
+        );
+        let zero = residual_mix(orig, (&raw_l, &raw_r), (&raw_l, &raw_r), &[0.0; 4], 1.0);
+        assert!(
+            zero.0.abs() < 1e-6 && zero.1.abs() < 1e-6,
+            "all gains 0 must be silence: {zero:?}"
+        );
+        let faded = residual_mix(orig, (&raw_l, &raw_r), (&raw_l, &raw_r), &[0.0; 4], 0.0);
+        assert_eq!(faded, orig, "amt 0 must be the original");
+    }
+
+    fn tone_buf(sr: u32, len: usize, freq: f32, amp: f32) -> Vec<f32> {
+        (0..len)
+            .map(|i| (std::f32::consts::TAU * freq * i as f32 / sr as f32).sin() * amp)
+            .collect()
+    }
+
+    /// Deck A playing a 44.1 kHz original of `drums + vocals + residual`.
+    fn stem_test_guard(with_stems: Option<Arc<StemTrack>>, vocals_gain: f64) -> LiveMixState {
+        let sr = 44100;
+        let len = 2 * STEM_CHUNK_FRAMES;
+        let drums = tone_buf(sr, len, 110.0, 0.4);
+        let vocals = tone_buf(sr, len, 880.0, 0.3);
+        let residual = tone_buf(sr, len, 3001.0, 0.01);
+        let orig: Vec<f32> = (0..len)
+            .map(|i| drums[i] + vocals[i] + residual[i])
+            .collect();
+        let mut guard = LiveMixState::new(sr);
+        guard.master_volume = 1.0;
+        guard.crossfader = -1.0; // full Deck A
+        guard.decks[0].is_playing = true;
+        guard.decks[0].volume_fader = 1.0;
+        guard.decks[0].stem_vocals_gain = vocals_gain;
+        guard.decks[0].loaded_track = Some(TrackMeta {
+            title: "Residual".into(),
+            artist: "Test".into(),
+            bpm: 126.0,
+            musical_key: "8A".into(),
+            duration_seconds: len as f64 / sr as f64,
+        });
+        guard.decoded[0] = Some(Arc::new(DecodedAudio {
+            sample_rate: sr,
+            left: orig.clone(),
+            right: orig,
+            duration_seconds: len as f64 / sr as f64,
+        }));
+        guard.decoded_stems[0] = with_stems;
+        guard
+    }
+
+    fn stem_tones() -> [(Vec<f32>, Vec<f32>); 4] {
+        let len = 2 * STEM_CHUNK_FRAMES;
+        let z = vec![0.0; len];
+        let d = tone_buf(44100, len, 110.0, 0.4);
+        let v = tone_buf(44100, len, 880.0, 0.3);
+        [
+            (d.clone(), d),
+            (z.clone(), z.clone()),
+            (z.clone(), z),
+            (v.clone(), v),
+        ]
+    }
+
+    #[test]
+    fn missing_stem_chunks_play_the_original_exactly() {
+        // Only chunk 0 is separated; start playback inside chunk 1.
+        let full = StemTrack::from_planar("t", &stem_tones());
+        let partial = StemTrack::new(full.frames, "t");
+        if let Some(c) = full.chunk(0) {
+            partial.set_stem_chunk(
+                0,
+                crate::stem_track::StemChunk {
+                    data: c.data.clone(),
+                    scale: c.scale,
+                },
+            );
+        }
+        let start = (STEM_CHUNK_FRAMES + 1000) as f64 / 44100.0;
+        let mut with = stem_test_guard(Some(Arc::new(partial)), 0.0);
+        let mut without = stem_test_guard(None, 0.0);
+        with.play_times[0] = start;
+        without.play_times[0] = start;
+        for n in 0..2000 {
+            let a = next_dual_bus_frame(&mut with, 1.0 / 44100.0).0;
+            let b = next_dual_bus_frame(&mut without, 1.0 / 44100.0).0;
+            assert_eq!(a, b, "frame {n}: unseparated region must play the original");
+        }
+    }
+
+    #[test]
+    fn vocal_gain_zero_removes_the_vocal_stem() {
+        let stems = Arc::new(StemTrack::from_planar("t", &stem_tones()));
+        let mut guard = stem_test_guard(Some(stems), 0.0);
+        // Let the stem fade complete (1024 samples), then measure 880 Hz against 110 Hz.
+        for _ in 0..2048 {
+            next_dual_bus_frame(&mut guard, 1.0 / 44100.0);
+        }
+        let n = 8820; // 0.2 s
+        let mut out = Vec::with_capacity(n);
+        for _ in 0..n {
+            out.push(next_dual_bus_frame(&mut guard, 1.0 / 44100.0).0 .0);
+        }
+        let start = 2048.0;
+        let mag = |freq: f32| -> f32 {
+            let (mut re, mut im) = (0.0_f32, 0.0_f32);
+            for (j, x) in out.iter().enumerate() {
+                let ph = std::f32::consts::TAU * freq * (start + j as f32) / 44100.0;
+                re += x * ph.cos();
+                im += x * ph.sin();
+            }
+            (re * re + im * im).sqrt() / n as f32
+        };
+        let vocal = mag(880.0);
+        let drums = mag(110.0);
+        assert!(drums > 0.1, "drums must stay, |110 Hz|={drums}");
+        assert!(
+            vocal < 0.01 * drums,
+            "vocal must be gone: |880 Hz|={vocal}, |110 Hz|={drums}"
         );
     }
 }

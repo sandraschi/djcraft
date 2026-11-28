@@ -14,6 +14,7 @@ pub mod fx;
 pub mod output;
 pub mod recorder;
 pub mod sampler;
+pub mod stem_track;
 pub mod studio;
 
 pub use analysis::{
