@@ -160,6 +160,20 @@ enum Commands {
     },
     /// Show autosaved hot cues (slots 0..3) for a track path
     CrateCues { track_path: String },
+    /// Separate an audio file into 4 stems natively (HTDemucs / RoFormer, no Python) and cache them
+    StemsSeparate {
+        path: String,
+        /// fast | high | ultra | best
+        #[arg(long, default_value = "high")]
+        quality: String,
+        /// Re-separate even when a complete cache exists
+        #[arg(long)]
+        force: bool,
+    },
+    /// Show the stem cache state of an audio file (content hash, cache path, model)
+    StemsStatus { path: String },
+    /// Show where the separation models are and whether they are installed
+    ModelsStatus,
     /// Set or clear an autosaved hot cue (slot 0..3, value = seconds or "clear")
     CrateSetCue {
         track_path: String,
@@ -482,6 +496,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let store = CrateStore::open_default()?;
             let report = store.analyze_crate_parallel(crate_id)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Commands::StemsSeparate {
+            path,
+            quality,
+            force,
+        } => {
+            let q = djcraft_stems::ops::parse_quality(&quality)?;
+            let mut last = -1i32;
+            let out = djcraft_stems::ops::separate_file(Path::new(&path), q, force, &mut |p| {
+                let pct = (p * 100.0) as i32;
+                if pct / 10 != last / 10 {
+                    eprintln!("{pct}%");
+                    last = pct;
+                }
+                true
+            })?;
+            println!("{}", serde_json::to_string_pretty(&out)?);
+        }
+        Commands::StemsStatus { path } => {
+            let out = djcraft_stems::ops::stems_status(Path::new(&path))?;
+            println!("{}", serde_json::to_string_pretty(&out)?);
+        }
+        Commands::ModelsStatus => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&djcraft_stems::ops::models_status())?
+            );
         }
         Commands::AnalyzeAudio { path } => {
             let decoded = djcraft_audio::dsp::decode_audio_file(Path::new(&path))

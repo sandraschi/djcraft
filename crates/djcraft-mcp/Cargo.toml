@@ -8,6 +8,7 @@ authors.workspace = true
 [dependencies]
 djcraft-core = { path = "../djcraft-core" }
 djcraft-audio = { path = "../djcraft-audio" }
+djcraft-stems = { path = "../djcraft-stems" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

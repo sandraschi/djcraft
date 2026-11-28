@@ -16,6 +16,7 @@ path = "src/cli.rs"
 [dependencies]
 djcraft-core = { path = "../djcraft-core" }
 djcraft-audio = { path = "../djcraft-audio" }
+djcraft-stems = { path = "../djcraft-stems" }
 eframe.workspace = true
 egui.workspace = true
 clap.workspace = true

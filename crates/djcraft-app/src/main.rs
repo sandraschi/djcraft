@@ -379,7 +379,7 @@ impl UiPrefs {
     }
 }
 
-pub type PendingStemSwap = (usize, Arc<djcraft_audio::dsp::DecodedStems>, String);
+pub type PendingStemSwap = (usize, Arc<djcraft_audio::stem_track::StemTrack>, String);
 
 struct DjCraftApp {
     orch: DjOrchestrator,
@@ -422,6 +422,8 @@ struct DjCraftApp {
     deck_phrases: [Vec<djcraft_audio::PhraseSegment>; 4],
     pending_deck_stems: Arc<Mutex<Vec<PendingStemSwap>>>,
     deck_stemming: [bool; 4],
+    /// Native live stem separation per deck (djcraft-stems); the deck plays while it fills.
+    live_stem_jobs: [Option<djcraft_stems::live::LiveJob>; 4],
 
     // Hardware MIDI Controller Engine (Rane Twelve MKII, Rane Seventy-Two MKII, Pioneer, Hercules)
     midi: MidiControllerManager,
@@ -533,6 +535,105 @@ impl Default for DjCraftApp {
 }
 
 impl DjCraftApp {
+    /// Stems for a freshly loaded deck: legacy `.djcraft-stems/` sidecar WAVs if present,
+    /// otherwise native live separation (when the models are installed). Returns a title tag.
+    fn attach_stems_for_load(&mut self, idx: usize, path: &std::path::Path) -> &'static str {
+        if idx >= 4 {
+            return "";
+        }
+        if let Some(job) = self.live_stem_jobs[idx].take() {
+            job.cancel();
+        }
+        self.deck_stemming[idx] = false;
+        if let Some(stems) = load_sidecar_stems(path) {
+            let track = djcraft_audio::stem_track::StemTrack::from_decoded_stems(&stems);
+            self.audio_out.set_deck_stems(idx, Some(Arc::new(track)));
+            return " [4-STEMS]";
+        }
+        if djcraft_stems::live::models_installed() {
+            self.start_live_stems(idx, path, 0.0);
+            return " [LIVE STEMS]";
+        }
+        ""
+    }
+
+    /// Start (or restart) native live stem separation for deck `idx` from `start_sec`. The deck
+    /// keeps playing the original; stems take over chunk by chunk as they are separated.
+    fn start_live_stems(&mut self, idx: usize, path: &std::path::Path, start_sec: f64) {
+        if idx >= 4 {
+            return;
+        }
+        if let Some(job) = self.live_stem_jobs[idx].take() {
+            job.cancel();
+        }
+        if !djcraft_stems::live::models_installed() {
+            self.status_msg = "Stem models not installed: download the DJCraft models-v1 pack into %LOCALAPPDATA%\\djcraft\\Models (see docs/AUDIO_AND_MIXING.md)".to_string();
+            return;
+        }
+        let pending = Arc::clone(&self.pending_deck_stems);
+        let deck_lbl = ["Deck A", "Deck B", "Deck C", "Deck D"][idx];
+        let job = djcraft_stems::live::start(
+            path.to_path_buf(),
+            start_sec,
+            djcraft_stems::Quality::Fast,
+            move |track| {
+                if let Ok(mut q) = pending.lock() {
+                    q.push((idx, track, format!("Live stems attached on {deck_lbl}")));
+                }
+            },
+        );
+        self.live_stem_jobs[idx] = Some(job);
+        self.deck_stemming[idx] = true;
+        self.status_msg = format!("Live stem separation started on {deck_lbl}");
+    }
+
+    /// Per-frame bookkeeping for live stem jobs: progress text, completion and errors.
+    fn poll_live_stem_jobs(&mut self, ctx: &egui::Context) {
+        let mut any_running = false;
+        for idx in 0..4 {
+            let Some(job) = self.live_stem_jobs[idx].as_ref() else {
+                continue;
+            };
+            let deck_lbl = ["Deck A", "Deck B", "Deck C", "Deck D"][idx];
+            match job.status() {
+                djcraft_stems::live::JobStatus::Done { cached } => {
+                    self.status_msg = if cached {
+                        format!("Stems loaded from cache on {deck_lbl}")
+                    } else {
+                        format!("Live stems complete on {deck_lbl}")
+                    };
+                    self.live_stem_jobs[idx] = None;
+                    self.deck_stemming[idx] = false;
+                }
+                djcraft_stems::live::JobStatus::Failed(e) => {
+                    self.status_msg = format!("Stem separation failed on {deck_lbl}: {e}");
+                    self.live_stem_jobs[idx] = None;
+                    self.deck_stemming[idx] = false;
+                }
+                djcraft_stems::live::JobStatus::Cancelled => {
+                    self.live_stem_jobs[idx] = None;
+                    self.deck_stemming[idx] = false;
+                }
+                _ => any_running = true,
+            }
+        }
+        if any_running {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
+    }
+
+    /// Button label for a deck's stem separation state.
+    fn live_stem_label(&self, idx: usize) -> String {
+        match self.live_stem_jobs.get(idx).and_then(|j| j.as_ref()) {
+            Some(job) => match job.status() {
+                djcraft_stems::live::JobStatus::Queued => "STEMS: QUEUED".to_string(),
+                djcraft_stems::live::JobStatus::Loading => "STEMS: LOADING".to_string(),
+                _ => format!("STEMS {:.0}%", job.progress() * 100.0),
+            },
+            None => "STEMS".to_string(),
+        }
+    }
+
     pub fn new() -> Self {
         let mut orch = DjOrchestrator::new();
         let app_cfg = djcraft_core::AppConfig::load();
@@ -610,6 +711,7 @@ impl DjCraftApp {
             deck_phrases: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             pending_deck_stems: Arc::new(Mutex::new(Vec::new())),
             deck_stemming: [false; 4],
+            live_stem_jobs: [None, None, None, None],
 
             midi: MidiControllerManager::new(),
             midi_ports,
@@ -1527,13 +1629,7 @@ impl DjCraftApp {
         let arc_audio = Arc::new(decoded);
         self.deck_decoded[deck_idx] = Some(Arc::clone(&arc_audio));
         self.audio_out.set_deck_audio(deck_idx, Some(arc_audio));
-        let stems_tag = if let Some(stems) = load_sidecar_stems(path) {
-            self.audio_out
-                .set_deck_stems(deck_idx, Some(Arc::new(stems)));
-            " [4-STEMS LIVE]"
-        } else {
-            ""
-        };
+        let stems_tag = self.attach_stems_for_load(deck_idx, path);
         self.dispatch_and_report(Command::LoadTrack { deck, track: meta });
         let st = self.orch.deck_mut(deck);
         st.beatgrid_offset_sec = grid.first_beat_sec;
@@ -1682,9 +1778,7 @@ impl DjCraftApp {
                 let arc_audio = Arc::new(decoded.clone());
                 self.deck_decoded[idx] = Some(Arc::clone(&arc_audio));
                 self.audio_out.set_deck_audio(idx, Some(arc_audio));
-                if let Some(stems) = load_sidecar_stems(path) {
-                    self.audio_out.set_deck_stems(idx, Some(Arc::new(stems)));
-                }
+                let _ = self.attach_stems_for_load(idx, path);
                 let meta = TrackMeta {
                     title: track.title.clone(),
                     artist: track.artist.clone(),
@@ -2874,49 +2968,26 @@ impl DjCraftApp {
                             .color(palette.text_secondary),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let busy = self.deck_stemming[idx];
+                        let busy = self.live_stem_jobs[idx].is_some();
                         let has_audio = d.audio_path.is_some();
-                        let lbl = if busy { "GPU STEMS..." } else { "STEMS (GPU)" };
+                        let lbl = self.live_stem_label(idx);
+                        let hover = if busy {
+                            "Live separation running; the deck plays the original until each region is separated. Click to cancel (separated parts are kept)."
+                        } else {
+                            "Separate this deck into 4 stems natively (no Python), starting at the playhead; stems take over live as they are ready"
+                        };
                         if ui
-                            .add_enabled(!busy && has_audio, egui::Button::new(lbl).small())
-                            .on_hover_text(
-                                "Separate this deck into 4 stems on RTX GPU (CUDA) and hot-swap live into playback",
-                            )
+                            .add_enabled(has_audio, egui::Button::new(lbl).small())
+                            .on_hover_text(hover)
                             .clicked()
                         {
-                            if let Some(ref audio_str) = d.audio_path {
-                                self.deck_stemming[idx] = true;
+                            if busy {
+                                if let Some(job) = self.live_stem_jobs[idx].as_ref() {
+                                    job.cancel();
+                                }
+                            } else if let Some(ref audio_str) = d.audio_path {
                                 let p = PathBuf::from(audio_str);
-                                let pending = Arc::clone(&self.pending_deck_stems);
-                                let bg = Arc::clone(&self.bg_status);
-                                let deck_lbl = deck_id.label().to_string();
-                                self.status_msg = format!(
-                                    "Separating 4 stems on GPU for {deck_lbl}..."
-                                );
-                                std::thread::spawn(move || {
-                                    match djcraft_core::stem_audio_file_with_device(&p, true) {
-                                        Ok(_) => {
-                                            if let Some(stems) = load_sidecar_stems(&p) {
-                                                if let Ok(mut q) = pending.lock() {
-                                                    q.push((
-                                                        idx,
-                                                        Arc::new(stems),
-                                                        format!(
-                                                            "4-Stems hot-swapped live on {deck_lbl}"
-                                                        ),
-                                                    ));
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            if let Ok(mut g) = bg.lock() {
-                                                *g = Some(format!(
-                                                    "GPU stem error on {deck_lbl}: {e}"
-                                                ));
-                                            }
-                                        }
-                                    }
-                                });
+                                self.start_live_stems(idx, &p, d.position_seconds);
                             }
                         }
                     });
@@ -3062,16 +3133,15 @@ impl eframe::App for DjCraftApp {
                 self.deck_stemming = [false; 4];
             }
         }
-        // Hot-swap newly separated GPU 4-stems directly into live playing decks
+        // Attach live stem tracks (filling progressively) to their decks.
         if let Ok(mut pending) = self.pending_deck_stems.try_lock() {
             for (d_idx, stems, msg) in pending.drain(..) {
                 self.audio_out.set_deck_stems(d_idx, Some(stems));
-                if d_idx < 4 {
-                    self.deck_stemming[d_idx] = false;
-                }
                 self.status_msg = msg;
             }
         }
+        let ctx = ui.ctx().clone();
+        self.poll_live_stem_jobs(&ctx);
 
         // Poll hardware MIDI controllers (Rane Twelve MKII, Rane Seventy-Two MKII, etc.)
         for (action, val) in self.midi.poll_actions() {

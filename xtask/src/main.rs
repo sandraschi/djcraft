@@ -51,6 +51,7 @@ fn layers() -> i32 {
     for rel in [
         "crates/djcraft-audio/Cargo.toml",
         "crates/djcraft-core/Cargo.toml",
+        "crates/djcraft-stems/Cargo.toml",
     ] {
         let toml = match std::fs::read_to_string(rel) {
             Ok(s) => s,
@@ -64,7 +65,27 @@ fn layers() -> i32 {
             return 1;
         }
     }
-    println!("xtask layers: ok (djcraft-audio and djcraft-core are UI-free)");
+    // ONNX Runtime must stay out of the engine, the core and the browser build.
+    for rel in [
+        "crates/djcraft-audio/Cargo.toml",
+        "crates/djcraft-core/Cargo.toml",
+        "crates/djcraft-wasm/Cargo.toml",
+    ] {
+        match std::fs::read_to_string(rel) {
+            Ok(toml) if toml.contains("djcraft-stems") || toml.contains("ort =") => {
+                eprintln!("xtask layers: {rel} must not depend on djcraft-stems / ort");
+                return 1;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("xtask layers: cannot read {rel}: {e}");
+                return 1;
+            }
+        }
+    }
+    println!(
+        "xtask layers: ok (audio/core/stems UI-free; ORT only in djcraft-stems and its users)"
+    );
     0
 }
 

@@ -253,6 +253,35 @@ fn main() {
                             }
                         },
                         {
+                            "name": "djcraft_stems_separate",
+                            "description": "Separate a local audio file into 4 stems (drums, bass, melody, vocals) natively with HTDemucs / Mel-Band RoFormer (no Python) and cache them for the decks. Blocking: on the CPU backend a full track takes minutes (fast ~2x realtime). Reuses a complete cache unless force=true.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "path": { "type": "string" },
+                                    "quality": { "type": "string", "enum": ["fast", "high", "ultra", "best"], "default": "high" },
+                                    "force": { "type": "boolean", "default": false }
+                                },
+                                "required": ["path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_stems_status",
+                            "description": "Stem cache state of a local audio file: content hash, cache path, complete or partial, model used.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "path": { "type": "string" }
+                                },
+                                "required": ["path"]
+                            }
+                        },
+                        {
+                            "name": "djcraft_models_status",
+                            "description": "Where the stem separation models are looked for, whether they are installed, and the files present.",
+                            "inputSchema": { "type": "object", "properties": {} }
+                        },
+                        {
                             "name": "djcraft_midi_led_ports",
                             "description": "List connected MIDI output ports available for bidirectional controller LED feedback.",
                             "inputSchema": { "type": "object", "properties": {} }
@@ -578,127 +607,127 @@ fn main() {
                         "result": mcp_app::call_dashboard(&mut orch)
                     })
                 } else {
-                let args = params
-                    .get("arguments")
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
-                let tool_output = match name {
-                    "djcraft_status" => match orch.dispatch(Command::Status) {
-                        Ok(out) => out.data,
-                        Err(e) => json!({ "error": e.to_string() }),
-                    },
-                    "djcraft_plan_transition" => match orch.dispatch(Command::PlanTransition) {
-                        Ok(out) => out.data,
-                        Err(e) => json!({ "error": e.to_string() }),
-                    },
-                    "djcraft_camelot_check" => {
-                        let key_a = args.get("key_a").and_then(|k| k.as_str()).unwrap_or("");
-                        let key_b = args.get("key_b").and_then(|k| k.as_str()).unwrap_or("");
-                        if key_a.trim().is_empty() || key_b.trim().is_empty() {
-                            json!({ "error": "key_a and key_b are required" })
-                        } else {
-                            match orch.dispatch(Command::CheckCamelot {
-                                key_a: key_a.to_string(),
-                                key_b: key_b.to_string(),
-                            }) {
-                                Ok(out) => out.data,
-                                Err(e) => json!({ "error": e.to_string() }),
-                            }
-                        }
-                    }
-                    "djcraft_commands" => {
-                        serde_json::to_value(Command::catalog()).unwrap_or_else(|_| json!([]))
-                    }
-                    "djcraft_analyze_dettato" => {
-                        let audio_path = args
-                            .get("audio_path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        if audio_path.trim().is_empty() {
-                            json!({ "error": "audio_path is required" })
-                        } else {
-                            let output_dir = args
-                                .get("output_dir")
-                                .and_then(|v| v.as_str())
-                                .map(ToString::to_string);
-                            let device = args
-                                .get("device")
-                                .and_then(|v| v.as_str())
-                                .map(ToString::to_string);
-                            match orch.dispatch(Command::AnalyzeTrackDettato {
-                                audio_path: audio_path.to_string(),
-                                output_dir,
-                                device,
-                            }) {
-                                Ok(out) => out.data,
-                                Err(e) => json!({ "error": e.to_string() }),
-                            }
-                        }
-                    }
-                    "djcraft_mixxxxx_ping" => match orch.dispatch(Command::MixxxxxPing {
-                        timeout_ms: Some(250),
-                    }) {
-                        Ok(out) => out.data,
-                        Err(e) => json!({ "error": e.to_string() }),
-                    },
-                    "djcraft_mixxxxx_video" => {
-                        let deck_num = args.get("deck").and_then(|v| v.as_u64()).unwrap_or(1);
-                        let deck = match deck_num {
-                            1 => DeckId::DeckA,
-                            2 => DeckId::DeckB,
-                            3 => DeckId::DeckC,
-                            4 => DeckId::DeckD,
-                            _ => {
-                                let err = json!({ "error": format!("Invalid deck {deck_num}; expected 1..=4") });
-                                let resp = json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id,
-                                    "result": { "content": [{ "type": "text", "text": err.to_string() }] }
-                                });
-                                let _ = writeln!(stdout, "{resp}");
-                                let _ = stdout.flush();
-                                continue;
-                            }
-                        };
-                        let controls = MixxxxxVideoControls {
-                            enabled: args.get("enabled").and_then(|v| v.as_bool()),
-                            fullscreen: args.get("fullscreen").and_then(|v| v.as_bool()),
-                            brightness: args
-                                .get("brightness")
-                                .and_then(|v| v.as_f64())
-                                .map(|v| v as f32),
-                            contrast: args
-                                .get("contrast")
-                                .and_then(|v| v.as_f64())
-                                .map(|v| v as f32),
-                            saturation: args
-                                .get("saturation")
-                                .and_then(|v| v.as_f64())
-                                .map(|v| v as f32),
-                        };
-                        match orch.dispatch(Command::MixxxxxVideo { deck, controls }) {
+                    let args = params
+                        .get("arguments")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    let tool_output = match name {
+                        "djcraft_status" => match orch.dispatch(Command::Status) {
                             Ok(out) => out.data,
                             Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_crates_list" => match CrateStore::open_default() {
-                        Ok(store) => {
-                            let _ = store.seed_demo_if_empty();
-                            match store.list_crates() {
-                                Ok(list) => {
-                                    serde_json::to_value(list).unwrap_or_else(|_| json!([]))
+                        },
+                        "djcraft_plan_transition" => match orch.dispatch(Command::PlanTransition) {
+                            Ok(out) => out.data,
+                            Err(e) => json!({ "error": e.to_string() }),
+                        },
+                        "djcraft_camelot_check" => {
+                            let key_a = args.get("key_a").and_then(|k| k.as_str()).unwrap_or("");
+                            let key_b = args.get("key_b").and_then(|k| k.as_str()).unwrap_or("");
+                            if key_a.trim().is_empty() || key_b.trim().is_empty() {
+                                json!({ "error": "key_a and key_b are required" })
+                            } else {
+                                match orch.dispatch(Command::CheckCamelot {
+                                    key_a: key_a.to_string(),
+                                    key_b: key_b.to_string(),
+                                }) {
+                                    Ok(out) => out.data,
+                                    Err(e) => json!({ "error": e.to_string() }),
                                 }
+                            }
+                        }
+                        "djcraft_commands" => {
+                            serde_json::to_value(Command::catalog()).unwrap_or_else(|_| json!([]))
+                        }
+                        "djcraft_analyze_dettato" => {
+                            let audio_path = args
+                                .get("audio_path")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if audio_path.trim().is_empty() {
+                                json!({ "error": "audio_path is required" })
+                            } else {
+                                let output_dir = args
+                                    .get("output_dir")
+                                    .and_then(|v| v.as_str())
+                                    .map(ToString::to_string);
+                                let device = args
+                                    .get("device")
+                                    .and_then(|v| v.as_str())
+                                    .map(ToString::to_string);
+                                match orch.dispatch(Command::AnalyzeTrackDettato {
+                                    audio_path: audio_path.to_string(),
+                                    output_dir,
+                                    device,
+                                }) {
+                                    Ok(out) => out.data,
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                }
+                            }
+                        }
+                        "djcraft_mixxxxx_ping" => match orch.dispatch(Command::MixxxxxPing {
+                            timeout_ms: Some(250),
+                        }) {
+                            Ok(out) => out.data,
+                            Err(e) => json!({ "error": e.to_string() }),
+                        },
+                        "djcraft_mixxxxx_video" => {
+                            let deck_num = args.get("deck").and_then(|v| v.as_u64()).unwrap_or(1);
+                            let deck = match deck_num {
+                                1 => DeckId::DeckA,
+                                2 => DeckId::DeckB,
+                                3 => DeckId::DeckC,
+                                4 => DeckId::DeckD,
+                                _ => {
+                                    let err = json!({ "error": format!("Invalid deck {deck_num}; expected 1..=4") });
+                                    let resp = json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": { "content": [{ "type": "text", "text": err.to_string() }] }
+                                    });
+                                    let _ = writeln!(stdout, "{resp}");
+                                    let _ = stdout.flush();
+                                    continue;
+                                }
+                            };
+                            let controls = MixxxxxVideoControls {
+                                enabled: args.get("enabled").and_then(|v| v.as_bool()),
+                                fullscreen: args.get("fullscreen").and_then(|v| v.as_bool()),
+                                brightness: args
+                                    .get("brightness")
+                                    .and_then(|v| v.as_f64())
+                                    .map(|v| v as f32),
+                                contrast: args
+                                    .get("contrast")
+                                    .and_then(|v| v.as_f64())
+                                    .map(|v| v as f32),
+                                saturation: args
+                                    .get("saturation")
+                                    .and_then(|v| v.as_f64())
+                                    .map(|v| v as f32),
+                            };
+                            match orch.dispatch(Command::MixxxxxVideo { deck, controls }) {
+                                Ok(out) => out.data,
                                 Err(e) => json!({ "error": e.to_string() }),
                             }
                         }
-                        Err(e) => json!({ "error": e.to_string() }),
-                    },
-                    "djcraft_crate_import" => {
-                        let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("");
-                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                        match CrateStore::open_default() {
+                        "djcraft_crates_list" => match CrateStore::open_default() {
                             Ok(store) => {
-                                let res = match fmt {
+                                let _ = store.seed_demo_if_empty();
+                                match store.list_crates() {
+                                    Ok(list) => {
+                                        serde_json::to_value(list).unwrap_or_else(|_| json!([]))
+                                    }
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                }
+                            }
+                            Err(e) => json!({ "error": e.to_string() }),
+                        },
+                        "djcraft_crate_import" => {
+                            let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("");
+                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            match CrateStore::open_default() {
+                                Ok(store) => {
+                                    let res = match fmt {
                                     "serato" => store.import_serato_crate(Path::new(path)),
                                     "vdj" => store.import_vdj_file(Path::new(path)),
                                     "rekordbox" => {
@@ -711,23 +740,24 @@ fn main() {
                                         "Unsupported format '{fmt}'. Expected serato, vdj, rekordbox, or traktor."
                                     ))),
                                 };
-                                match res {
-                                    Ok(sum) => {
-                                        serde_json::to_value(sum).unwrap_or_else(|_| json!({}))
+                                    match res {
+                                        Ok(sum) => {
+                                            serde_json::to_value(sum).unwrap_or_else(|_| json!({}))
+                                        }
+                                        Err(e) => json!({ "error": e.to_string() }),
                                     }
-                                    Err(e) => json!({ "error": e.to_string() }),
                                 }
+                                Err(e) => json!({ "error": e.to_string() }),
                             }
-                            Err(e) => json!({ "error": e.to_string() }),
                         }
-                    }
-                    "djcraft_crate_export" => {
-                        let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("");
-                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                        let dest = args.get("dest").and_then(|v| v.as_str()).unwrap_or("");
-                        match CrateStore::open_default() {
-                            Ok(store) => {
-                                let res = match fmt {
+                        "djcraft_crate_export" => {
+                            let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("");
+                            let crate_id =
+                                args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let dest = args.get("dest").and_then(|v| v.as_str()).unwrap_or("");
+                            match CrateStore::open_default() {
+                                Ok(store) => {
+                                    let res = match fmt {
                                     "serato" => {
                                         store.export_serato_crate(crate_id, Path::new(dest))
                                     }
@@ -747,213 +777,250 @@ fn main() {
                                         "Unsupported format '{fmt}'. Expected serato, vdj, rekordbox, or traktor."
                                     ))),
                                 };
-                                match res {
-                                    Ok(cnt) => json!({
-                                        "format": fmt,
-                                        "crate_id": crate_id,
-                                        "dest": dest,
-                                        "exported_tracks": cnt
-                                    }),
-                                    Err(e) => json!({ "error": e.to_string() }),
-                                }
-                            }
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_crate_analyze" => {
-                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
-                        match CrateStore::open_default() {
-                            Ok(store) => match store.analyze_crate_parallel(crate_id) {
-                                Ok(rep) => serde_json::to_value(rep).unwrap_or_else(|_| json!({})),
-                                Err(e) => json!({ "error": e.to_string() }),
-                            },
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_analyze_audio" => {
-                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                        match djcraft_audio::dsp::decode_audio_file(Path::new(path)) {
-                            Ok(decoded) => {
-                                let analysis = djcraft_audio::analyze_track_full(&decoded);
-                                serde_json::to_value(analysis).unwrap_or_else(|_| json!({}))
-                            }
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_midi_led_ports" => {
-                        let ports = djcraft_core::list_midi_output_ports();
-                        json!({ "output_ports": ports, "count": ports.len() })
-                    }
-                    "djcraft_crate_smart_query" => {
-                        let rule = djcraft_core::SmartCrateRule {
-                            name: "MCP Smart Query".into(),
-                            min_bpm: args.get("min_bpm").and_then(|v| v.as_f64()),
-                            max_bpm: args.get("max_bpm").and_then(|v| v.as_f64()),
-                            camelot_key: args
-                                .get("camelot_key")
-                                .and_then(|v| v.as_str())
-                                .map(ToString::to_string),
-                            harmonic_compatible: args
-                                .get("harmonic_compatible")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false),
-                            genre_contains: args
-                                .get("genre_contains")
-                                .and_then(|v| v.as_str())
-                                .map(ToString::to_string),
-                            min_rating: args.get("min_rating").and_then(|v| v.as_i64()),
-                            text_contains: None,
-                        };
-                        match CrateStore::open_default() {
-                            Ok(store) => match store.query_smart_crate(&rule) {
-                                Ok(tracks) => json!({ "count": tracks.len(), "tracks": tracks }),
-                                Err(e) => json!({ "error": e.to_string() }),
-                            },
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_crate_duplicates" => match CrateStore::open_default() {
-                        Ok(store) => match store.find_duplicates() {
-                            Ok(groups) => {
-                                json!({ "duplicate_groups": groups.len(), "groups": groups })
-                            }
-                            Err(e) => json!({ "error": e.to_string() }),
-                        },
-                        Err(e) => json!({ "error": e.to_string() }),
-                    },
-                    "djcraft_setlist_history" => {
-                        let sid = args.get("session_id").and_then(|v| v.as_str());
-                        let limit =
-                            args.get("limit").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
-                        match CrateStore::open_default() {
-                            Ok(store) => match store.list_set_history(sid, limit) {
-                                Ok(entries) => {
-                                    json!({ "count": entries.len(), "entries": entries })
-                                }
-                                Err(e) => json!({ "error": e.to_string() }),
-                            },
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_setlist_export" => {
-                        let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("txt");
-                        let dest = args.get("dest").and_then(|v| v.as_str()).unwrap_or("");
-                        let title = args
-                            .get("title")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("DJCraft Live Set");
-                        let sid = args.get("session_id").and_then(|v| v.as_str());
-                        match CrateStore::open_default() {
-                            Ok(store) => match store.list_set_history(sid, 500) {
-                                Ok(entries) => match djcraft_core::export_setlist_file(
-                                    &entries,
-                                    fmt,
-                                    title,
-                                    Path::new(dest),
-                                ) {
-                                    Ok(n) => {
-                                        json!({ "format": fmt, "dest": dest, "exported_entries": n })
-                                    }
-                                    Err(e) => json!({ "error": e.to_string() }),
-                                },
-                                Err(e) => json!({ "error": e.to_string() }),
-                            },
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_audio_list" => json!({
-                        "outputs": AudioOutput::list_output_devices(),
-                        "inputs": list_input_devices()
-                    }),
-                    "djcraft_config_show" => {
-                        serde_json::to_value(AppConfig::load()).unwrap_or_else(|_| json!({}))
-                    }
-                    "djcraft_config_set" => {
-                        let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
-                        let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                        let mut cfg = AppConfig::load();
-                        match cfg
-                            .set_key(key, value)
-                            .and_then(|msg| cfg.save().map(|p| (msg, p)))
-                        {
-                            Ok((msg, path)) => json!({ "updated": msg, "path": path }),
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_config_reset" => {
-                        let cfg = AppConfig::default();
-                        match cfg.save() {
-                            Ok(path) => json!({ "reset": true, "path": path }),
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_midi_list" => {
-                        let ports = MidiControllerManager::list_input_ports();
-                        let items: Vec<_> = ports
-                            .iter()
-                            .enumerate()
-                            .map(|(i, p)| {
-                                let prof = ControllerProfileId::auto_detect_from_port_name(p);
-                                json!({
-                                    "index": i,
-                                    "port": p,
-                                    "detected_profile": prof.label()
-                                })
-                            })
-                            .collect();
-                        json!(items)
-                    }
-                    "djcraft_midi_connect" => {
-                        let ports = MidiControllerManager::list_input_ports();
-                        if ports.is_empty() {
-                            json!({ "error": "No MIDI input ports detected" })
-                        } else {
-                            let query = args.get("query").and_then(|v| v.as_str());
-                            let idx_res: Result<usize, String> = if let Some(q) = query {
-                                if let Ok(n) = q.trim().parse::<usize>() {
-                                    if n < ports.len() {
-                                        Ok(n)
-                                    } else {
-                                        Err(format!(
-                                            "MIDI port index {n} out of range (0..{})",
-                                            ports.len()
-                                        ))
-                                    }
-                                } else {
-                                    let ql = q.to_lowercase();
-                                    ports
-                                        .iter()
-                                        .position(|p| p.to_lowercase().contains(&ql))
-                                        .ok_or_else(|| {
-                                            format!(
-                                                "No MIDI port matching '{q}' (available: {ports:?})"
-                                            )
-                                        })
-                                }
-                            } else {
-                                Ok(0)
-                            };
-                            match idx_res {
-                                Ok(idx) => {
-                                    let mut mgr = MidiControllerManager::new();
-                                    match mgr.connect_port(idx) {
-                                        Ok(port_name) => json!({
-                                            "connected": true,
-                                            "index": idx,
-                                            "port": port_name,
-                                            "profile": mgr.active_profile.label(),
-                                            "rules_count": mgr.rules.len()
+                                    match res {
+                                        Ok(cnt) => json!({
+                                            "format": fmt,
+                                            "crate_id": crate_id,
+                                            "dest": dest,
+                                            "exported_tracks": cnt
                                         }),
                                         Err(e) => json!({ "error": e.to_string() }),
                                     }
                                 }
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_crate_analyze" => {
+                            let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
+                            match CrateStore::open_default() {
+                                Ok(store) => match store.analyze_crate_parallel(crate_id) {
+                                    Ok(rep) => {
+                                        serde_json::to_value(rep).unwrap_or_else(|_| json!({}))
+                                    }
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                },
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_analyze_audio" => {
+                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            match djcraft_audio::dsp::decode_audio_file(Path::new(path)) {
+                                Ok(decoded) => {
+                                    let analysis = djcraft_audio::analyze_track_full(&decoded);
+                                    serde_json::to_value(analysis).unwrap_or_else(|_| json!({}))
+                                }
                                 Err(e) => json!({ "error": e }),
                             }
                         }
-                    }
-                    "djcraft_midi_profile" => {
-                        let profile = args.get("profile").and_then(|v| v.as_str()).unwrap_or("");
-                        let id_res = match profile.trim().to_lowercase().as_str() {
+                        "djcraft_stems_separate" => {
+                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            let quality = args
+                                .get("quality")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("high");
+                            let force =
+                                args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+                            if path.trim().is_empty() {
+                                json!({ "error": "path is required" })
+                            } else {
+                                match djcraft_stems::ops::parse_quality(quality).and_then(|q| {
+                                    djcraft_stems::ops::separate_file(
+                                        Path::new(path),
+                                        q,
+                                        force,
+                                        &mut |_| true,
+                                    )
+                                }) {
+                                    Ok(v) => v,
+                                    Err(e) => json!({ "error": format!("{e:#}") }),
+                                }
+                            }
+                        }
+                        "djcraft_stems_status" => {
+                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            match djcraft_stems::ops::stems_status(Path::new(path)) {
+                                Ok(v) => v,
+                                Err(e) => json!({ "error": format!("{e:#}") }),
+                            }
+                        }
+                        "djcraft_models_status" => djcraft_stems::ops::models_status(),
+                        "djcraft_midi_led_ports" => {
+                            let ports = djcraft_core::list_midi_output_ports();
+                            json!({ "output_ports": ports, "count": ports.len() })
+                        }
+                        "djcraft_crate_smart_query" => {
+                            let rule = djcraft_core::SmartCrateRule {
+                                name: "MCP Smart Query".into(),
+                                min_bpm: args.get("min_bpm").and_then(|v| v.as_f64()),
+                                max_bpm: args.get("max_bpm").and_then(|v| v.as_f64()),
+                                camelot_key: args
+                                    .get("camelot_key")
+                                    .and_then(|v| v.as_str())
+                                    .map(ToString::to_string),
+                                harmonic_compatible: args
+                                    .get("harmonic_compatible")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false),
+                                genre_contains: args
+                                    .get("genre_contains")
+                                    .and_then(|v| v.as_str())
+                                    .map(ToString::to_string),
+                                min_rating: args.get("min_rating").and_then(|v| v.as_i64()),
+                                text_contains: None,
+                            };
+                            match CrateStore::open_default() {
+                                Ok(store) => match store.query_smart_crate(&rule) {
+                                    Ok(tracks) => {
+                                        json!({ "count": tracks.len(), "tracks": tracks })
+                                    }
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                },
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_crate_duplicates" => match CrateStore::open_default() {
+                            Ok(store) => match store.find_duplicates() {
+                                Ok(groups) => {
+                                    json!({ "duplicate_groups": groups.len(), "groups": groups })
+                                }
+                                Err(e) => json!({ "error": e.to_string() }),
+                            },
+                            Err(e) => json!({ "error": e.to_string() }),
+                        },
+                        "djcraft_setlist_history" => {
+                            let sid = args.get("session_id").and_then(|v| v.as_str());
+                            let limit =
+                                args.get("limit").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
+                            match CrateStore::open_default() {
+                                Ok(store) => match store.list_set_history(sid, limit) {
+                                    Ok(entries) => {
+                                        json!({ "count": entries.len(), "entries": entries })
+                                    }
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                },
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_setlist_export" => {
+                            let fmt = args.get("format").and_then(|v| v.as_str()).unwrap_or("txt");
+                            let dest = args.get("dest").and_then(|v| v.as_str()).unwrap_or("");
+                            let title = args
+                                .get("title")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("DJCraft Live Set");
+                            let sid = args.get("session_id").and_then(|v| v.as_str());
+                            match CrateStore::open_default() {
+                                Ok(store) => match store.list_set_history(sid, 500) {
+                                    Ok(entries) => match djcraft_core::export_setlist_file(
+                                        &entries,
+                                        fmt,
+                                        title,
+                                        Path::new(dest),
+                                    ) {
+                                        Ok(n) => {
+                                            json!({ "format": fmt, "dest": dest, "exported_entries": n })
+                                        }
+                                        Err(e) => json!({ "error": e.to_string() }),
+                                    },
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                },
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_audio_list" => json!({
+                            "outputs": AudioOutput::list_output_devices(),
+                            "inputs": list_input_devices()
+                        }),
+                        "djcraft_config_show" => {
+                            serde_json::to_value(AppConfig::load()).unwrap_or_else(|_| json!({}))
+                        }
+                        "djcraft_config_set" => {
+                            let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
+                            let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                            let mut cfg = AppConfig::load();
+                            match cfg
+                                .set_key(key, value)
+                                .and_then(|msg| cfg.save().map(|p| (msg, p)))
+                            {
+                                Ok((msg, path)) => json!({ "updated": msg, "path": path }),
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "djcraft_config_reset" => {
+                            let cfg = AppConfig::default();
+                            match cfg.save() {
+                                Ok(path) => json!({ "reset": true, "path": path }),
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "djcraft_midi_list" => {
+                            let ports = MidiControllerManager::list_input_ports();
+                            let items: Vec<_> = ports
+                                .iter()
+                                .enumerate()
+                                .map(|(i, p)| {
+                                    let prof = ControllerProfileId::auto_detect_from_port_name(p);
+                                    json!({
+                                        "index": i,
+                                        "port": p,
+                                        "detected_profile": prof.label()
+                                    })
+                                })
+                                .collect();
+                            json!(items)
+                        }
+                        "djcraft_midi_connect" => {
+                            let ports = MidiControllerManager::list_input_ports();
+                            if ports.is_empty() {
+                                json!({ "error": "No MIDI input ports detected" })
+                            } else {
+                                let query = args.get("query").and_then(|v| v.as_str());
+                                let idx_res: Result<usize, String> = if let Some(q) = query {
+                                    if let Ok(n) = q.trim().parse::<usize>() {
+                                        if n < ports.len() {
+                                            Ok(n)
+                                        } else {
+                                            Err(format!(
+                                                "MIDI port index {n} out of range (0..{})",
+                                                ports.len()
+                                            ))
+                                        }
+                                    } else {
+                                        let ql = q.to_lowercase();
+                                        ports
+                                            .iter()
+                                            .position(|p| p.to_lowercase().contains(&ql))
+                                            .ok_or_else(|| {
+                                                format!(
+                                                "No MIDI port matching '{q}' (available: {ports:?})"
+                                            )
+                                            })
+                                    }
+                                } else {
+                                    Ok(0)
+                                };
+                                match idx_res {
+                                    Ok(idx) => {
+                                        let mut mgr = MidiControllerManager::new();
+                                        match mgr.connect_port(idx) {
+                                            Ok(port_name) => json!({
+                                                "connected": true,
+                                                "index": idx,
+                                                "port": port_name,
+                                                "profile": mgr.active_profile.label(),
+                                                "rules_count": mgr.rules.len()
+                                            }),
+                                            Err(e) => json!({ "error": e.to_string() }),
+                                        }
+                                    }
+                                    Err(e) => json!({ "error": e }),
+                                }
+                            }
+                        }
+                        "djcraft_midi_profile" => {
+                            let profile =
+                                args.get("profile").and_then(|v| v.as_str()).unwrap_or("");
+                            let id_res = match profile.trim().to_lowercase().as_str() {
                             "reloop" | "reloop-ready" | "ready" => {
                                 Ok(ControllerProfileId::ReloopReady)
                             }
@@ -979,112 +1046,80 @@ fn main() {
                                 "Unknown profile '{other}' (expected: reloop-ready, rane-12, rane-72, ddj-flx4, hercules, denon, numark, xone-k2, custom)"
                             )),
                         };
-                        match id_res {
-                            Ok(id) => {
-                                let mut mgr = MidiControllerManager::new();
-                                mgr.set_profile(id);
-                                json!({
-                                    "profile": mgr.active_profile.label(),
-                                    "rules_count": mgr.rules.len()
-                                })
+                            match id_res {
+                                Ok(id) => {
+                                    let mut mgr = MidiControllerManager::new();
+                                    mgr.set_profile(id);
+                                    json!({
+                                        "profile": mgr.active_profile.label(),
+                                        "rules_count": mgr.rules.len()
+                                    })
+                                }
+                                Err(e) => json!({ "error": e }),
                             }
-                            Err(e) => json!({ "error": e }),
                         }
-                    }
-                    "djcraft_midi_import_xml" => {
-                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                        let mut mgr = MidiControllerManager::new();
-                        match mgr.import_xml_mapper_file(Path::new(path)) {
-                            Ok(count) => json!({
-                                "imported_rules": count,
-                                "profile": mgr.active_profile.label()
-                            }),
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_midi_rules" => {
-                        let mgr = MidiControllerManager::new();
-                        serde_json::to_value(&mgr.rules).unwrap_or_else(|_| json!([]))
-                    }
-                    "djcraft_crate_create" => {
-                        let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        let parent_id = args.get("parent_id").and_then(|v| v.as_i64());
-                        match CrateStore::open_default() {
-                            Ok(store) => match store.create_subcrate(parent_id, name) {
-                                Ok(crate_id) => json!({
-                                    "crate_id": crate_id,
-                                    "name": name,
-                                    "parent_id": parent_id
+                        "djcraft_midi_import_xml" => {
+                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            let mut mgr = MidiControllerManager::new();
+                            match mgr.import_xml_mapper_file(Path::new(path)) {
+                                Ok(count) => json!({
+                                    "imported_rules": count,
+                                    "profile": mgr.active_profile.label()
                                 }),
                                 Err(e) => json!({ "error": e.to_string() }),
-                            },
-                            Err(e) => json!({ "error": e.to_string() }),
+                            }
                         }
-                    }
-                    "djcraft_crate_scan" => {
-                        let folder = args.get("folder").and_then(|v| v.as_str()).unwrap_or("");
-                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
-                        match CrateStore::open_default() {
-                            Ok(store) => {
-                                let cid_res = match crate_id {
-                                    Some(id) => Ok(id),
-                                    None => store.ensure_crate_path(folder),
-                                };
-                                match cid_res.and_then(|cid| {
-                                    store
-                                        .scan_audio_folder(cid, Path::new(folder))
-                                        .map(|cnt| (cid, cnt))
-                                }) {
-                                    Ok((cid, cnt)) => json!({
-                                        "crate_id": cid,
-                                        "folder": folder,
-                                        "imported_tracks": cnt
+                        "djcraft_midi_rules" => {
+                            let mgr = MidiControllerManager::new();
+                            serde_json::to_value(&mgr.rules).unwrap_or_else(|_| json!([]))
+                        }
+                        "djcraft_crate_create" => {
+                            let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                            let parent_id = args.get("parent_id").and_then(|v| v.as_i64());
+                            match CrateStore::open_default() {
+                                Ok(store) => match store.create_subcrate(parent_id, name) {
+                                    Ok(crate_id) => json!({
+                                        "crate_id": crate_id,
+                                        "name": name,
+                                        "parent_id": parent_id
                                     }),
                                     Err(e) => json!({ "error": e.to_string() }),
-                                }
-                            }
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_crate_cues" => {
-                        let track_path = args
-                            .get("track_path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        match CrateStore::open_default() {
-                            Ok(store) => match store.get_track_hot_cues(track_path) {
-                                Ok(cues) => json!({
-                                    "track_path": track_path,
-                                    "hot_cues": cues
-                                }),
+                                },
                                 Err(e) => json!({ "error": e.to_string() }),
-                            },
-                            Err(e) => json!({ "error": e.to_string() }),
+                            }
                         }
-                    }
-                    "djcraft_crate_set_cue" => {
-                        let track_path = args
-                            .get("track_path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let slot = args.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                        let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                        let pos_res: Result<Option<f64>, String> =
-                            if value.trim().eq_ignore_ascii_case("clear") {
-                                Ok(None)
-                            } else {
-                                value
-                                    .trim()
-                                    .parse::<f64>()
-                                    .map(Some)
-                                    .map_err(|_| format!("Invalid seconds '{value}' (or 'clear')"))
-                            };
-                        match pos_res {
-                            Ok(pos) => match CrateStore::open_default() {
-                                Ok(store) => match store
-                                    .set_track_hot_cue(track_path, slot, pos)
-                                    .and_then(|()| store.get_track_hot_cues(track_path))
-                                {
+                        "djcraft_crate_scan" => {
+                            let folder = args.get("folder").and_then(|v| v.as_str()).unwrap_or("");
+                            let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
+                            match CrateStore::open_default() {
+                                Ok(store) => {
+                                    let cid_res = match crate_id {
+                                        Some(id) => Ok(id),
+                                        None => store.ensure_crate_path(folder),
+                                    };
+                                    match cid_res.and_then(|cid| {
+                                        store
+                                            .scan_audio_folder(cid, Path::new(folder))
+                                            .map(|cnt| (cid, cnt))
+                                    }) {
+                                        Ok((cid, cnt)) => json!({
+                                            "crate_id": cid,
+                                            "folder": folder,
+                                            "imported_tracks": cnt
+                                        }),
+                                        Err(e) => json!({ "error": e.to_string() }),
+                                    }
+                                }
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_crate_cues" => {
+                            let track_path = args
+                                .get("track_path")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            match CrateStore::open_default() {
+                                Ok(store) => match store.get_track_hot_cues(track_path) {
                                     Ok(cues) => json!({
                                         "track_path": track_path,
                                         "hot_cues": cues
@@ -1092,389 +1127,430 @@ fn main() {
                                     Err(e) => json!({ "error": e.to_string() }),
                                 },
                                 Err(e) => json!({ "error": e.to_string() }),
-                            },
-                            Err(e) => json!({ "error": e }),
+                            }
                         }
-                    }
-                    "djcraft_crate_id3_read" => {
-                        let track_path = args
-                            .get("track_path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let import = args
-                            .get("import")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
-                        match djcraft_core::read_id3_track_info(Path::new(track_path)) {
-                            Ok(info) => {
-                                let imported = if import {
-                                    CrateStore::open_default()
-                                        .and_then(|s| s.import_id3_into_track(track_path))
-                                        .unwrap_or(0)
+                        "djcraft_crate_set_cue" => {
+                            let track_path = args
+                                .get("track_path")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let slot =
+                                args.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                            let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                            let pos_res: Result<Option<f64>, String> =
+                                if value.trim().eq_ignore_ascii_case("clear") {
+                                    Ok(None)
                                 } else {
-                                    0
+                                    value.trim().parse::<f64>().map(Some).map_err(|_| {
+                                        format!("Invalid seconds '{value}' (or 'clear')")
+                                    })
                                 };
-                                json!({
-                                    "track_path": track_path,
-                                    "title": info.title,
-                                    "artist": info.artist,
-                                    "genre": info.genre,
-                                    "bpm": info.bpm,
-                                    "musical_key": info.musical_key,
-                                    "cue_count": info.cue_count,
-                                    "cues": info.cues,
-                                    "cue_metas": info.cue_metas,
-                                    "imported_to_sqlite": imported
-                                })
-                            }
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_crate_id3_write" => {
-                        let track_path = args
-                            .get("track_path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        match CrateStore::open_default() {
-                            Ok(store) => match store
-                                .get_track_hot_cues(track_path)
-                                .and_then(|cues| {
-                                    store
-                                        .get_track_hot_cue_metas(track_path)
-                                        .map(|metas| (cues, metas))
-                                })
-                                .and_then(|(cues, metas)| {
-                                    djcraft_core::write_id3_hot_cues(
-                                        Path::new(track_path),
-                                        &cues,
-                                        &metas,
-                                    )
-                                }) {
-                                Ok(written) => json!({
-                                    "track_path": track_path,
-                                    "cues_written": written
-                                }),
-                                Err(e) => json!({ "error": e.to_string() }),
-                            },
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_crate_id3_batch_read" => {
-                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                        match CrateStore::open_default()
-                            .and_then(|s| s.batch_read_id3_cues_for_crate(crate_id))
-                        {
-                            Ok(summary) => json!(summary),
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_crate_id3_batch_write" => {
-                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                        match CrateStore::open_default()
-                            .and_then(|s| s.batch_write_id3_cues_for_crate(crate_id))
-                        {
-                            Ok(summary) => json!(summary),
-                            Err(e) => json!({ "error": e.to_string() }),
-                        }
-                    }
-                    "djcraft_dvs_probe" => {
-                        let device = args.get("device").and_then(|v| v.as_str());
-                        let carrier = args.get("carrier").and_then(|v| v.as_str()).unwrap_or("1k");
-                        let ms = args.get("ms").and_then(|v| v.as_u64()).unwrap_or(400);
-                        let c = if carrier.trim().eq_ignore_ascii_case("2k") {
-                            DvsCarrier::Control2kHz
-                        } else {
-                            DvsCarrier::Control1kHz
-                        };
-                        match DvsInputStream::start(device, c) {
-                            Ok(stream) => {
-                                std::thread::sleep(Duration::from_millis(ms.clamp(50, 5000)));
-                                let tel = stream.telemetry();
-                                serde_json::to_value(tel).unwrap_or_else(|_| json!({}))
-                            }
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_link_probe" => {
-                        let bpm = args.get("bpm").and_then(|v| v.as_f64()).unwrap_or(126.0);
-                        let ms = args.get("ms").and_then(|v| v.as_u64()).unwrap_or(600);
-                        let mut link = LinkEngine::new(bpm);
-                        link.set_enabled(true);
-                        let steps = (ms.clamp(100, 5000) / 50).max(1);
-                        for _ in 0..steps {
-                            let _ = link.tick(0.05);
-                            std::thread::sleep(Duration::from_millis(50));
-                        }
-                        json!({
-                            "bpm": link.bpm,
-                            "beat_phase": link.beat_phase,
-                            "peers": link.peer_count()
-                        })
-                    }
-                    "djcraft_live_status" => match send_ipc_request(&IpcRequest::LiveStatus) {
-                        Ok(r) if r.ok => r.data,
-                        Ok(r) => {
-                            json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
-                        }
-                        Err(e) => json!({ "error": e }),
-                    },
-                    "djcraft_dispatch" => {
-                        let cmd_val = args.get("command").cloned().unwrap_or(Value::Null);
-                        match serde_json::from_value::<Command>(cmd_val) {
-                            Ok(command) => match send_ipc_request(&IpcRequest::Command { command })
-                            {
-                                Ok(r) if r.ok => r.data,
-                                Ok(r) => {
-                                    json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
-                                }
+                            match pos_res {
+                                Ok(pos) => match CrateStore::open_default() {
+                                    Ok(store) => match store
+                                        .set_track_hot_cue(track_path, slot, pos)
+                                        .and_then(|()| store.get_track_hot_cues(track_path))
+                                    {
+                                        Ok(cues) => json!({
+                                            "track_path": track_path,
+                                            "hot_cues": cues
+                                        }),
+                                        Err(e) => json!({ "error": e.to_string() }),
+                                    },
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                },
                                 Err(e) => json!({ "error": e }),
-                            },
-                            Err(e) => json!({ "error": format!("Invalid Command JSON: {e}") }),
+                            }
                         }
-                    }
-                    "djcraft_load_file" => {
-                        let deck_str = args.get("deck").and_then(|v| v.as_str()).unwrap_or("");
-                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                        match parse_deck(deck_str) {
-                            Ok(deck) => match send_ipc_request(&IpcRequest::LoadFile {
-                                deck,
-                                path: path.to_string(),
-                            }) {
-                                Ok(r) if r.ok => r.data,
-                                Ok(r) => {
-                                    json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
-                                }
-                                Err(e) => json!({ "error": e }),
-                            },
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_deck_control" => {
-                        let deck_str = args.get("deck").and_then(|v| v.as_str()).unwrap_or("");
-                        match parse_deck(deck_str) {
-                            Ok(deck) => {
-                                let mut results = Vec::new();
-                                if let Some(action) = args.get("action").and_then(|v| v.as_str()) {
-                                    let cmd = match action {
-                                        "play_pause" => Some(Command::PlayPause { deck }),
-                                        "cue_return" => Some(Command::CueReturn { deck }),
-                                        "stop_all" => Some(Command::StopAllDecks),
-                                        "sync" => Some(Command::PhaseSyncBeatgrid),
-                                        "pfl" => Some(Command::TogglePflCue { deck }),
-                                        "keylock" => Some(Command::ToggleKeylock { deck }),
-                                        "slip" => Some(Command::ToggleSlipMode { deck }),
-                                        _ => None,
+                        "djcraft_crate_id3_read" => {
+                            let track_path = args
+                                .get("track_path")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let import = args
+                                .get("import")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            match djcraft_core::read_id3_track_info(Path::new(track_path)) {
+                                Ok(info) => {
+                                    let imported = if import {
+                                        CrateStore::open_default()
+                                            .and_then(|s| s.import_id3_into_track(track_path))
+                                            .unwrap_or(0)
+                                    } else {
+                                        0
                                     };
-                                    if let Some(command) = cmd {
-                                        match send_ipc_request(&IpcRequest::Command { command }) {
+                                    json!({
+                                        "track_path": track_path,
+                                        "title": info.title,
+                                        "artist": info.artist,
+                                        "genre": info.genre,
+                                        "bpm": info.bpm,
+                                        "musical_key": info.musical_key,
+                                        "cue_count": info.cue_count,
+                                        "cues": info.cues,
+                                        "cue_metas": info.cue_metas,
+                                        "imported_to_sqlite": imported
+                                    })
+                                }
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_crate_id3_write" => {
+                            let track_path = args
+                                .get("track_path")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            match CrateStore::open_default() {
+                                Ok(store) => match store
+                                    .get_track_hot_cues(track_path)
+                                    .and_then(|cues| {
+                                        store
+                                            .get_track_hot_cue_metas(track_path)
+                                            .map(|metas| (cues, metas))
+                                    })
+                                    .and_then(|(cues, metas)| {
+                                        djcraft_core::write_id3_hot_cues(
+                                            Path::new(track_path),
+                                            &cues,
+                                            &metas,
+                                        )
+                                    }) {
+                                    Ok(written) => json!({
+                                        "track_path": track_path,
+                                        "cues_written": written
+                                    }),
+                                    Err(e) => json!({ "error": e.to_string() }),
+                                },
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_crate_id3_batch_read" => {
+                            let crate_id =
+                                args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            match CrateStore::open_default()
+                                .and_then(|s| s.batch_read_id3_cues_for_crate(crate_id))
+                            {
+                                Ok(summary) => json!(summary),
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_crate_id3_batch_write" => {
+                            let crate_id =
+                                args.get("crate_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            match CrateStore::open_default()
+                                .and_then(|s| s.batch_write_id3_cues_for_crate(crate_id))
+                            {
+                                Ok(summary) => json!(summary),
+                                Err(e) => json!({ "error": e.to_string() }),
+                            }
+                        }
+                        "djcraft_dvs_probe" => {
+                            let device = args.get("device").and_then(|v| v.as_str());
+                            let carrier =
+                                args.get("carrier").and_then(|v| v.as_str()).unwrap_or("1k");
+                            let ms = args.get("ms").and_then(|v| v.as_u64()).unwrap_or(400);
+                            let c = if carrier.trim().eq_ignore_ascii_case("2k") {
+                                DvsCarrier::Control2kHz
+                            } else {
+                                DvsCarrier::Control1kHz
+                            };
+                            match DvsInputStream::start(device, c) {
+                                Ok(stream) => {
+                                    std::thread::sleep(Duration::from_millis(ms.clamp(50, 5000)));
+                                    let tel = stream.telemetry();
+                                    serde_json::to_value(tel).unwrap_or_else(|_| json!({}))
+                                }
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "djcraft_link_probe" => {
+                            let bpm = args.get("bpm").and_then(|v| v.as_f64()).unwrap_or(126.0);
+                            let ms = args.get("ms").and_then(|v| v.as_u64()).unwrap_or(600);
+                            let mut link = LinkEngine::new(bpm);
+                            link.set_enabled(true);
+                            let steps = (ms.clamp(100, 5000) / 50).max(1);
+                            for _ in 0..steps {
+                                let _ = link.tick(0.05);
+                                std::thread::sleep(Duration::from_millis(50));
+                            }
+                            json!({
+                                "bpm": link.bpm,
+                                "beat_phase": link.beat_phase,
+                                "peers": link.peer_count()
+                            })
+                        }
+                        "djcraft_live_status" => match send_ipc_request(&IpcRequest::LiveStatus) {
+                            Ok(r) if r.ok => r.data,
+                            Ok(r) => {
+                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                            }
+                            Err(e) => json!({ "error": e }),
+                        },
+                        "djcraft_dispatch" => {
+                            let cmd_val = args.get("command").cloned().unwrap_or(Value::Null);
+                            match serde_json::from_value::<Command>(cmd_val) {
+                                Ok(command) => {
+                                    match send_ipc_request(&IpcRequest::Command { command }) {
+                                        Ok(r) if r.ok => r.data,
+                                        Ok(r) => {
+                                            json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                                        }
+                                        Err(e) => json!({ "error": e }),
+                                    }
+                                }
+                                Err(e) => json!({ "error": format!("Invalid Command JSON: {e}") }),
+                            }
+                        }
+                        "djcraft_load_file" => {
+                            let deck_str = args.get("deck").and_then(|v| v.as_str()).unwrap_or("");
+                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            match parse_deck(deck_str) {
+                                Ok(deck) => match send_ipc_request(&IpcRequest::LoadFile {
+                                    deck,
+                                    path: path.to_string(),
+                                }) {
+                                    Ok(r) if r.ok => r.data,
+                                    Ok(r) => {
+                                        json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                                    }
+                                    Err(e) => json!({ "error": e }),
+                                },
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "djcraft_deck_control" => {
+                            let deck_str = args.get("deck").and_then(|v| v.as_str()).unwrap_or("");
+                            match parse_deck(deck_str) {
+                                Ok(deck) => {
+                                    let mut results = Vec::new();
+                                    if let Some(action) =
+                                        args.get("action").and_then(|v| v.as_str())
+                                    {
+                                        let cmd = match action {
+                                            "play_pause" => Some(Command::PlayPause { deck }),
+                                            "cue_return" => Some(Command::CueReturn { deck }),
+                                            "stop_all" => Some(Command::StopAllDecks),
+                                            "sync" => Some(Command::PhaseSyncBeatgrid),
+                                            "pfl" => Some(Command::TogglePflCue { deck }),
+                                            "keylock" => Some(Command::ToggleKeylock { deck }),
+                                            "slip" => Some(Command::ToggleSlipMode { deck }),
+                                            _ => None,
+                                        };
+                                        if let Some(command) = cmd {
+                                            match send_ipc_request(&IpcRequest::Command { command })
+                                            {
+                                                Ok(r) if r.ok => results.push(r.data),
+                                                Ok(r) => results.push(json!({ "error": r.error })),
+                                                Err(e) => results.push(json!({ "error": e })),
+                                            }
+                                        } else {
+                                            results.push(json!({ "error": format!("Unknown action '{action}'") }));
+                                        }
+                                    }
+                                    if let Some(vol) = args.get("volume").and_then(|v| v.as_f64()) {
+                                        match send_ipc_request(&IpcRequest::Command {
+                                            command: Command::SetDeckVolume { deck, volume: vol },
+                                        }) {
                                             Ok(r) if r.ok => results.push(r.data),
                                             Ok(r) => results.push(json!({ "error": r.error })),
                                             Err(e) => results.push(json!({ "error": e })),
                                         }
-                                    } else {
-                                        results.push(json!({ "error": format!("Unknown action '{action}'") }));
                                     }
-                                }
-                                if let Some(vol) = args.get("volume").and_then(|v| v.as_f64()) {
-                                    match send_ipc_request(&IpcRequest::Command {
-                                        command: Command::SetDeckVolume { deck, volume: vol },
-                                    }) {
-                                        Ok(r) if r.ok => results.push(r.data),
-                                        Ok(r) => results.push(json!({ "error": r.error })),
-                                        Err(e) => results.push(json!({ "error": e })),
+                                    if let Some(pct) =
+                                        args.get("pitch_bend").and_then(|v| v.as_f64())
+                                    {
+                                        match send_ipc_request(&IpcRequest::Command {
+                                            command: Command::SetPitchBend { deck, pct },
+                                        }) {
+                                            Ok(r) if r.ok => results.push(r.data),
+                                            Ok(r) => results.push(json!({ "error": r.error })),
+                                            Err(e) => results.push(json!({ "error": e })),
+                                        }
                                     }
+                                    json!({ "results": results })
                                 }
-                                if let Some(pct) = args.get("pitch_bend").and_then(|v| v.as_f64()) {
-                                    match send_ipc_request(&IpcRequest::Command {
-                                        command: Command::SetPitchBend { deck, pct },
-                                    }) {
-                                        Ok(r) if r.ok => results.push(r.data),
-                                        Ok(r) => results.push(json!({ "error": r.error })),
-                                        Err(e) => results.push(json!({ "error": e })),
-                                    }
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "djcraft_mixer_control" => {
+                            let mut results = Vec::new();
+                            if let Some(xf) = args.get("crossfader").and_then(|v| v.as_f64()) {
+                                match send_ipc_request(&IpcRequest::Command {
+                                    command: Command::SetCrossfader { value: xf },
+                                }) {
+                                    Ok(r) if r.ok => results.push(r.data),
+                                    Ok(r) => results.push(json!({ "error": r.error })),
+                                    Err(e) => results.push(json!({ "error": e })),
                                 }
-                                json!({ "results": results })
                             }
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_mixer_control" => {
-                        let mut results = Vec::new();
-                        if let Some(xf) = args.get("crossfader").and_then(|v| v.as_f64()) {
-                            match send_ipc_request(&IpcRequest::Command {
-                                command: Command::SetCrossfader { value: xf },
-                            }) {
-                                Ok(r) if r.ok => results.push(r.data),
-                                Ok(r) => results.push(json!({ "error": r.error })),
-                                Err(e) => results.push(json!({ "error": e })),
+                            if let Some(mv) = args.get("master_volume").and_then(|v| v.as_f64()) {
+                                match send_ipc_request(&IpcRequest::Command {
+                                    command: Command::SetMasterVolume { volume: mv },
+                                }) {
+                                    Ok(r) if r.ok => results.push(r.data),
+                                    Ok(r) => results.push(json!({ "error": r.error })),
+                                    Err(e) => results.push(json!({ "error": e })),
+                                }
                             }
-                        }
-                        if let Some(mv) = args.get("master_volume").and_then(|v| v.as_f64()) {
-                            match send_ipc_request(&IpcRequest::Command {
-                                command: Command::SetMasterVolume { volume: mv },
-                            }) {
-                                Ok(r) if r.ok => results.push(r.data),
-                                Ok(r) => results.push(json!({ "error": r.error })),
-                                Err(e) => results.push(json!({ "error": e })),
+                            if args.get("mute").and_then(|v| v.as_bool()) == Some(true) {
+                                match send_ipc_request(&IpcRequest::Command {
+                                    command: Command::ToggleMasterMute,
+                                }) {
+                                    Ok(r) if r.ok => results.push(r.data),
+                                    Ok(r) => results.push(json!({ "error": r.error })),
+                                    Err(e) => results.push(json!({ "error": e })),
+                                }
                             }
+                            json!({ "results": results })
                         }
-                        if args.get("mute").and_then(|v| v.as_bool()) == Some(true) {
-                            match send_ipc_request(&IpcRequest::Command {
-                                command: Command::ToggleMasterMute,
-                            }) {
-                                Ok(r) if r.ok => results.push(r.data),
-                                Ok(r) => results.push(json!({ "error": r.error })),
-                                Err(e) => results.push(json!({ "error": e })),
-                            }
-                        }
-                        json!({ "results": results })
-                    }
-                    "djcraft_run_set" => {
-                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                        let speed = args.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
-                        match std::fs::read_to_string(path)
-                            .map_err(|e| format!("Read set script failed: {e}"))
-                            .and_then(|raw| {
-                                serde_json::from_str::<SetScript>(&raw)
-                                    .map_err(|e| format!("Parse set script failed: {e}"))
-                            })
-                            .and_then(|script| run_set_script(&script, speed))
-                        {
-                            Ok(v) => v,
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_macro_record" => {
-                        let action = args
-                            .get("action")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("status")
-                            .to_string();
-                        let save_path = args
-                            .get("save_path")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string);
-                        match send_ipc_request(&IpcRequest::MacroControl { action, save_path }) {
-                            Ok(r) if r.ok => r.data,
-                            Ok(r) => {
-                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
-                            }
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_set_playback" => {
-                        let action = args
-                            .get("action")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("status")
-                            .to_string();
-                        let path = args
-                            .get("path")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string);
-                        let speed = args.get("speed").and_then(|v| v.as_f64());
-                        match send_ipc_request(&IpcRequest::SetPlayback {
-                            action,
-                            path,
-                            speed,
-                        }) {
-                            Ok(r) if r.ok => r.data,
-                            Ok(r) => {
-                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
-                            }
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_room2" => {
-                        let action = args
-                            .get("action")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("status")
-                            .to_string();
-                        let device = args
-                            .get("device")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string);
-                        let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
-                        let volume = args
-                            .get("volume")
-                            .and_then(|v| v.as_f64())
-                            .map(|v| v as f32);
-                        let shuffle = args.get("shuffle").and_then(|v| v.as_bool());
-                        match send_ipc_request(&IpcRequest::Room2Control {
-                            action,
-                            device,
-                            crate_id,
-                            volume,
-                            shuffle,
-                        }) {
-                            Ok(r) if r.ok => r.data,
-                            Ok(r) => {
-                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
-                            }
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    "djcraft_lighting" => {
-                        let action = args
-                            .get("action")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("status")
-                            .to_string();
-                        let enabled = args.get("enabled").and_then(|v| v.as_bool());
-                        let protocol = args
-                            .get("protocol")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string);
-                        let target_ip = args
-                            .get("target_ip")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string);
-                        let universe = args
-                            .get("universe")
-                            .and_then(|v| v.as_u64())
-                            .map(|v| v as u16);
-                        let mode = args
-                            .get("mode")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string);
-                        let dimmer = args
-                            .get("dimmer")
-                            .and_then(|v| v.as_f64())
-                            .map(|v| v as f32);
-                        let strobe = args.get("strobe").and_then(|v| v.as_bool());
-                        match send_ipc_request(&IpcRequest::LightingControl {
-                            action,
-                            enabled,
-                            protocol,
-                            target_ip,
-                            universe,
-                            mode,
-                            dimmer,
-                            strobe,
-                        }) {
-                            Ok(r) if r.ok => r.data,
-                            Ok(r) => {
-                                json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
-                            }
-                            Err(e) => json!({ "error": e }),
-                        }
-                    }
-                    _ => json!({ "error": format!("Unknown tool: {name}") }),
-                };
-
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [
+                        "djcraft_run_set" => {
+                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            let speed = args.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                            match std::fs::read_to_string(path)
+                                .map_err(|e| format!("Read set script failed: {e}"))
+                                .and_then(|raw| {
+                                    serde_json::from_str::<SetScript>(&raw)
+                                        .map_err(|e| format!("Parse set script failed: {e}"))
+                                })
+                                .and_then(|script| run_set_script(&script, speed))
                             {
-                                "type": "text",
-                                "text": serde_json::to_string_pretty(&tool_output).unwrap_or_else(|_| tool_output.to_string())
+                                Ok(v) => v,
+                                Err(e) => json!({ "error": e }),
                             }
-                        ]
-                    }
-                })
+                        }
+                        "djcraft_macro_record" => {
+                            let action = args
+                                .get("action")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("status")
+                                .to_string();
+                            let save_path = args
+                                .get("save_path")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string);
+                            match send_ipc_request(&IpcRequest::MacroControl { action, save_path })
+                            {
+                                Ok(r) if r.ok => r.data,
+                                Ok(r) => {
+                                    json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                                }
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "djcraft_set_playback" => {
+                            let action = args
+                                .get("action")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("status")
+                                .to_string();
+                            let path = args
+                                .get("path")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string);
+                            let speed = args.get("speed").and_then(|v| v.as_f64());
+                            match send_ipc_request(&IpcRequest::SetPlayback {
+                                action,
+                                path,
+                                speed,
+                            }) {
+                                Ok(r) if r.ok => r.data,
+                                Ok(r) => {
+                                    json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                                }
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "djcraft_room2" => {
+                            let action = args
+                                .get("action")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("status")
+                                .to_string();
+                            let device = args
+                                .get("device")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string);
+                            let crate_id = args.get("crate_id").and_then(|v| v.as_i64());
+                            let volume = args
+                                .get("volume")
+                                .and_then(|v| v.as_f64())
+                                .map(|v| v as f32);
+                            let shuffle = args.get("shuffle").and_then(|v| v.as_bool());
+                            match send_ipc_request(&IpcRequest::Room2Control {
+                                action,
+                                device,
+                                crate_id,
+                                volume,
+                                shuffle,
+                            }) {
+                                Ok(r) if r.ok => r.data,
+                                Ok(r) => {
+                                    json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                                }
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "djcraft_lighting" => {
+                            let action = args
+                                .get("action")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("status")
+                                .to_string();
+                            let enabled = args.get("enabled").and_then(|v| v.as_bool());
+                            let protocol = args
+                                .get("protocol")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string);
+                            let target_ip = args
+                                .get("target_ip")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string);
+                            let universe = args
+                                .get("universe")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v as u16);
+                            let mode = args
+                                .get("mode")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string);
+                            let dimmer = args
+                                .get("dimmer")
+                                .and_then(|v| v.as_f64())
+                                .map(|v| v as f32);
+                            let strobe = args.get("strobe").and_then(|v| v.as_bool());
+                            match send_ipc_request(&IpcRequest::LightingControl {
+                                action,
+                                enabled,
+                                protocol,
+                                target_ip,
+                                universe,
+                                mode,
+                                dimmer,
+                                strobe,
+                            }) {
+                                Ok(r) if r.ok => r.data,
+                                Ok(r) => {
+                                    json!({ "error": r.error.unwrap_or_else(|| "IPC error".to_string()) })
+                                }
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        _ => json!({ "error": format!("Unknown tool: {name}") }),
+                    };
+
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": serde_json::to_string_pretty(&tool_output).unwrap_or_else(|_| tool_output.to_string())
+                                }
+                            ]
+                        }
+                    })
                 }
             }
             _ => json!({
