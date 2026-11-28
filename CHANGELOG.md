@@ -4,6 +4,19 @@ All notable changes to DJCraft are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Native live stem separation (`crates/djcraft-stems`, ported from ClubCraft)**: HTDemucs and Mel-Band RoFormer run in Rust on ONNX Runtime; no Python, no `demucs` install. Separation is progressive: a deck plays the original immediately and its stems take over chunk by chunk, starting at the playhead (Fast on Goliath's CPU: first stems under the playhead in about 10 s, a whole track at about 2x realtime). Results are cached by content hash as 8-channel FLAC in `%LOCALAPPDATA%\djcraft\Stems` (cache files are compatible with ClubCraft).
+- **Residual stem mixing**: stem knobs now cut and boost the real track instead of replacing it with the sum of the stems. All knobs at full plays the original bit-exact (keylock included); regions not separated yet play the original and stems fade in where they are ready.
+- CLI `stems-separate`, `stems-status`, `models-status`; MCP `djcraft_stems_separate`, `djcraft_stems_status`, `djcraft_models_status`.
+- Models release `models-v1` (Demucs v4, Mel-Band RoFormer vocals, All-In-One; MIT), mirrored from ClubCraft without COCOLA. Install to `%LOCALAPPDATA%\djcraft\Models`.
+
+### Changed
+- The deck STEMS button and track loading use native live separation. Legacy `.djcraft-stems/` sidecar WAVs still load (first) and keep working.
+
+### Known gaps
+- GPU: DirectML produces wrong output for HTDemucs on the RTX 4090 (ONNX Runtime 1.20); the built-in self-check detects it and separation runs on the CPU. See `docs/CLUBCRAFT_PORT_LOG.md`.
+- `Batch Stem Crate` / `Batch Stem Folder` still call Python `demucs`; moving them to the native separator is next.
+
 ## [0.4.0] - 2026-11-23
 
 ### Added

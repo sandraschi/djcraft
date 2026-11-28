@@ -6,3 +6,16 @@ DJCraft is a clean-room native Rust application in the Craft App ecosystem.
 DJCraft is not affiliated with, endorsed by, or sponsored by Serato, AlphaTheta/Pioneer DJ, Rane, VirtualDJ, Native Instruments, or Storytold.
 All third-party file formats and hardware MIDI controller names referenced in interoperability features remain the property of their respective owners.
 Per-file asset provenance and licences are recorded in ATTRIBUTION.md.
+
+This product includes software ported from ClubCraft:
+- ClubCraft, Copyright (c) 2026 The ClubCraft contributors (github.com/beneaze/ClubCraft),
+  licensed under the MIT License or the Apache License, Version 2.0. Ported files are listed
+  in ATTRIBUTION.md and docs/CLUBCRAFT_PORT_LOG.md and keep a provenance header.
+
+Separation models (downloaded separately, not part of the source):
+- Demucs v4 model weights, Copyright (c) Meta Platforms, Inc. and affiliates (MIT)
+- Mel-Band RoFormer vocal model by Kimberley Jensen (MIT)
+- All-In-One music structure model by Taejun Kim and Juhan Nam (MIT)
+- ONNX Runtime, Copyright (c) Microsoft Corporation (MIT)
+
+DJ.Studio, VirtualDJ and Mixed In Key are trademarks of their respective owners.

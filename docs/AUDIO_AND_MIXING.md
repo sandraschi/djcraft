@@ -45,7 +45,21 @@ Use `Vol` (headphone gain) and `Cue/PGM` (`0%` = 100% PFL Cue, `100%` = 100% Mas
 
 ---
 
-## 5. Transparent Sidecar Stems (`.djcraft-stems/`)
+## 5. Live Stem Separation (native) and Sidecar Stems
+
+### 5.1 Native live separation (`crates/djcraft-stems`, since 2026-11-28)
+
+- Loading a track (or pressing **STEMS** on a deck) starts separation in Rust: HTDemucs / Mel-Band RoFormer on ONNX Runtime, ported from ClubCraft. No Python and no `demucs` install.
+- **Progressive**: the deck plays the original at once; separation starts at the playhead and publishes 1.5 s chunks as they finish. Stem knobs act wherever stems are ready and fade in about 23 ms before that; unseparated regions play the original.
+- **Residual mix**: `out = orig + amt * ((r - 1) * orig + sum(g_k * fx(s_k) - r * s_k))`, `r` = mean stem gain. All knobs at full is the original bit-exact (keylock stays on); all at zero is silence. Stem-scoped FX (`Vocals Only`, `Drums Only`) act on the separated stem.
+- **Cache**: `%LOCALAPPDATA%\djcraft\Stems\<content hash>.stems.flac` (8-channel 16-bit FLAC, ClubCraft-compatible). A cached track attaches instantly; a cancelled run keeps its partial chunks and resumes.
+- **Models**: download `djcraft-models-v1-onnx.tar` from the `models-v1` release and unpack it into `%LOCALAPPDATA%\djcraft\Models` (or set `DJCRAFT_MODELS`). `djcraft-cli models-status` shows what is found.
+- **Speed (Goliath CPU, Fast)**: first stems under the playhead after about 10 s, a full track at about 2x realtime, 8 ONNX threads (more threads are slower). GPU (DirectML) currently fails its accuracy self-check on the RTX 4090 and is skipped automatically; see `docs/CLUBCRAFT_PORT_LOG.md`.
+- **CLI / MCP**: `djcraft-cli stems-separate <file> --quality fast|high|ultra|best`, `stems-status <file>`, `models-status`; MCP `djcraft_stems_separate`, `djcraft_stems_status`, `djcraft_models_status`.
+
+### 5.2 Transparent Sidecar Stems (`.djcraft-stems/`, legacy)
+
+Existing sidecar WAVs are still loaded first when present (converted to the same stem buffer). The batch commands below still use Python `demucs` until they move to the native separator.
 
 - Run **`Batch Stem Crate`** or **`Batch Stem Folder...`** (uses `demucs` via `DEMUCS_BIN` or `stems-mcp/.venv`) to separate tracks off the audio thread into:
   ```text
@@ -84,5 +98,5 @@ Toggle open/collapsed anytime via **`SAMPLER: ON` / `SAMPLER`** in the top bar (
 
 - **16-Step BPM-Synced Drum Sequencer (`studio.rs`, `studio_dock.rs`)**: Open **`Dock Panel -> Studio Beatmaker & Chopper`** for 4 pre-synthesized 808/909 drum lanes (`Kick`, `Snare`, `Hi-Hat`, `Clap`) x 16 clickable steps locked to Deck A's BPM with 6 one-click genre patterns (`House`, `Techno`, `Hip-Hop`, `Trap`, `DnB`, `Reggaeton`).
 - **Auto-Slice Sample Chopper ("Find Samples")**: Runs RMS onset-flux transient detection on Deck A, Deck B, or any local audio file to slice up to 8 playable hits straight into Sampler Banks `A..D`.
-- **Slip Mode & Beatjump**: Located in each deck's **`Grid...`** menu — Slip Mode keeps a silent background playhead advancing while scratching so releasing the platter snaps right back on beat; Beatjump skips `-4`, `-1`, `+1`, or `+4` beats seamlessly.
-- **High-Visibility Hot Cue Flags & Right-Click Context Menu**: Overview scrubber strips draw 2.8px colored stems with dark contrast halos and top flag badges. Right-click any **`CUE 1..4`** pad to rename it (`Intro`, `Drop`, `Break`, `Vocal`, `Outro`), pick from 8 vivid colors, choose a trigger behavior (`Standard`, `Gate Hold`, `Auto-Loop 4 Bars`, `Cue & Pause`), or clear the cue — all persisted per track in SQLite (`track_cues` + `track_cue_meta`).
+- **Slip Mode & Beatjump**: Located in each deck's **`Grid...`** menu - Slip Mode keeps a silent background playhead advancing while scratching so releasing the platter snaps right back on beat; Beatjump skips `-4`, `-1`, `+1`, or `+4` beats seamlessly.
+- **High-Visibility Hot Cue Flags & Right-Click Context Menu**: Overview scrubber strips draw 2.8px colored stems with dark contrast halos and top flag badges. Right-click any **`CUE 1..4`** pad to rename it (`Intro`, `Drop`, `Break`, `Vocal`, `Outro`), pick from 8 vivid colors, choose a trigger behavior (`Standard`, `Gate Hold`, `Auto-Loop 4 Bars`, `Cue & Pause`), or clear the cue - all persisted per track in SQLite (`track_cues` + `track_cue_meta`).
